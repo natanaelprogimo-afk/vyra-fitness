@@ -5,7 +5,7 @@
 
 import { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo from '@/shims/netinfo';
 import { useUIStore } from '@/stores/uiStore';
 import { syncPendingChanges } from '@/database';
 import { captureError } from '@/lib/sentry';

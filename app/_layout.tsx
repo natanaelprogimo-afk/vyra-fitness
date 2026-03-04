@@ -19,7 +19,7 @@ import { Colors } from '@/constants/colors';
 import Toast from '@/components/ui/Toast';
 import AchievementModal from '@/components/ui/AchievementModal';
 import OfflineNotice from '@/components/layout/OfflineNotice';
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo from '@/shims/netinfo';
 
 // QueryClient global
 const queryClient = new QueryClient({

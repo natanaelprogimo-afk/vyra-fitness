@@ -4,7 +4,7 @@
 // Se implementa completo en F7 (Offline + Sync)
 // ============================================================
 
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo from '@/shims/netinfo';
 
 /** Verificar si hay conexión a internet */
 export async function checkIsOnline(): Promise<boolean> {
