@@ -1,0 +1,42 @@
+// ============================================================
+// VYRA FITNESS — Custom Hooks Export
+// TODA la lógica de negocio centralizada aquí
+// ============================================================
+
+// Auth & Identity
+export { useAuth } from './useAuth';
+export { useOnboarding } from './useOnboarding';
+
+// Core Modules
+export { useWater } from './useWater';
+export { useSteps } from './useSteps';
+export { useNutrition } from './useNutrition';
+export { useBarcodeScan } from './useBarcodeScan';
+export { useFasting } from './useFasting';
+export { useSleep } from './useSleep';
+export { useWeight } from './useWeight';
+export { useWorkout } from './useWorkout';
+export { useMental } from './useMental';
+export { useFemaleHealth } from './useFemaleHealth';
+export { useSupplements } from './useSupplements';
+
+// Dashboard & Gamification
+export { useDashboard } from './useDashboard';
+export { useReadiness } from './useReadiness';
+export { useCoins } from './useCoins';
+export { useBadges } from './useBadges';
+export { useModuleRewards } from './useModuleRewards';
+export { useFirstWeek } from './useFirstWeek';
+
+// AI & Coach
+export { useAI } from './useAI';
+export { useCoach } from './useCoach';
+
+// Premium & Ads
+export { usePremium } from './usePremium';
+export { useAds } from './useAds';
+
+// System
+export { useNotifications } from './useNotifications';
+export { useSync } from './useSync';
+// export { useVoiceLog } from './useVoiceLog'; // @react-native-community/voice unpublished from npm - disabled

@@ -1,0 +1,152 @@
+// ============================================================
+// VYRA FITNESS — Agua: Historial
+// Gráfico de barras de 7 días + lista de logs recientes
+// ============================================================
+
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import SafeScreen from '@/components/ui/SafeScreen';
+import Header from '@/components/layout/Header';
+import Card from '@/components/ui/Card';
+import { useWater } from '@/hooks/useWater';
+import { Colors } from '@/constants/colors';
+import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
+
+export default function WaterHistoryScreen() {
+  const { weeklyData, history, goal, isLoading } = useWater();
+
+  const maxVal = Math.max(...weeklyData.map(d => d.total), goal);
+
+  return (
+    <SafeScreen>
+      <Header title="Historial de hidratación" showBack color={Colors.water} />
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Gráfico de barras 7 días */}
+        <Card style={styles.chartCard}>
+          <Text style={styles.chartTitle}>Últimos 7 días</Text>
+          <View style={styles.bars}>
+            {weeklyData.map((day) => {
+              const pct     = Math.min(100, (day.total / maxVal) * 100);
+              const isToday = day.date === new Date().toISOString().split('T')[0];
+              const reachedGoal = day.total >= goal;
+              const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('es', { weekday: 'short' });
+
+              return (
+                <View key={day.date} style={styles.barWrap}>
+                  <Text style={styles.barValue}>
+                    {day.total >= 1000 ? `${(day.total/1000).toFixed(1)}L` : `${day.total}ml`}
+                  </Text>
+                  <View style={styles.barTrack}>
+                    {/* Meta line */}
+                    <View style={[styles.goalLine, { bottom: `${(goal / maxVal) * 100}%` as any }]} />
+                    <View
+                      style={[
+                        styles.barFill,
+                        {
+                          height:          `${pct}%`,
+                          backgroundColor: reachedGoal ? Colors.water : `${Colors.water}66`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.barDay, isToday && { color: Colors.water, fontFamily: FontFamily.bold }]}>
+                    {isToday ? 'Hoy' : dayLabel}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+          <View style={styles.chartLegend}>
+            <View style={[styles.legendDot, { backgroundColor: Colors.water }]} />
+            <Text style={styles.legendText}>Meta diaria: {goal}ml</Text>
+          </View>
+        </Card>
+
+        {/* Resumen estadístico */}
+        <View style={styles.statsRow}>
+          <StatCard
+            label="Promedio semanal"
+            value={weeklyData.length ? `${Math.round(weeklyData.reduce((s, d) => s + d.total, 0) / weeklyData.length)}ml` : '0ml'}
+            emoji="📊"
+          />
+          <StatCard
+            label="Días con meta"
+            value={`${weeklyData.filter(d => d.total >= goal).length}/${weeklyData.length}`}
+            emoji="🎯"
+          />
+        </View>
+
+        {/* Logs recientes detallados */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Registros recientes</Text>
+          {history.slice(0, 30).map((log, i) => (
+            <View key={i} style={styles.historyItem}>
+              <Text style={styles.historyDate}>
+                {new Date(log.logged_at).toLocaleDateString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              <Text style={[styles.historyAmount, { color: Colors.water }]}>+{log.amount_ml}ml</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeScreen>
+  );
+}
+
+function StatCard({ label, value, emoji }: { label: string; value: string; emoji: string }) {
+  return (
+    <Card style={styles.statCard}>
+      <Text style={styles.statEmoji}>{emoji}</Text>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </Card>
+  );
+}
+
+const styles = StyleSheet.create({
+  chartCard: { marginBottom: Spacing[4] },
+  chartTitle:{ fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[4] },
+  bars:      { flexDirection: 'row', gap: Spacing[2], height: 160, alignItems: 'flex-end', marginBottom: Spacing[3] },
+  barWrap:   { flex: 1, alignItems: 'center', gap: Spacing[1] },
+  barValue:  { fontFamily: FontFamily.regular, fontSize: 9, color: Colors.textMuted, textAlign: 'center' },
+  barTrack: {
+    width:           '100%',
+    flex:            1,
+    backgroundColor: Colors.bgElevated,
+    borderRadius:    Radius.sm,
+    overflow:        'hidden',
+    position:        'relative',
+    justifyContent:  'flex-end',
+  },
+  goalLine: {
+    position:        'absolute',
+    left:            0,
+    right:           0,
+    height:          1.5,
+    backgroundColor: Colors.water,
+    opacity:         0.5,
+    zIndex:          1,
+  },
+  barFill:   { borderRadius: Radius.sm },
+  barDay:    { fontFamily: FontFamily.medium, fontSize: 9, color: Colors.textMuted },
+  chartLegend:{ flexDirection: 'row', alignItems: 'center', gap: Spacing[2] },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText:{ fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted },
+  statsRow:  { flexDirection: 'row', gap: Spacing[3], marginBottom: Spacing[4] },
+  statCard:  { flex: 1, alignItems: 'center', paddingVertical: Spacing[4] },
+  statEmoji: { fontSize: 24, marginBottom: Spacing[2] },
+  statValue: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, marginBottom: Spacing[1] },
+  statLabel: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center' },
+  section:        { marginBottom: Spacing[6] },
+  sectionTitle:   { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[3] },
+  historyItem: {
+    flexDirection:  'row',
+    justifyContent: 'space-between',
+    alignItems:     'center',
+    paddingVertical: Spacing[2.5],
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  historyDate:   { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary },
+  historyAmount: { fontFamily: FontFamily.semibold, fontSize: FontSize.sm },
+});

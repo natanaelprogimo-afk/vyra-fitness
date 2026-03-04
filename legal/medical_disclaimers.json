@@ -1,0 +1,122 @@
+{
+  "medical_disclaimers": {
+    "general": {
+      "title": "⚠️ Aviso médico legal",
+      "content": "VYRA es una app de bienestar, NO un dispositivo médico. No reemplaza diagnósticos médicos, tratamientos o consultas profesionales. Siempre consultá a un médico para condiciones de salud.",
+      "required_acceptance": true,
+      "shown_in": ["registration", "onboarding"],
+      "button_text": "Entiendo"
+    },
+    
+    "fasting_24h": {
+      "title": "⚠️ Ayuno de 24+ horas",
+      "content": "Los protocolos 24h, OMAD (una comida/día) y ayunos extendidos pueden no ser seguros para:\n\n• Personas con diabetes tipo 1 o tipo 2\n• Mujeres embarazadas\n• Mujeres en período de lactancia\n• Personas con historial de trastornos alimentarios (anorexia, bulimia)\n• Personas bajo medicamentos que requieren comidas (metformina, insulina)\n• Menores de 18 años\n\n⚕️ OBLIGATORIO: Consultá a tu médico ANTES de hacer ayunos extendidos.",
+      "required_acceptance": true,
+      "shown_in": ["fasting_module", "before_selecting_24h_protocol"],
+      "button_text": ["Entiendo los riesgos", "Aceptar y continuar"],
+      "style": "warning_red"
+    },
+
+    "fasting_aggressive_deficit": {
+      "title": "⚠️ Déficit calórico muy agresivo",
+      "content": "Detectamos que estás en un déficit de energía > 700 kcal/día.\n\nEsto puede causar:\n• Pérdida de masa muscular\n• Fatiga y debilidad\n• Problemas metabólicos a largo plazo\n• Deficiencias nutricionales\n\n🥗 Se recomienda: máximo 500 kcal déficit/día para pérdida sostenible.\n\n⚕️ RECOMENDACIÓN: Hablá con un nutricionista certificado.",
+      "required_acceptance": false,
+      "shown_in": ["nutrition_module", "when_deficit_detected"],
+      "button_text": "Ok, entiendo",
+      "style": "warning_amber",
+      "dismissible_after_days": 3
+    },
+
+    "nutrition_photo_ai": {
+      "title": "⚠️ Análisis fotográfico de IA",
+      "content": "El análisis de fotos de comida por IA (Groq Vision):\n\n• Es una ESTIMACIÓN (±20% de error)\n• Puede identificar incorrectamente alimentos\n• Las macros pueden no ser precisas\n• Depende de la calidad de la foto\n\n✅ Lo que podés hacer:\n• Revisar y ajustar manualmente las macros\n• Corregir si la IA se equivocó\n• No confíes ciegamente en los números\n\n🔍 TIP: Comparar con envasado real (etiqueta de nutrición) cuando sea posible.",
+      "required_acceptance": false,
+      "shown_in": ["nutrition_module", "photo_log_feature"],
+      "button_text": "Entiendo",
+      "style": "info_blue",
+      "dismissible": true
+    },
+
+    "supplements": {
+      "title": "⚠️ Suplementos y salud",
+      "content": "VYRA NO:\n• Recomienda dosis de suplementos\n• Aconseja combinaciones seguras\n• Reemplaza consulta farmacéutica\n• Detecta interacciones con medicamentos\n\n⚕️ OBLIGATORIO ANTES DE TOMAR CUALQUIER SUPLEMENTO:\n1. Consultá a tu farmacéutico o médico\n2. Verifica interacciones con medicamentos actuales\n3. Confirma que es seguro para tu condición de salud\n\n🚨 Algunos suplementos pueden:\n• Interactuar con medicamentos\n• Afectar diabetes, embarazo, cirugía\n• Causar alergias\n\n📞 En caso de reacción adversa: llamá a emergencias o centro de toxicología.",
+      "required_acceptance": true,
+      "shown_in": ["supplements_module", "first_supplement_added"],
+      "button_text": "Entiendo y consultaré a profesional",
+      "style": "warning_red"
+    },
+
+    "female_cycle": {
+      "title": "ℹ️ Predicción del ciclo menstrual",
+      "content": "VYRA estima tu ciclo menstrual basado en:\n• Historial de períodos registrados\n• Duración promedio de ciclo (típicamente 24-35 días)\n• Síntomas que reportás\n\n⚠️ IMPORTANTE:\n• La predicción es una ESTIMACIÓN (no 100% exacta)\n• Tu ciclo puede variar por estrés, viajes, cambios hormonales\n• **NO uses VYRA como método anticonceptivo**\n• Si querés concepto, usá métodos comprobados + consulta ginecólogo\n\n🔄 Ciclos irregulares:\n• Si tus ciclos varían mucho, la predicción será menos precisa\n• Consultá ginecólogo si cambios inesperados\n\n📅 Mejor uso: rastrear patrones y síntomas para tu médico.",
+      "required_acceptance": false,
+      "shown_in": ["female_module", "first_period_logged"],
+      "button_text": "Entiendo",
+      "style": "info_blue",
+      "dismissible": true
+    },
+
+    "bmi_body_composition": {
+      "title": "ℹ️ BMI y composición corporal",
+      "content": "VYRA calcula:\n• BMI (Índice de Masa Corporal) = tu peso / altura²\n• Porcentaje de grasa corporal = ESTIMACIÓN (usando modelos, no scaneo DEXA)\n\n⚠️ IMPORTANTE:\n• BMI es una aproximación estadística (no tiene en cuenta músculo vs grasa)\n• Atletas pueden tener BMI \"alto\" pero 10% grasa corporal\n• % grasa estimado tiene error ±3-5% sin equipo profesional\n\n🏥 Para diagnóstico médico de sobrepeso/obesidad:\n• Consultá a tu médico (no uses solo VYRA BMI)\n• Pueden hacer test de composición corporal real (DEXA scan, bioimpedancia)\n\n⚖️ Mejor métrica: cómo te sentís, energía, fuerza, ropa que te queda.",
+      "required_acceptance": false,
+      "shown_in": ["weight_module", "when_bmi_calculated"],
+      "button_text": "Ok, entiendo",
+      "style": "info_blue",
+      "dismissible": true
+    },
+
+    "coach_ai": {
+      "title": "ℹ️ Coach IA de Vyra",
+      "content": "El Coach IA (impulsado por Groq llama3-70b):\n\n✅ PUEDE:\n• Dar consejos generales de bienestar\n• Responder preguntas sobre los módulos\n• Motivate y adaptar sugerencias a tus logs\n• Detectar patrones en tus datos\n\n❌ NO PUEDE:\n• Reemplazar médico, nutricionista o psicólogo\n• Diagnosticar condiciones médicas\n• Prescribir tratamientos\n• Ser tu terapeuta para salud mental severa\n\n🚨 SI TENÉS PENSAMIENTOS SUICIDAS O CRISIS MENTAL:\n⚠️ **CONTACTÁ INMEDIATAMENTE A:**\n• Argentina: 135 (Centro de Atención a Suicidas) o 911\n• EE.UU.: 988 (Suicide & Crisis Lifeline)\n• EU: Línea 24h de tu país\n\n💭 El Coach es un asistente, no reemplazo de profesional.",
+      "required_acceptance": false,
+      "shown_in": ["coach_module", "first_message"],
+      "button_text": "Entiendo",
+      "style": "info_blue",
+      "dismissible": true
+    },
+
+    "sleep_medical_conditions": {
+      "title": "ℹ️ Sueño y condiciones médicas",
+      "content": "Si tenés: apnea del sueño, insomnio severo, narcolepsia, o cualquier trastorno del sueño diagnosticado:\n\n• VYRA puede rastrear duración y calidad subjetiva\n• Pero NO es un dispositivo de diagnóstico\n• NO reemplaza polysomnografía (sleep study) en clínica\n\n⚕️ Para diagnóstico o tratamiento de trastornos del sueño:\n• Consulta a neurólogo o especialista en sueño\n• Pueden hacer estudios clínicos si es necesario\n\n💊 Si tomás medicamentos para dormir:\n• Registá en VYRA tu sueño resultante\n• Informá a tu médico si mejora/empeora\n\n⏰ Mejora del sueño: higiene de sueño + consistencia (horarios fijos).",
+      "required_acceptance": false,
+      "shown_in": ["sleep_module", "when_poor_sleep_detected"],
+      "button_text": "Ok",
+      "style": "info_blue",
+      "dismissible": true
+    },
+
+    "workout_injury": {
+      "title": "⚠️ Entrenamientos y lesiones",
+      "content": "VYRA rastrear tus entrenamientos y PRs (personal records).\n\n⚠️ SEGURIDAD:\n• NO hacgas ejercicios con dolor agudo (diferente de \"burn\" muscular)\n• NO aumentés peso bruscamente (riesgo de lesión)\n• Calentá antes de entrenar pesado\n• Estirá después\n\n🏥 Si sentís dolor durante ejercicio:\n• Parágono INMEDIATAMENTE\n• Si persiste > 1 semana: consulta fisioterapeuta o médico\n• No registés en VYRA si estás lesionado sin asesor médico\n\n💪 Progresión segura: aumentá peso 5-10% por sesión máximo.\n\n⚠️ Personas con condiciones:\n• Artritis, osteoporosis: consultá fisio antes de rutinas\n• Corazón, presión: consultá cardiólogo antes de cardio intenso",
+      "required_acceptance": false,
+      "shown_in": ["workout_module", "when_pr_detected"],
+      "button_text": "Entiendo",
+      "style": "warning_amber",
+      "dismissible": true
+    },
+
+    "hydration_extreme": {
+      "title": "⚠️ Hiperhi dratación",
+      "content": "Registras mucha água (>4L/día regularmente).\n\n⚠️ RIESGO: Hiperhi dratación (intoxicación por agua):\n• Baja sodio en sangre (hiponatremia)\n• Mareos, confusión, convulsiones en casos severos\n• Raro pero posible en ejercicio extremo sin electrolitos\n\n✅ LO RECOMENDADO:\n• Agua normal: ~2-3L/día (depende de clima, actividad)\n• Después ejercicio: agua + electrolitos (sales, potasio)\n• En clima caliente: aumentá pero con electrolitos\n\n⚠️ SI SENTÍS MALESTAR después de mucha agua:\n• Consultá médico o urgencias\n\n💧 TIP: VYRA te avisa cuando alcanzas tu meta — no excedás sin razón.",
+      "required_acceptance": false,
+      "shown_in": ["water_module", "when_high_intake_detected"],
+      "button_text": "Entiendo",
+      "style": "warning_amber",
+      "dismissible_after_days": 7
+    }
+  },
+
+  "legal_documents": {
+    "privacy_policy_url": "https://github.com/natan.../vyra-fitness/legal/PRIVACY_POLICY.md",
+    "terms_of_service_url": "https://github.com/natan.../vyra-fitness/legal/TERMS_OF_SERVICE.md",
+    "must_accept_on_registration": ["general", "supplements"],
+    "must_accept_first_use": {
+      "fasting_module": ["fasting_24h"],
+      "supplements_module": ["supplements"],
+      "female_module": ["female_cycle"],
+      "coach_module": ["coach_ai"],
+      "workout_module": ["workout_injury"]
+    }
+  }
+}
