@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import { usePremiumStore } from '@/stores/premiumStore';
-import { initUnityAds, loadAd, AD_UNITS } from '@/lib/unity-ads';
 import { Colors } from '@/constants/colors';
 import { FontFamily } from '@/constants/theme';
 
@@ -13,13 +12,11 @@ export function UnityAdBanner({ style }: UnityAdBannerProps) {
   const { isPremium } = usePremiumStore();
   const [bannerReady, setBannerReady] = useState(false);
 
+  // Unity Ads disabled: always show placeholder for now
   useEffect(() => {
     if (!isPremium) {
-      initUnityAds().then(() => {
-        loadAd(AD_UNITS.BANNER);
-        // Banner se muestra via UnityBannerView cuando está disponible
-        setTimeout(() => setBannerReady(true), 2000);
-      });
+      // simulate banner availability for placeholder
+      setTimeout(() => setBannerReady(true), 200);
     }
   }, [isPremium]);
 

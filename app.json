@@ -69,7 +69,7 @@
       "apis": {
         "supabase": "https://fkwisfxwztlkrlcvuwdv.supabase.co",
         "backend": "https://vyra-backend-5fd9.onrender.com",
-        "unityGameId": "6050750"
+        
       },
       "eas": {
         "projectId": "6df015aa-b64e-49a8-b19c-12d3b541435b"

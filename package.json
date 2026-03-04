@@ -60,7 +60,6 @@
           "@nozbe/watermelondb",
           "@react-native-community/voice",
           "posthog-js",
-          "react-native-unity-ads",
           "react-native-voice"
         ]
       }

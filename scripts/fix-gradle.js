@@ -1,40 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 
+// Script retained for compatibility, but Unity Ads is currently removed.
+// If the react-native-unity-ads package exists in node_modules this script
+// will attempt to patch its build.gradle; otherwise it exits silently.
 const buildGradlePath = path.join(
-  __dirname, '..', 'node_modules', 
-  'react-native-unity-ads', 'android', 'build.gradle'
+  __dirname,
+  '..',
+  'node_modules',
+  'react-native-unity-ads',
+  'android',
+  'build.gradle'
 );
-
-const fixedContent = `apply plugin: 'com.android.library'
-
-android {
-  compileSdk 36
-  namespace "com.reactlibrary.unityads"
-  defaultConfig {
-    minSdkVersion 24
-    targetSdkVersion 36
-  }
-}
-
-repositories {
-  google()
-  mavenCentral()
-}
-
-dependencies {
-  implementation 'com.facebook.react:react-native:+'
-  implementation 'com.unity3d.ads:unity-ads:4.9.2'
-}
-`;
 
 try {
   if (fs.existsSync(buildGradlePath)) {
-    fs.writeFileSync(buildGradlePath, fixedContent);
-    console.log('✅ react-native-unity-ads build.gradle patched');
-  } else {
-    console.warn('⚠️  react-native-unity-ads build.gradle not found');
+    // Do not modify files automatically for now; just notify.
+    console.log('⚠️ react-native-unity-ads detected in node_modules; please remove the package to avoid native build issues.');
   }
 } catch (err) {
-  console.error('❌ Patch failed:', err.message);
+  // ignore
 }
