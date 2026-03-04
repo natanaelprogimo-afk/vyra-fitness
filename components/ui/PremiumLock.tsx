@@ -4,7 +4,7 @@
 // ============================================================
 
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, type ViewStyle } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(15,10,30,0.7)',
     borderRadius:   Radius.xl,
-    backdropFilter: 'blur(8px)',
+    ...(Platform.OS === 'web' ? { backdropFilter: 'blur(8px)' } : {}),
   },
   lockCard: {
     alignItems:      'center',
