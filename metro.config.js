@@ -8,6 +8,7 @@ config.resolver.extraNodeModules = {
   // Shim @tanstack/react-query to its CJS/legacy build to avoid ESM/modern
   // entry resolution issues in Metro/EAS builds.
   '@tanstack/react-query': path.resolve(__dirname, 'shims'),
+  '@react-native-community/netinfo': path.resolve(__dirname, 'shims'),
   ...(config.resolver.extraNodeModules || {}),
 };
 
