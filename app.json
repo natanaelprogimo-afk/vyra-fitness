@@ -68,8 +68,7 @@
       },
       "apis": {
         "supabase": "https://fkwisfxwztlkrlcvuwdv.supabase.co",
-        "backend": "https://vyra-backend-5fd9.onrender.com",
-        
+        "backend": "https://vyra-backend-5fd9.onrender.com"
       },
       "eas": {
         "projectId": "d417aa09-2b05-455a-8d68-fb88c2317451"
