@@ -198,6 +198,8 @@ export function useSleep() {
     isLoading,
     isLogging,
     logSleep,
+    getLastNight: () => lastSleep,
+    getWeeklyAverage: () => avgHours,
     getOptimalAlarmTimes,
     refetch,
   };

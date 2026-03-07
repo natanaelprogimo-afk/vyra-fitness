@@ -90,10 +90,26 @@ export async function registerPushToken(userId: string): Promise<void> {
     });
     if (!token || !userId) return;
 
-    // Guardar en profiles para que el backend pueda enviar notifs remotas
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('coach_memory_json')
+      .eq('id', userId)
+      .single();
+
+    const coachMemory =
+      profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
+        ? (profile.coach_memory_json as Record<string, unknown>)
+        : {};
+
+    // Guardar token en coach_memory_json para mantener compatibilidad con el schema consolidado.
     await supabase
       .from('profiles')
-      .update({ push_token: token })
+      .update({
+        coach_memory_json: {
+          ...coachMemory,
+          push_token: token,
+        },
+      })
       .eq('id', userId);
   } catch (err) {
     captureError(err instanceof Error ? err : new Error(String(err)), { action: 'registerPushToken' });
@@ -145,14 +161,17 @@ export async function cancelAllNotifs(): Promise<void> {
 // ─── NOTIFICACIONES PREDEFINIDAS ─────────────────────────────────────────
 
 // Recordatorios de agua — hora:minuto diario
-export async function scheduleWaterReminders(times: { hour: number; minute: number }[]): Promise<void> {
+export async function scheduleWaterReminders(
+  times: { hour: number; minute: number }[],
+  copy?: { title?: string; body?: string },
+): Promise<void> {
   await cancelNotifsByType('water_reminder');
   for (const [i, time] of times.entries()) {
     await scheduleNotif({
       id:    `water_reminder_${i}`,
       type:  'water_reminder',
-      title: '💧 ¡Hora de hidratarte!',
-      body:  'No te olvides de tomar agua. Tu cuerpo te lo agradece.',
+      title: copy?.title ?? '💧 ¡Hora de hidratarte!',
+      body:  copy?.body ?? 'No te olvides de tomar agua. Tu cuerpo te lo agradece.',
       trigger: {
         type:    'daily',
         hour:    time.hour,
@@ -221,17 +240,19 @@ export async function scheduleDailySummaryReminder(hour = 21, minute = 0): Promi
 }
 
 // Racha en peligro — solo si el usuario no hizo ningún log hoy a las 20hs
-export async function scheduleStreakAtRisk(): Promise<void> {
+export async function scheduleStreakAtRisk(
+  copy?: { title?: string; body?: string; hour?: number; minute?: number },
+): Promise<void> {
   await cancelNotifsByType('streak_at_risk');
   await scheduleNotif({
     id:    'streak_at_risk_20h',
     type:  'streak_at_risk',
-    title: '🔥 ¡Tu racha está en peligro!',
-    body:  'Todavía no registraste nada hoy. Hacé 1 log para salvar la racha.',
+    title: copy?.title ?? '🔥 ¡Tu racha está en peligro!',
+    body:  copy?.body ?? 'Todavía no registraste nada hoy. Hacé 1 log para salvar la racha.',
     trigger: {
       type:    'daily',
-      hour:    20,
-      minute:  0,
+      hour:    copy?.hour ?? 20,
+      minute:  copy?.minute ?? 0,
       repeats: true,
     } as any,
     data: { action: 'open_quick_log' },

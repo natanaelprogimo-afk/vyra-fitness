@@ -14,7 +14,8 @@ interface StreakBannerProps {
 }
 
 export const StreakBanner = ({ profile }: StreakBannerProps) => {
-  const { current_streak, longest_streak, level, xp, coins } = profile;
+  const { level, xp, coins } = profile;
+  const currentStreak = profile.current_streak ?? profile.streak ?? 0;
   const xpForLevel = 1000;
   const xpProgress = xp % xpForLevel;
   const xpPct      = (xpProgress / xpForLevel) * 100;
@@ -24,7 +25,7 @@ export const StreakBanner = ({ profile }: StreakBannerProps) => {
       {/* Racha */}
       <View style={styles.stat}>
         <Text style={styles.statEmoji}>🔥</Text>
-        <Text style={styles.statValue}>{current_streak}</Text>
+        <Text style={styles.statValue}>{currentStreak}</Text>
         <Text style={styles.statLabel}>días</Text>
       </View>
 

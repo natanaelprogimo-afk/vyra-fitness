@@ -229,3 +229,6 @@ const styles = StyleSheet.create({
     marginTop: Spacing[2],
   },
 });
+
+// Expo Router expects a default export for any file under `app/`.
+export default AddSupplementSheet;

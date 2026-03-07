@@ -40,7 +40,7 @@ export default function Step1Goals() {
   return (
     <SafeScreen scrollable>
       {/* Progress */}
-      <OnboardingProgress step={1} total={5} />
+      <OnboardingProgress step={1} total={4} />
 
       <Text style={styles.title}>{OnboardingStrings.step1.title}</Text>
       <Text style={styles.subtitle}>{OnboardingStrings.step1.subtitle}</Text>

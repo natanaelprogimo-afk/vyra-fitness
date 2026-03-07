@@ -10,11 +10,13 @@ import { useAuthStore } from '@/stores/authStore';
 import TabBar from '@/components/layout/TabBar';
 
 export default function TabsLayout() {
-  const { isInitialized, isAuthenticated, isOnboarded } = useAuthStore((s) => ({
-    isInitialized:   s.isInitialized,
-    isAuthenticated: s.isAuthenticated(),
-    isOnboarded:     s.isOnboarded(),
-  }));
+  const isInitialized = useAuthStore((s) => s.isInitialized);
+  const session = useAuthStore((s) => s.session);
+  const user = useAuthStore((s) => s.user);
+  const profile = useAuthStore((s) => s.profile);
+
+  const isAuthenticated = session !== null && user !== null;
+  const isOnboarded = profile?.onboarding_completed ?? false;
 
   useEffect(() => {
     if (!isInitialized) return;

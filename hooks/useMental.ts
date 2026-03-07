@@ -34,6 +34,11 @@ export interface MentalInput {
   notes?:     string;
 }
 
+interface EmotionalDrift {
+  isDrifting: boolean;
+  message: string | null;
+}
+
 // Labels y colores para score
 export function getMentalScoreInfo(score: number): { label: string; color: string; emoji: string } {
   if (score >= 85) return { label: 'Excelente',   color: '#7BC67E', emoji: '🌟' };
@@ -192,6 +197,46 @@ export function useMental() {
   if (checkinStreak >= 7) insights.push('🔥 7 días consecutivos de check-in. ¡Racha perfecta!');
   if (avgMood >= 4)     insights.push('😊 Tu humor promedio es excelente esta semana.');
 
+  const detectWellnessAlert = useCallback(() => {
+    const last3 = history.slice(-3);
+    if (last3.length < 3) return false;
+
+    return last3.every((entry) => entry.mood <= 1 || entry.stress >= 9);
+  }, [history]);
+
+  const detectEmotionalDrift = useCallback((): EmotionalDrift => {
+    const last3 = history.slice(-3);
+    if (last3.length < 3) return { isDrifting: false, message: null };
+
+    const [d1, d2, d3] = last3;
+    const moodDrop = d1.mood > d2.mood && d2.mood > d3.mood;
+    const stressRise = d1.stress < d2.stress && d2.stress < d3.stress;
+
+    if (moodDrop || stressRise) {
+      return {
+        isDrifting: true,
+        message: 'Detectamos una tendencia emocional descendente. Hoy priorizá recuperación y una acción pequeña.',
+      };
+    }
+
+    return { isDrifting: false, message: null };
+  }, [history]);
+
+  const logQuickMood = useCallback((mood: number) => {
+    const baselineEnergy = Math.min(10, Math.max(1, Math.round(avgEnergy || 6)));
+    const baselineStress = Math.min(10, Math.max(1, Math.round(avgStress || 5)));
+    const baselineMotivation = Math.min(10, Math.max(1, Math.round((avgEnergy + mood * 2) / 2 || 6)));
+
+    saveCheckin({
+      mood,
+      energy: baselineEnergy,
+      stress: baselineStress,
+      motivation: baselineMotivation,
+    });
+  }, [avgEnergy, avgStress, saveCheckin]);
+
+  const emotionalDrift = detectEmotionalDrift();
+
   return {
     todayEntry,
     todayDone,
@@ -207,6 +252,12 @@ export function useMental() {
     insights,
     isLoading: isLoadingToday || isLoadingHistory,
     isSaving,
+    logCheckin: saveCheckin,
+    getHistory: () => history,
+    detectWellnessAlert,
     saveCheckin,
+    logQuickMood,
+    detectEmotionalDrift,
+    emotionalDrift,
   };
 }

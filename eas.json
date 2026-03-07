@@ -18,7 +18,19 @@
     },
     "production": {
       "env": {
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fkwisfxwztlkrlcvuwdv.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrd2lzZnh3enRsa3JsY3Z1d2R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwMTMwNjMsImV4cCI6MjA4NjU4OTA2M30.3gCyl3kqnGfbgssWl8RnW6gKzjyw-xt_Zx_MM8DedjQ",
+        "EXPO_PUBLIC_API_URL": "https://vyra-backend-5fd9.onrender.com",
+        "EXPO_PUBLIC_UNITY_GAME_ID_ANDROID": "6050750",
+        "EXPO_PUBLIC_UNITY_GAME_ID": "6050750",
+        "EXPO_PUBLIC_UNITY_REWARDED_PLACEMENT": "vyra_rewarded",
+        "EXPO_PUBLIC_UNITY_INTERSTITIAL_PLACEMENT": "vyra_interstitial",
+        "EXPO_PUBLIC_UNITY_BANNER_PLACEMENT": "vyra_banner",
+        "EXPO_PUBLIC_PAYPAL_CLIENT_ID": "AY8_7hcyLp1ZMg80dLYItPgMAVAmfK3H6NQhm4FRlaKnDNw1gjuvW44ZEwvtGU-P-qgZxDdfhewvIsTo",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://1b639fd263b9821a73e7307a15a2039e@o4510925128990721.ingest.us.sentry.io/4510925131415552",
+        "EXPO_PUBLIC_POSTHOG_KEY": "phc_gUYiB0jCf2ZhxUezxi1QVsN6RbUemz61p9cFM6aakco",
+        "EXPO_PUBLIC_POSTHOG_HOST": "https://app.posthog.com"
       },
       "android": {
         "buildType": "apk",

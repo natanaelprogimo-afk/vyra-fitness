@@ -12,12 +12,30 @@ import { captureError } from '@/lib/sentry';
 import { trackOnboardingCompleted } from '@/lib/analytics';
 import { ErrorMessages } from '@/constants/strings';
 import type { UserProfile, UserProfileUpdate, OnboardingData } from '@/types/user';
-import { calculateTDEE, calculateBMI, calculateBMR } from '@/utils/calculations';
+import { calculateTDEE, calculateBMR } from '@/utils/calculations';
+
+function normalizeGoal(goal: OnboardingData['goal']): string {
+  switch (goal) {
+    case 'health':
+      return 'general_health';
+    case 'performance':
+      return 'sport_performance';
+    case 'mental':
+      return 'mental_wellbeing';
+    default:
+      return goal;
+  }
+}
+
+function normalizeGender(gender: OnboardingData['gender']): string {
+  if (gender === 'other') return 'non_binary';
+  return gender;
+}
 
 export function useAuth() {
   const [isLoading, setIsLoading] = useState(false);
 
-  const { setProfile, updateProfile, profile } = useAuthStore();
+  const { setProfile, updateProfile, profile, session, user } = useAuthStore();
   const showToast = useUIStore((s) => s.showToast);
 
   // ─── Login ───────────────────────────────────────────────
@@ -61,7 +79,7 @@ export function useAuth() {
 
       // El trigger handle_new_user() en Supabase crea el perfil automáticamente
       // Redirigir al onboarding
-      router.replace('/(auth)/onboarding/step1-goals' as any);
+      router.replace('/(auth)/onboarding/step0-preview' as any);
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
@@ -128,16 +146,19 @@ export function useAuth() {
           )
         : 2000;
 
-      const updatePayload: UserProfileUpdate = {
-        biological_sex:       data.gender,
+      const updatePayload: Record<string, unknown> = {
+        gender:               normalizeGender(data.gender),
         height_cm:            data.height_cm,
         weight_start_kg:      data.weight_start_kg,
         weight_goal_kg:       data.weight_goal_kg,
         activity_level:       data.activity_level,
-        goal:                 data.goal,
+        primary_goal:         normalizeGoal(data.goal),
         wake_time_minutes:    data.wake_time_minutes,
         sleep_time_minutes:   data.sleep_time_minutes,
-        tdee:                 tdee,
+        step_goal:            data.step_goal,
+        water_goal_ml:        data.water_goal_ml,
+        sleep_goal_hours:     data.sleep_goal_hours ?? 8,
+        calorie_goal:         Math.round(tdee),
         onboarding_completed: true,
         coins:                50, // bonus de onboarding
         updated_at:           new Date().toISOString(),
@@ -150,7 +171,12 @@ export function useAuth() {
 
       if (error) throw error;
 
-      updateProfile(updatePayload as Partial<UserProfile>);
+      updateProfile({
+        ...(updatePayload as Partial<UserProfile>),
+        biological_sex: data.gender,
+        goal:           data.goal,
+        tdee:           Math.round(tdee),
+      });
       trackOnboardingCompleted('free');
 
       // Registrar transacción de monedas
@@ -222,7 +248,10 @@ export function useAuth() {
 
   return {
     isLoading,
+    session,
+    user,
     profile,
+    isOnboardingComplete: profile?.onboarding_completed ?? false,
     login,
     register,
     logout,

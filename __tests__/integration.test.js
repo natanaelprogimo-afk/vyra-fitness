@@ -218,7 +218,7 @@ businessTests.test('Coin reward system (daily cap 200)', () => {
 const integrationTests = new TestSuite('🔌 BACKEND INTEGRATION TESTS');
 
 integrationTests.test('API endpoint construction (no hardcoded URLs)', () => {
-  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
   
   const endpoints = {
     logs: `${BACKEND_URL}/api/logs`,

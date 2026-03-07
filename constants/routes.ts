@@ -10,6 +10,7 @@ export const Routes = {
     login:      '/(auth)/login',
     register:   '/(auth)/register',
     onboarding: {
+      step0: '/(auth)/onboarding/step0-preview',
       step1: '/(auth)/onboarding/step1-goals',
       step2: '/(auth)/onboarding/step2-body',
       step3: '/(auth)/onboarding/step3-activity',

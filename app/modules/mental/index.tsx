@@ -70,10 +70,10 @@ export default function MentalScreen() {
     todayEntry, todayDone, todayScore,
     weeklyAvgScore, avgMood, avgEnergy, avgStress,
     checkinStreak, insights,
-    isSaving, saveCheckin,
+    isSaving, saveCheckin, logQuickMood, emotionalDrift,
   } = useMental();
 
-  const [isEditing, setIsEditing] = useState(!todayDone);
+  const [isEditing, setIsEditing] = useState(false);
   const [mood,       setMood]       = useState(todayEntry?.mood       ?? 3);
   const [energy,     setEnergy]     = useState(todayEntry?.energy     ?? 5);
   const [stress,     setStress]     = useState(todayEntry?.stress     ?? 5);
@@ -113,6 +113,30 @@ export default function MentalScreen() {
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {!todayDone && !isEditing && (
+          <Card style={styles.quickCard}>
+            <Text style={styles.quickTitle}>Check-in rápido (1 toque)</Text>
+            <Text style={styles.quickSubtitle}>Elegí tu ánimo de hoy y listo.</Text>
+            <View style={styles.quickMoodRow}>
+              {[1, 2, 3, 4, 5].map((v) => (
+                <Pressable
+                  key={v}
+                  onPress={() => {
+                    onMoodPress(v);
+                    logQuickMood(v);
+                  }}
+                  style={styles.quickMoodBtn}
+                >
+                  <Text style={styles.quickMoodEmoji}>{MOOD_EMOJIS[v]}</Text>
+                  <Text style={styles.quickMoodLabel}>{MOOD_LABELS[v]}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Button onPress={() => setIsEditing(true)} variant="secondary" fullWidth size="sm">
+              Quiero hacerlo detallado
+            </Button>
+          </Card>
+        )}
 
         {/* Score del día / semana */}
         {!isEditing && todayScore !== null && (
@@ -242,9 +266,14 @@ export default function MentalScreen() {
         )}
 
         {/* Insights automáticos */}
-        {insights.length > 0 && !isEditing && (
+        {(insights.length > 0 || emotionalDrift.isDrifting) && !isEditing && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Insights de la semana</Text>
+            {emotionalDrift.isDrifting && emotionalDrift.message ? (
+              <Card style={[styles.insightCard, styles.driftCard]}>
+                <Text style={styles.insightText}>⚠️ {emotionalDrift.message}</Text>
+              </Card>
+            ) : null}
             {insights.map((insight, i) => (
               <Card key={i} style={styles.insightCard}>
                 <Text style={styles.insightText}>{insight}</Text>
@@ -306,6 +335,13 @@ const styles = StyleSheet.create({
   content:     { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
   histBtn:     { paddingHorizontal: Spacing[2] },
   histText:    { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.mental },
+  quickCard:   { marginTop: Spacing[4], marginBottom: Spacing[4], backgroundColor: `${Colors.mental}0A` },
+  quickTitle:  { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
+  quickSubtitle:{ fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2, marginBottom: Spacing[3] },
+  quickMoodRow:{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing[3] },
+  quickMoodBtn:{ alignItems: 'center', flex: 1 },
+  quickMoodEmoji:{ fontSize: 26 },
+  quickMoodLabel:{ fontFamily: FontFamily.medium, fontSize: 9, color: Colors.textMuted, marginTop: Spacing[1] },
 
   // Score
   scoreSection:{ alignItems: 'center', paddingVertical: Spacing[6] },
@@ -361,6 +397,7 @@ const styles = StyleSheet.create({
   section:      { marginBottom: Spacing[5] },
   sectionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[3] },
   insightCard:  { marginBottom: Spacing[2], backgroundColor: `${Colors.mental}0A` },
+  driftCard:    { borderColor: `${Colors.warning}66`, borderWidth: 1 },
   insightText:  { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: FontSize.sm * 1.5 },
 
   // Stats

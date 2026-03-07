@@ -11,11 +11,13 @@ import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 
 export default function AuthLayout() {
-  const { isInitialized, isAuthenticated, isOnboarded } = useAuthStore((s) => ({
-    isInitialized:  s.isInitialized,
-    isAuthenticated: s.isAuthenticated(),
-    isOnboarded:    s.isOnboarded(),
-  }));
+  const isInitialized = useAuthStore((s) => s.isInitialized);
+  const session = useAuthStore((s) => s.session);
+  const user = useAuthStore((s) => s.user);
+  const profile = useAuthStore((s) => s.profile);
+
+  const isAuthenticated = session !== null && user !== null;
+  const isOnboarded = profile?.onboarding_completed ?? false;
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -23,7 +25,7 @@ export default function AuthLayout() {
       if (isOnboarded) {
         router.replace(Routes.tabs.home as any);
       } else {
-        router.replace(Routes.auth.onboarding.step1 as any);
+        router.replace(Routes.auth.onboarding.step0 as any);
       }
     }
   }, [isInitialized, isAuthenticated, isOnboarded]);

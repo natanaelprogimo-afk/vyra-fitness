@@ -53,7 +53,7 @@ export default function Step4Schedule() {
 
   return (
     <SafeScreen scrollable>
-      <OnboardingProgress step={4} total={5} />
+      <OnboardingProgress step={3} total={4} />
       <Text style={styles.title}>Tus horarios</Text>
       <Text style={styles.subtitle}>Configuramos las notificaciones para que no te molesten.</Text>
 

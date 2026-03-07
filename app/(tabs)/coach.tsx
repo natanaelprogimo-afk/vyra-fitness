@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
-import { useAI } from '@/hooks/useAI';
+import { useCoach } from '@/hooks/useCoach';
 import { usePremium } from '@/hooks/usePremium';
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ function MessageBubble({ message, isLast, isLoading }: MessageBubbleProps) {
 // ─── PANTALLA PRINCIPAL ──────────────────────────────────────────────────────
 
 export default function CoachScreen() {
-  const { messages, sendMessage, isLoading, dailyMessagesLeft } = useAI();
+  const { messages, sendMessage, isLoading, dailyMessagesLeft } = useCoach();
   const { isPremium } = usePremium();
   const [input, setInput] = useState('');
   const listRef = useRef<FlatList>(null);
@@ -128,15 +128,23 @@ export default function CoachScreen() {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
   }, [input, isLoading, sendMessage]);
 
+  // Normalizar timestamps (useCoach entrega createdAt)
+  const normalizedMessages = (messages as any[]).map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),
+  })) as ChatMessage[];
+
   const renderMessage = useCallback(
     ({ item, index }: { item: ChatMessage; index: number }) => (
       <MessageBubble
         message={item}
-        isLast={index === messages.length - 1}
+        isLast={index === normalizedMessages.length - 1}
         isLoading={isLoading}
       />
     ),
-    [messages.length, isLoading]
+    [normalizedMessages.length, isLoading]
   );
 
   const isAtLimit = !isPremium && dailyMessagesLeft <= 0;
@@ -166,14 +174,14 @@ export default function CoachScreen() {
       {/* Disclaimer médico — siempre visible */}
       <View style={styles.disclaimer}>
         <Text style={styles.disclaimerText}>
-          ⚕️ Vyra Coach es un asistente de IA de bienestar. No reemplaza la consulta médica, nutricional o psicológica.
+          ⚕️ Vyra Coach es un asistente de IA de bienestar. No reemplaza la consulta médica.
         </Text>
       </View>
 
       {/* Mensajes */}
       <FlatList
         ref={listRef}
-        data={messages as unknown as ChatMessage[]}
+        data={normalizedMessages}
         keyExtractor={item => item?.id ?? Math.random().toString()}
         renderItem={renderMessage}
         contentContainerStyle={styles.messagesList}

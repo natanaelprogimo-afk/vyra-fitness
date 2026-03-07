@@ -27,7 +27,14 @@ export default function PremiumLock({
   style,
   compact  = false,
 }: PremiumLockProps) {
-  const isPremium = useAuthStore((s) => s.isPremium());
+  const profile = useAuthStore((s) => s.profile);
+  const isPremium = (() => {
+    const p = profile;
+    if (!p) return false;
+    if (!p.is_premium) return false;
+    if (!p.premium_expires_at) return true;
+    return new Date(p.premium_expires_at) > new Date();
+  })();
 
   // Si es Premium, renderizar directamente
   if (isPremium) return <>{children}</>;
@@ -71,7 +78,14 @@ export default function PremiumLock({
 // ─── Hook helper para verificar premium rápido ───────────────
 
 export function usePremiumGate(trigger: PaywallTrigger = 'feature_lock') {
-  const isPremium = useAuthStore((s) => s.isPremium());
+  const profile = useAuthStore((s) => s.profile);
+  const isPremium = (() => {
+    const p = profile;
+    if (!p) return false;
+    if (!p.is_premium) return false;
+    if (!p.premium_expires_at) return true;
+    return new Date(p.premium_expires_at) > new Date();
+  })();
 
   const requirePremium = (onAllowed: () => void) => {
     if (isPremium) {

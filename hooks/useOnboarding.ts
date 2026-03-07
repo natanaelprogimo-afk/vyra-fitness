@@ -40,8 +40,9 @@ export function useOnboarding() {
   const setSleepTime   = useCallback((m: number)            => setData(d => ({ ...d, sleep_time_minutes: m })), []);
   const setProtocol    = useCallback((p: string | null)     => setData(d => ({ ...d, fasting_protocol: p })), []);
 
-  const goToStep = (step: 1 | 2 | 3 | 4 | 5) => {
+  const goToStep = (step: 0 | 1 | 2 | 3 | 4 | 5) => {
     const routes: Record<number, string> = {
+      0: '/(auth)/onboarding/step0-preview',
       1: '/(auth)/onboarding/step1-goals',
       2: '/(auth)/onboarding/step2-body',
       3: '/(auth)/onboarding/step3-activity',

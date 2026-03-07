@@ -16,6 +16,7 @@ import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import ProgressBar from '@/components/ui/ProgressBar';
 import Modal, { Achievement as AchievementModal } from '@/components/ui/Modal';
+import BadgeDetailModal from '@/components/ui/BadgeDetailModal';
 import { Colors } from '@/constants/colors';
 import { FontFamily, Spacing, Radius } from '@/constants/theme';
 import { useBadges, BADGES, BadgeDef, BadgeRarity } from '@/hooks/useBadges';
@@ -156,14 +157,15 @@ export default function BadgesScreen() {
         })}
       </ScrollView>
 
-      {/* Modal de detalle - TODO: implement badge detail modal */}
-      {/* {selectedBadge && (
-        <AchievementModal
+      {/* Badge detail modal: uses a lightweight component */}
+      {selectedBadge && (
+        <BadgeDetailModal
+          visible={!!selectedBadge}
           badge={selectedBadge}
           unlocked={isUnlocked(selectedBadge.id)}
           onClose={() => setSelectedBadge(null)}
         />
-      )} */}
+      )}
 
       {/* Modal de nuevo badge desbloqueado - using UIStore */}
       {/* {newlyUnlocked && (

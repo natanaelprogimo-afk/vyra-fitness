@@ -85,6 +85,14 @@ export default function NutritionScreen() {
           )}
         </Card>
 
+        {remaining > 700 && (
+          <Card style={styles.deficitWarningCard}>
+            <Text style={styles.deficitWarningText}>
+              ⚠️ Déficit alto: estás más de 700 kcal por debajo de tu meta diaria.
+            </Text>
+          </Card>
+        )}
+
         {/* Macros */}
         <Card style={styles.macroCard}>
           <Text style={styles.macroTitle}>Macronutrientes</Text>
@@ -228,6 +236,18 @@ const styles = StyleSheet.create({
   calorieDivider:{ width: 1, height: 48, backgroundColor: Colors.divider },
   calorieProg:   {},
   overText:      { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.error, marginTop: Spacing[1], textAlign: 'center' },
+  deficitWarningCard: {
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: Colors.warning,
+    backgroundColor: `${Colors.warning}18`,
+  },
+  deficitWarningText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.warning,
+    textAlign: 'center',
+  },
 
   // Macros
   macroCard:     { marginBottom: Spacing[5] },

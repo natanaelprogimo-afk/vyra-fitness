@@ -147,7 +147,7 @@ export default function ProfileScreen() {
             <View style={styles.statDivider} />
             <QuickStat label="Badges" value={`${badgeProgress.unlocked}/${badgeProgress.total}`} />
             <View style={styles.statDivider} />
-            <QuickStat label="Racha" value={`${profile?.current_streak ?? 0} 🔥`} />
+            <QuickStat label="Racha" value={`${profile?.streak ?? profile?.current_streak ?? 0} 🔥`} />
           </View>
         </Card>
 

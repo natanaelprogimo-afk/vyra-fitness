@@ -56,6 +56,22 @@ export default function FastingScreen() {
     );
   };
 
+  const handleStartFast = (selectedProtocol: string) => {
+    if (['20:4', '23:1', 'OMAD', '24h', '5:2'].includes(selectedProtocol)) {
+      Alert.alert(
+        'Aviso médico',
+        'Este protocolo puede ser exigente. Si tenés una condición médica o dudas clínicas, consultá a un profesional de salud antes de continuar.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Entiendo y continuar', onPress: () => startFast(selectedProtocol) },
+        ],
+      );
+      return;
+    }
+
+    startFast(selectedProtocol);
+  };
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header title="Ayuno intermitente" showBack color={Colors.fasting} />
@@ -83,7 +99,7 @@ export default function FastingScreen() {
             selectedProtocol={selectedProtocol}
             setSelectedProtocol={setSelectedProtocol}
             isStarting={isStarting}
-            onStart={() => startFast(selectedProtocol)}
+            onStart={() => handleStartFast(selectedProtocol)}
           />
         )}
 

@@ -1,8 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import React from 'react';
+import { Platform, View } from 'react-native';
 import { usePremiumStore } from '@/stores/premiumStore';
-import { Colors } from '@/constants/colors';
-import { FontFamily } from '@/constants/theme';
 
 interface UnityAdBannerProps {
   style?: object;
@@ -10,50 +8,16 @@ interface UnityAdBannerProps {
 
 export function UnityAdBanner({ style }: UnityAdBannerProps) {
   const { isPremium } = usePremiumStore();
-  const [bannerReady, setBannerReady] = useState(false);
 
-  // Unity Ads disabled: always show placeholder for now
-  useEffect(() => {
-    if (!isPremium) {
-      // simulate banner availability for placeholder
-      setTimeout(() => setBannerReady(true), 200);
-    }
-  }, [isPremium]);
-
-  // Usuarios Premium no ven banners
+  // Premium users never see ads.
   if (isPremium) return null;
 
-  // Placeholder visual mientras carga (o si el SDK no está disponible en dev)
-  if (!bannerReady || __DEV__) {
-    return (
-      <View style={[styles.placeholder, style]}>
-        <Text style={styles.placeholderText}>[ Publicidad ]</Text>
-      </View>
-    );
-  }
+  // The current Unity RN package in this project supports rewarded/interstitial only.
+  // Keep banner slot empty to avoid rendering fake placeholders as if it were a real ad.
+  if (Platform.OS !== 'android') return null;
+  if (!process.env.EXPO_PUBLIC_UNITY_BANNER_PLACEMENT) return null;
 
-  // Cuando el SDK esté configurado, reemplazar con el componente real:
-  // import { UnityBannerAd } from 'react-native-unity-ads';
-  // return <UnityBannerAd placementId={AD_UNITS.BANNER} style={[styles.banner, style]} />;
-  return (
-    <View style={[styles.placeholder, style]}>
-      <Text style={styles.placeholderText}>[ Publicidad ]</Text>
-    </View>
-  );
+  return <View style={style} />;
 }
 
-const styles = StyleSheet.create({
-  placeholder: {
-    height: 50,
-    backgroundColor: Colors.bgSurface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  placeholderText: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-});
+export default UnityAdBanner;

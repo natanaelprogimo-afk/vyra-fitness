@@ -55,7 +55,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   notifStreak:     true,
   notifCoach:      true,
   notifSummary:    true,
-  maxNotifsPerDay: 5,
+  maxNotifsPerDay: 3,
   hapticsEnabled:  true,
 
   setColorScheme: (colorScheme) => set({ colorScheme }),

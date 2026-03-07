@@ -47,9 +47,11 @@ export function RewardedAdButton({
           <>
             <Text style={styles.compactIcon}>▶</Text>
             <Text style={styles.compactLabel}>{label}</Text>
-            <View style={styles.coinsPill}>
-              <Text style={styles.coinsPillText}>+{coins} 🪙</Text>
-            </View>
+            {coins > 0 && (
+              <View style={styles.coinsPill}>
+                <Text style={styles.coinsPillText}>+{coins} 🪙</Text>
+              </View>
+            )}
           </>
         )}
       </TouchableOpacity>
@@ -69,9 +71,11 @@ export function RewardedAdButton({
         <View style={styles.fullContent}>
           <Text style={styles.fullIcon}>▶</Text>
           <Text style={styles.fullLabel}>{label}</Text>
-          <View style={styles.coinsPill}>
-            <Text style={styles.coinsPillText}>+{coins} 🪙</Text>
-          </View>
+          {coins > 0 && (
+            <View style={styles.coinsPill}>
+              <Text style={styles.coinsPillText}>+{coins} 🪙</Text>
+            </View>
+          )}
         </View>
       )}
     </TouchableOpacity>

@@ -92,11 +92,11 @@ export default function WeightScreen() {
         <Card style={styles.mainCard}>
           <View style={styles.mainRow}>
             <View style={styles.mainLeft}>
-              <Text style={styles.mainLabel}>Peso actual</Text>
-              {stats.current ? (
+              <Text style={styles.mainLabel}>Promedio semanal</Text>
+              {stats.weeklyAverageCurrent ? (
                 <View style={styles.weightRow}>
                   <AnimatedNumber
-                    value={stats.current}
+                    value={stats.weeklyAverageCurrent}
                     style={styles.mainWeight}
                     decimals={1}
                   />
@@ -105,6 +105,15 @@ export default function WeightScreen() {
               ) : (
                 <Text style={styles.mainWeightEmpty}>—</Text>
               )}
+
+              {stats.current ? (
+                <Text style={styles.todayWeightText}>
+                  Hoy: {stats.current.toFixed(1)} kg
+                  {stats.dailyDelta !== null
+                    ? ` (${stats.dailyDelta > 0 ? '+' : ''}${stats.dailyDelta.toFixed(1)} kg)`
+                    : ''}
+                </Text>
+              ) : null}
 
               {stats.isNewMin && (
                 <Animated.View style={[styles.newMinBadge, badgeStyle]}>
@@ -126,6 +135,12 @@ export default function WeightScreen() {
                   </Text>
                 </View>
               )}
+
+              {stats.weeklyDelta !== null ? (
+                <Text style={styles.weeklyDeltaText}>
+                  Cambio semanal: {stats.weeklyDelta > 0 ? '+' : ''}{stats.weeklyDelta.toFixed(1)} kg
+                </Text>
+              ) : null}
             </View>
 
             {stats.goal && (
@@ -137,6 +152,11 @@ export default function WeightScreen() {
                     {stats.toGoal > 0 ? `Faltan ${stats.toGoal} kg` : '¡Alcanzaste la meta!'}
                   </Text>
                 )}
+                {stats.projectedGoalDate ? (
+                  <Text style={styles.projectionDate}>
+                    Proyección: {new Date(stats.projectedGoalDate).toLocaleDateString('es-AR')}
+                  </Text>
+                ) : null}
               </View>
             )}
           </View>
@@ -148,6 +168,12 @@ export default function WeightScreen() {
             style={styles.logBtn}
           />
         </Card>
+
+        {stats.variationContext ? (
+          <Card style={styles.contextCard}>
+            <Text style={styles.contextText}>ℹ️ {stats.variationContext}</Text>
+          </Card>
+        ) : null}
 
         {/* Progreso */}
         {stats.totalLost !== null && Math.abs(stats.totalLost) > 0 && (
@@ -297,6 +323,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
   },
+  weeklyDeltaText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  todayWeightText: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
   goalBox: {
     alignItems: 'center',
     backgroundColor: `${Colors.weight}15`,
@@ -321,8 +357,26 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+  projectionDate: {
+    fontFamily: FontFamily.regular,
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
   logBtn: {
     marginTop: Spacing[2],
+  },
+  contextCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.warning}55`,
+    backgroundColor: `${Colors.warning}12`,
+  },
+  contextText: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
   },
   progressCard: {},
   sectionTitle: {

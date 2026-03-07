@@ -6,6 +6,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import * as TaskManager from 'expo-task-manager';
+import * as BackgroundFetch from 'expo-background-fetch';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -41,12 +43,39 @@ export const PROTOCOLS: Record<string, { label: string; targetHours: number; win
   'custom':{ label: 'Custom',targetHours: 16, windowHours: 8,  description: 'Personalizado' },
 };
 
+export const FASTING_TIMER_TASK = 'FASTING_TIMER_TASK';
+
+if (!TaskManager.isTaskDefined(FASTING_TIMER_TASK)) {
+  TaskManager.defineTask(FASTING_TIMER_TASK, async () => {
+    try {
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    } catch {
+      return BackgroundFetch.BackgroundFetchResult.Failed;
+    }
+  });
+}
+
+async function ensureFastingTaskRegistered() {
+  const registered = await TaskManager.isTaskRegisteredAsync(FASTING_TIMER_TASK);
+  if (registered) return;
+
+  await BackgroundFetch.registerTaskAsync(FASTING_TIMER_TASK, {
+    minimumInterval: 15 * 60,
+    stopOnTerminate: false,
+    startOnBoot: true,
+  });
+}
+
 export function useFasting() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore((s) => s.profile);
   const showToast   = useUIStore((s) => s.showToast);
   const isOnline    = useUIStore((s) => s.isOnline);
   const userId      = profile?.id ?? '';
+
+  useEffect(() => {
+    void ensureFastingTaskRegistered();
+  }, []);
 
   // ─── Timer en vivo ───────────────────────────────────────
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -269,6 +298,9 @@ export function useFasting() {
     completedFasts: completedFasts.length,
     avgHours,
     longestFast,
+    getCurrentPhase: () => currentPhase,
+    endFast: () => completeFast(),
+    getHistory: () => history,
     startFast,
     completeFast,
     abandonFast,

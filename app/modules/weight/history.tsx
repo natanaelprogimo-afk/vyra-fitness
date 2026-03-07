@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  FlatList,
 } from 'react-native';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Header } from '@/components/layout/Header';
@@ -18,7 +17,7 @@ import EmptyState from '@/components/ui/EmptyState';
 
 type Period = 30 | 60 | 90;
 
-export default function WeightHistoryScreen() {
+export default function WeightHistory() {
   const { logs, stats, loading, getChartData, deleteLog } = useWeight();
   const [period, setPeriod] = useState<Period>(30);
 

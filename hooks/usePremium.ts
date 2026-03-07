@@ -1,48 +1,70 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
+import * as Linking from 'expo-linking';
 import { useAuthStore } from '@/stores/authStore';
 import { usePremiumStore } from '@/stores/premiumStore';
-import { getSubscriptionStatus, cancelSubscription, PlanType } from '@/services/backend/paypal';
+import { supabase } from '@/lib/supabase';
+import {
+  getSubscriptionStatus,
+  cancelSubscription,
+  createSubscription,
+  PlanType,
+} from '@/services/backend/paypal';
 import { captureError } from '@/lib/sentry';
 
 export function usePremium() {
   const { profile, updateProfile } = useAuthStore();
   const { setIsPremium } = usePremiumStore();
 
-  const [loading,     setLoading]     = useState(false);
-  const [cancelling,  setCancelling]  = useState(false);
-  const [status,      setStatus]      = useState<{
-    isActive:     boolean;
-    plan:         string | null;
-    expiresAt:    string | null;
-    trialEndsAt:  string | null;
-    isInTrial:    boolean;
+  const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [status, setStatus] = useState<{
+    isActive: boolean;
+    plan: string | null;
+    expiresAt: string | null;
+    trialEndsAt: string | null;
+    isInTrial: boolean;
   } | null>(null);
 
-  // Verificar estado desde el backend (fuente de verdad)
   const checkStatus = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getSubscriptionStatus();
       if (data) {
         setStatus({
-          isActive:    data.isActive,
-          plan:        data.plan,
-          expiresAt:   data.expiresAt,
+          isActive: data.isActive,
+          plan: data.plan,
+          expiresAt: data.expiresAt,
           trialEndsAt: data.trialEndsAt,
-          isInTrial:   data.isInTrial,
+          isInTrial: data.isInTrial,
         });
-        // Sincronizar con store global y perfil
+
         setIsPremium(data.isPremium);
         if (profile?.is_premium !== data.isPremium) {
           await updateProfile({ is_premium: data.isPremium });
         }
       }
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "usePremium.checkStatus" });
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'usePremium.checkStatus' });
     } finally {
       setLoading(false);
     }
   }, [profile?.is_premium, setIsPremium, updateProfile]);
+
+  const startSubscription = useCallback(async (plan: PlanType = 'monthly'): Promise<boolean> => {
+    setStarting(true);
+    try {
+      const data = await createSubscription(plan);
+      if (!data?.approvalUrl) return false;
+      await Linking.openURL(data.approvalUrl);
+      return true;
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'usePremium.startSubscription' });
+      return false;
+    } finally {
+      setStarting(false);
+    }
+  }, []);
 
   const handleCancel = useCallback(async (): Promise<boolean> => {
     setCancelling(true);
@@ -55,10 +77,7 @@ export function usePremium() {
     }
   }, [checkStatus]);
 
-  // El estado isPremium más rápido viene del perfil local (cacheado)
   const isPremium = profile?.is_premium ?? false;
-
-  // Estado del trial
   const isInTrial = status?.isInTrial ?? false;
   const trialDaysLeft = (() => {
     if (!status?.trialEndsAt) return 0;
@@ -68,7 +87,33 @@ export function usePremium() {
 
   useEffect(() => {
     checkStatus();
-  }, []);
+  }, [checkStatus]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`premium-status-${profile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${profile.id}`,
+        },
+        (payload) => {
+          const nextPremium = Boolean((payload.new as any)?.is_premium);
+          setIsPremium(nextPremium);
+          void updateProfile({ is_premium: nextPremium });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [profile?.id, setIsPremium, updateProfile]);
 
   return {
     isPremium,
@@ -76,10 +121,10 @@ export function usePremium() {
     trialDaysLeft,
     status,
     loading,
+    starting,
     cancelling,
+    startSubscription,
     checkStatus,
     handleCancel,
   };
 }
-
-

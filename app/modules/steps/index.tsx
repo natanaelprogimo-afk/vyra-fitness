@@ -24,6 +24,7 @@ export default function StepsScreen() {
   const {
     isAvailable, liveSteps, totalSteps, goal,
     progressPct, distanceKm, calories, remaining,
+    activeSteps, passiveSteps, activeRatio, activityZone,
     isLoading, weeklyData, weeklyAvg, daysMetGoal,
     manualSave,
   } = useSteps();
@@ -104,6 +105,30 @@ export default function StepsScreen() {
           <MetricCard emoji="🎯" label="Restantes" value={remaining > 0 ? `${remaining.toLocaleString('es')}` : '¡Meta!'} color={remaining === 0 ? Colors.success : Colors.textMuted} />
         </View>
 
+        <Card style={[styles.zoneCard, { borderColor: `${activityZone.color}55` }]}>
+          <View style={styles.zoneHeader}>
+            <Text style={styles.zoneTitle}>Zona de actividad</Text>
+            <Text style={[styles.zoneBadge, { backgroundColor: `${activityZone.color}22`, color: activityZone.color }]}>
+              {activityZone.label}
+            </Text>
+          </View>
+          <Text style={styles.zoneRange}>Rango: {activityZone.range} pasos</Text>
+          <View style={styles.splitRow}>
+            <SplitPill
+              label="Activos"
+              value={`${activeSteps.toLocaleString('es')}`}
+              hint={`${activeRatio}%`}
+              color={Colors.steps}
+            />
+            <SplitPill
+              label="Pasivos"
+              value={`${passiveSteps.toLocaleString('es')}`}
+              hint={`${Math.max(0, 100 - activeRatio)}%`}
+              color={Colors.textMuted}
+            />
+          </View>
+        </Card>
+
         {/* Progreso % */}
         {remaining === 0 && (
           <Card style={[styles.goalCard, { borderColor: `${Colors.steps}44` }]}>
@@ -163,7 +188,7 @@ export default function StepsScreen() {
         <View style={styles.statsRow}>
           <StatCard label="Promedio" value={`${weeklyAvg.toLocaleString('es')}`} emoji="📊" />
           <StatCard label="Días con meta" value={`${daysMetGoal}/7`} emoji="🎯" />
-          <StatCard label="Total km" value={`${weeklyData.reduce((s, d) => s + (d.distance_m ?? 0), 0 / 1000).toFixed(1)}`} emoji="📏" />
+          <StatCard label="Total km" value={`${(weeklyData.reduce((s, d) => s + (d.distance_m ?? 0), 0) / 1000).toFixed(1)}`} emoji="📏" />
         </View>
       </ScrollView>
     </SafeScreen>
@@ -190,6 +215,26 @@ function StatCard({ emoji, label, value }: { emoji: string; label: string; value
   );
 }
 
+function SplitPill({
+  label,
+  value,
+  hint,
+  color,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  color: string;
+}) {
+  return (
+    <View style={styles.splitPill}>
+      <Text style={styles.splitLabel}>{label}</Text>
+      <Text style={[styles.splitValue, { color }]}>{value}</Text>
+      <Text style={styles.splitHint}>{hint}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   content: { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
   settingsBtn:  { paddingHorizontal: Spacing[2] },
@@ -207,6 +252,16 @@ const styles = StyleSheet.create({
   metricEmoji:  { fontSize: 20, marginBottom: Spacing[1] },
   metricValue:  { fontFamily: FontFamily.bold, fontSize: FontSize.base },
   metricLabel:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  zoneCard:     { marginBottom: Spacing[4], borderWidth: 1 },
+  zoneHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[1] },
+  zoneTitle:    { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
+  zoneBadge:    { fontFamily: FontFamily.bold, fontSize: FontSize.xs, paddingHorizontal: Spacing[2], paddingVertical: 4, borderRadius: Radius.full },
+  zoneRange:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginBottom: Spacing[3] },
+  splitRow:     { flexDirection: 'row', gap: Spacing[2] },
+  splitPill:    { flex: 1, backgroundColor: Colors.bgElevated, borderRadius: Radius.lg, paddingVertical: Spacing[2], paddingHorizontal: Spacing[3], alignItems: 'center' },
+  splitLabel:   { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.textMuted },
+  splitValue:   { fontFamily: FontFamily.bold, fontSize: FontSize.lg, marginTop: 2 },
+  splitHint:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   goalCard:     { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], marginBottom: Spacing[4], borderWidth: 1, backgroundColor: `${Colors.steps}0A` },
   goalEmoji:    { fontSize: 28 },
   goalText:     { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.steps },

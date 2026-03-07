@@ -28,6 +28,23 @@ const STEP_MILESTONES = [
   { steps: 20000, coins: 20, xp: 200, label: '20.000 pasos' },
 ];
 
+type ActivityZone = {
+  key: 'sedentary' | 'active' | 'very_active';
+  label: string;
+  range: string;
+  color: string;
+};
+
+function getActivityZone(totalSteps: number): ActivityZone {
+  if (totalSteps < 4000) {
+    return { key: 'sedentary', label: 'Sedentario', range: '0-3.999', color: '#EF4444' };
+  }
+  if (totalSteps < 8000) {
+    return { key: 'active', label: 'Activo', range: '4.000-7.999', color: '#F59E0B' };
+  }
+  return { key: 'very_active', label: 'Muy activo', range: '8.000+', color: '#10B981' };
+}
+
 export function useSteps() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore((s) => s.profile);
@@ -43,6 +60,11 @@ export function useSteps() {
   const [sessionStart, setSessionStart] = useState<Date | null>(null);
   const milestoneHitRef = useRef<Set<number>>(new Set());
   const subscriptionRef = useRef<{ remove: () => void } | null>(null);
+  const activeLiveRef = useRef(0);
+  const passiveLiveRef = useRef(0);
+  const lastTickMsRef = useRef<number | null>(null);
+  const lastReportedStepsRef = useRef(0);
+  const cadenceRef = useRef(0);
 
   // ─── Datos del día desde Supabase ────────────────────────
   const { data: todayLog, isLoading, refetch } = useQuery({
@@ -62,7 +84,15 @@ export function useSteps() {
   });
 
   const savedSteps  = todayLog?.steps ?? 0;
+  const savedActiveSteps = Math.min(savedSteps, Math.max(0, (todayLog?.active_minutes ?? 0) * 100));
+  const savedPassiveSteps = Math.max(0, savedSteps - savedActiveSteps);
   const totalSteps  = savedSteps + liveSteps;
+  const knownLiveSplit = activeLiveRef.current + passiveLiveRef.current;
+  const unknownLive = Math.max(0, liveSteps - knownLiveSplit);
+  const activeSteps = savedActiveSteps + activeLiveRef.current;
+  const passiveSteps = savedPassiveSteps + passiveLiveRef.current + unknownLive;
+  const activityZone = getActivityZone(totalSteps);
+  const activeRatio = totalSteps > 0 ? Math.round((activeSteps / totalSteps) * 100) : 0;
   const progressPct = Math.min(100, (totalSteps / goal) * 100);
   const distanceKm  = metersToKm(calculateStepsDistance(totalSteps, height));
   const calories    = calculateStepsCalories(totalSteps, weight);
@@ -92,6 +122,12 @@ export function useSteps() {
       setIsAvailable(available);
       if (!available) return;
 
+      activeLiveRef.current = 0;
+      passiveLiveRef.current = 0;
+      lastTickMsRef.current = null;
+      lastReportedStepsRef.current = 0;
+      cadenceRef.current = 0;
+
       // Pasos acumulados desde las 00:00 (nativo)
       const dayStart = new Date();
       dayStart.setHours(0, 0, 0, 0);
@@ -107,8 +143,25 @@ export function useSteps() {
 
       setSessionStart(new Date());
       subscriptionRef.current = Pedometer.watchStepCount((result) => {
+        const reported = Math.max(0, result.steps ?? 0);
+        const delta = reported >= lastReportedStepsRef.current
+          ? reported - lastReportedStepsRef.current
+          : reported;
+        lastReportedStepsRef.current = reported;
+        if (delta <= 0) return;
+
+        const now = Date.now();
+        const prev = lastTickMsRef.current;
+        const deltaMin = prev ? Math.max((now - prev) / 60000, 1 / 60) : 1;
+        lastTickMsRef.current = now;
+        const cadence = delta / deltaMin;
+        cadenceRef.current = cadence;
+
+        if (cadence >= 80) activeLiveRef.current += delta;
+        else passiveLiveRef.current += delta;
+
         setLiveSteps((prev) => {
-          const next = prev + result.steps;
+          const next = prev + delta;
           checkMilestones(savedSteps + next);
           return next;
         });
@@ -121,6 +174,14 @@ export function useSteps() {
       subscriptionRef.current?.remove();
     };
   }, [savedSteps]);
+
+  useEffect(() => {
+    activeLiveRef.current = 0;
+    passiveLiveRef.current = 0;
+    lastTickMsRef.current = null;
+    lastReportedStepsRef.current = 0;
+    cadenceRef.current = 0;
+  }, [userId, todayLog?.logged_date]);
 
   // ─── Guardar en background ────────────────────────────────
   useEffect(() => {
@@ -135,12 +196,14 @@ export function useSteps() {
   const _saveSteps = async (total: number) => {
     if (!userId || total === 0) return;
     try {
+      const activeTotal = Math.min(total, savedActiveSteps + activeLiveRef.current);
+      const activeMinutes = Math.round(activeTotal / 100);
       await supabase.from('step_logs').upsert({
         user_id:        userId,
         steps:          total,
         distance_m:     calculateStepsDistance(total, height),
         calories:       calculateStepsCalories(total, weight),
-        active_minutes: Math.round(total / 100),
+        active_minutes: activeMinutes,
         source:         'sensor',
         logged_date:    todayISO(),
       }, { onConflict: 'user_id,logged_date' });
@@ -157,6 +220,10 @@ export function useSteps() {
     if (liveSteps === 0 && savedSteps === 0) return;
     await _saveSteps(savedSteps + liveSteps);
     setLiveSteps(0);
+    activeLiveRef.current = 0;
+    passiveLiveRef.current = 0;
+    lastTickMsRef.current = null;
+    lastReportedStepsRef.current = 0;
     showToast(`Pasos guardados: ${(savedSteps + liveSteps).toLocaleString('es')}`, 'success');
     trackLogCreated('steps', 'sensor', Date.now());
   }, [liveSteps, savedSteps]);
@@ -186,6 +253,8 @@ export function useSteps() {
   return {
     isAvailable, liveSteps, savedSteps, totalSteps,
     goal, progressPct, distanceKm, calories, remaining,
+    activeSteps, passiveSteps, activeRatio, activityZone,
+    cadence: cadenceRef.current,
     sessionStart, isLoading, weeklyData,
     weeklyAvg, bestDaySteps, daysMetGoal,
     manualSave, refetch,

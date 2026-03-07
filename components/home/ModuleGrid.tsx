@@ -49,7 +49,9 @@ export const ModuleGrid = ({ progress = {} }: ModuleGridProps) => {
 };
 
 function ModuleCell({ id, progress }: { id: ModuleId; progress: ModuleProgress }) {
-  const cfg   = Modules[id];
+  const found = Modules.find(m => m.id === id);
+  const cfg = found ?? { id, name: id, emoji: '❓', color: Colors.brand, route: '/' };
+  const cfgColorBg = `${cfg.color}22`;
   const scale = useSharedValue(1);
   const anim  = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
@@ -71,7 +73,7 @@ function ModuleCell({ id, progress }: { id: ModuleId; progress: ModuleProgress }
         <View style={styles.cellHeader}>
           <Text style={styles.cellEmoji}>{cfg.emoji}</Text>
           {badge !== null && (
-            <View style={[styles.cellBadge, { backgroundColor: cfg.colorBg }]}>
+            <View style={[styles.cellBadge, { backgroundColor: cfgColorBg }]}>
               <Text style={[styles.cellBadgeText, { color: cfg.color }]}>{badge}</Text>
             </View>
           )}

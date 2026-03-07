@@ -94,3 +94,5 @@ export function WeightMiniChart({ data, color }: WeightMiniChartProps) {
     </View>
   );
 }
+
+export default WeightMiniChart;

@@ -101,8 +101,7 @@ export default function SupplementsScreen() {
         <View style={styles.disclaimer}>
           <Text style={styles.disclaimerIcon}>⚕️</Text>
           <Text style={styles.disclaimerText}>
-            Esta app no recomienda dosis ni combinaciones de suplementos.
-            Consultá a un profesional de salud antes de cambiar tu protocolo.
+            Esta app no recomienda dosis ni combinaciones. Consultá a un profesional de salud.
           </Text>
         </View>
 

@@ -166,7 +166,7 @@ export function useModuleRewards() {
         if (config.xp > 0 && profile?.id) {
           await supabase.rpc('increment_xp', {
             p_user_id: profile.id,
-            p_xp:      config.xp,
+            p_xp_amount:      config.xp,
           });
         }
 

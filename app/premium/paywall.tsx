@@ -55,7 +55,7 @@ export default function PaywallScreen() {
   const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
 
-  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+  const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
   // Animación del plan seleccionado
   const monthlyScale = useSharedValue(selectedPlan === 'monthly' ? 1.02 : 1);

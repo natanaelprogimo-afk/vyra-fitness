@@ -10,6 +10,7 @@ export { useOnboarding } from './useOnboarding';
 // Core Modules
 export { useWater } from './useWater';
 export { useSteps } from './useSteps';
+export { usePedometer } from './usePedometer';
 export { useNutrition } from './useNutrition';
 export { useBarcodeScan } from './useBarcodeScan';
 export { useFasting } from './useFasting';
@@ -39,4 +40,5 @@ export { useAds } from './useAds';
 // System
 export { useNotifications } from './useNotifications';
 export { useSync } from './useSync';
+export { useOfflineSync } from './useOfflineSync';
 // export { useVoiceLog } from './useVoiceLog'; // @react-native-community/voice unpublished from npm - disabled

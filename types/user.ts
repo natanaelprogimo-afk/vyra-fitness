@@ -34,6 +34,7 @@ export interface OnboardingData {
   step_goal: number;
   sleep_goal_hours?: number;
   equipment?: string;
+  active_modules?: string[];
   wake_time_minutes?: number;
   sleep_time_minutes?: number;
   fasting_protocol?: string | null;
@@ -51,23 +52,25 @@ export interface UserProfile {
   avatar_url: string | null;
 
   // Datos corporales
-  height_cm: number;
-  weight_start_kg: number;
+  height_cm: number | null;
+  weight_start_kg: number | null;
   weight_goal_kg: number | null;
-  biological_sex: BiologicalSex;
-  birth_year: number;
+  gender: BiologicalSex;
+  dob: string | null;
+  biological_sex?: BiologicalSex; // alias legacy
+  birth_year?: number;            // alias legacy
 
   // Objetivos y actividad
-  goal: UserGoal;
-  primary_goal?: UserGoal;  // Alias for goal or overrides
+  goal: UserGoal;            // alias legacy, mantener por compatibilidad UI
+  primary_goal: UserGoal;
   activity_level: ActivityLevel;
-  tdee: number | null;
-  calorie_goal?: number | null;  // User's calorie target
+  calorie_goal: number | null;
+  tdee?: number | null;          // alias legacy
 
   // Metas diarias
-  water_goal_ml: number;
-  step_goal: number;
-  sleep_goal_hours: number;
+  water_goal_ml: number | null;
+  step_goal: number | null;
+  sleep_goal_hours: number | null;
 
   // ─── BUG 3 FIX ────────────────────────────────────────────────────────────
   fasting_protocol: string | null; // e.g. '16_8', '18_6', 'omad', 'custom'
@@ -80,22 +83,26 @@ export interface UserProfile {
   // Premium
   is_premium: boolean;
   premium_expires_at: string | null;
-  paypal_subscription_id: string | null;
+  paypal_subscription_id?: string | null;
 
   // Gamificación
   coins: number;
   xp: number;
   level: number;
-  current_streak: number;
-  longest_streak: number;
+  streak: number;
+  best_streak: number;
+  current_streak?: number; // alias legacy
+  longest_streak?: number; // alias legacy
 
   // Notificaciones
-  push_token: string | null;
+  push_token?: string | null; // alias legacy (hoy se guarda en coach_memory_json)
 
   // Features opcionales
   female_health_enabled: boolean;
-  coach_name_preference: string;
+  coach_name_preference: string | null;
+  coach_memory_json?: Record<string, unknown> | null;
   onboarding_completed: boolean;
+  first_week_completed: boolean;
 
   // Timestamps
   created_at: string;
@@ -110,6 +117,8 @@ export type CreateProfilePayload = Omit<
   | 'coins'
   | 'xp'
   | 'level'
+  | 'streak'
+  | 'best_streak'
   | 'current_streak'
   | 'longest_streak'
   | 'push_token'

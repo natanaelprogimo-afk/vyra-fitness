@@ -22,6 +22,12 @@ export interface WeightStats {
   toGoal: number | null;
   trend: 'down' | 'up' | 'stable' | null;
   isNewMin: boolean;
+  weeklyAverageCurrent: number | null;
+  weeklyAveragePrevious: number | null;
+  weeklyDelta: number | null;
+  dailyDelta: number | null;
+  variationContext: string | null;
+  projectedGoalDate: string | null;
 }
 
 export function useWeight() {
@@ -41,6 +47,12 @@ export function useWeight() {
     toGoal: null,
     trend: null,
     isNewMin: false,
+    weeklyAverageCurrent: null,
+    weeklyAveragePrevious: null,
+    weeklyDelta: null,
+    dailyDelta: null,
+    variationContext: null,
+    projectedGoalDate: null,
   });
 
   const fetchLogs = useCallback(async () => {
@@ -71,6 +83,25 @@ export function useWeight() {
     const startKg = profile.weight_start_kg ?? null;
 
     const current = data[0]?.weight_kg ?? null;
+    const previous = data[1]?.weight_kg ?? null;
+    const dailyDelta =
+      current !== null && previous !== null
+        ? Math.round((current - previous) * 10) / 10
+        : null;
+
+    const currentWeekValues = data.slice(0, 7).map((item) => item.weight_kg);
+    const previousWeekValues = data.slice(7, 14).map((item) => item.weight_kg);
+    const weeklyAverageCurrent = currentWeekValues.length
+      ? Math.round((currentWeekValues.reduce((sum, val) => sum + val, 0) / currentWeekValues.length) * 10) / 10
+      : current;
+    const weeklyAveragePrevious = previousWeekValues.length
+      ? Math.round((previousWeekValues.reduce((sum, val) => sum + val, 0) / previousWeekValues.length) * 10) / 10
+      : null;
+    const weeklyDelta =
+      weeklyAverageCurrent !== null && weeklyAveragePrevious !== null
+        ? Math.round((weeklyAverageCurrent - weeklyAveragePrevious) * 10) / 10
+        : null;
+
     const bmi = current ? Math.round((current / (heightM * heightM)) * 10) / 10 : null;
     const bmiCategory = bmi ? getBmiCategory(bmi) : '';
 
@@ -79,19 +110,33 @@ export function useWeight() {
     const toGoal =
       goalKg && current ? Math.round((current - goalKg) * 10) / 10 : null;
 
-    // Tendencia: comparar último vs promedio de los 7 anteriores
+    // Tendencia semanal como default (menos ruido que el peso diario)
     let trend: WeightStats['trend'] = null;
-    if (data.length >= 3) {
-      const recent = data.slice(0, 3).reduce((a, b) => a + b.weight_kg, 0) / 3;
-      const older = data.slice(3, 8);
-      if (older.length > 0) {
-        const olderAvg = older.reduce((a, b) => a + b.weight_kg, 0) / older.length;
-        const diff = recent - olderAvg;
-        if (diff < -0.2) trend = 'down';
-        else if (diff > 0.2) trend = 'up';
-        else trend = 'stable';
+    if (weeklyDelta !== null) {
+      if (weeklyDelta < -0.2) trend = 'down';
+      else if (weeklyDelta > 0.2) trend = 'up';
+      else trend = 'stable';
+    }
+
+    let variationContext: string | null = null;
+    if (dailyDelta !== null && Math.abs(dailyDelta) <= 1.2) {
+      if (dailyDelta > 0.3) {
+        variationContext =
+          'La subida diaria puede ser agua o digestión. Mirá el promedio semanal para evaluar progreso real.';
+      } else if (dailyDelta < -0.3) {
+        variationContext =
+          'La baja diaria es positiva, pero seguí enfocándote en la tendencia semanal para evitar ansiedad.';
+      } else {
+        variationContext = 'Variación diaria normal. Tu progreso real se mide mejor por promedio semanal.';
       }
     }
+
+    const referenceForProjection = weeklyAverageCurrent ?? current;
+    const projectedGoalDate = calculateProjectedGoalDate({
+      goalKg,
+      currentKg: referenceForProjection,
+      weeklyDelta,
+    });
 
     // Nuevo mínimo histórico
     const allWeights = data.map((l) => l.weight_kg);
@@ -110,6 +155,12 @@ export function useWeight() {
       toGoal,
       trend,
       isNewMin,
+      weeklyAverageCurrent,
+      weeklyAveragePrevious,
+      weeklyDelta,
+      dailyDelta,
+      variationContext,
+      projectedGoalDate,
     });
   }
 
@@ -186,25 +237,14 @@ export function useWeight() {
 
   // Proyección IA (cálculo simple de tendencia)
   function getProjectionWeeks(): number | null {
-    if (!stats.goal || !stats.current || stats.trend !== 'down') return null;
-    if (logs.length < 5) return null;
+    if (!stats.weeklyDelta || stats.weeklyDelta === 0 || !stats.toGoal) return null;
+    if ((stats.toGoal > 0 && stats.weeklyDelta >= 0) || (stats.toGoal < 0 && stats.weeklyDelta <= 0)) {
+      return null;
+    }
 
-    const recent5 = logs.slice(0, 5);
-    const oldest = recent5[recent5.length - 1];
-    const newest = recent5[0];
-    const daysDiff =
-      (new Date(newest.logged_at).getTime() - new Date(oldest.logged_at).getTime()) /
-      (1000 * 60 * 60 * 24);
-    if (daysDiff === 0) return null;
-
-    const kgPerDay = (oldest.weight_kg - newest.weight_kg) / daysDiff;
-    if (kgPerDay <= 0) return null;
-
-    const remaining = newest.weight_kg - stats.goal;
-    if (remaining <= 0) return 0;
-
-    const daysNeeded = remaining / kgPerDay;
-    return Math.round(daysNeeded / 7);
+    const weeks = Math.abs(stats.toGoal / stats.weeklyDelta);
+    if (!Number.isFinite(weeks)) return null;
+    return Math.max(0, Math.round(weeks));
   }
 
   useEffect(() => {
@@ -217,6 +257,9 @@ export function useWeight() {
     loading,
     saving,
     logWeight,
+    getBMI: () => stats.bmi,
+    isNewHistoricalMinimum: () => stats.isNewMin,
+    getHistory: () => logs,
     deleteLog,
     getChartData,
     getProjectionWeeks,
@@ -231,4 +274,27 @@ function getBmiCategory(bmi: number): string {
   return 'Obesidad';
 }
 
+function calculateProjectedGoalDate({
+  goalKg,
+  currentKg,
+  weeklyDelta,
+}: {
+  goalKg: number | null;
+  currentKg: number | null;
+  weeklyDelta: number | null;
+}): string | null {
+  if (goalKg === null || currentKg === null || weeklyDelta === null || weeklyDelta === 0) return null;
 
+  const diffToGoal = currentKg - goalKg;
+  if (diffToGoal === 0) return new Date().toISOString();
+
+  // Para bajar peso necesitamos delta semanal negativa; para subir, positiva.
+  if ((diffToGoal > 0 && weeklyDelta >= 0) || (diffToGoal < 0 && weeklyDelta <= 0)) return null;
+
+  const weeks = Math.abs(diffToGoal / weeklyDelta);
+  if (!Number.isFinite(weeks) || weeks <= 0) return null;
+
+  const projected = new Date();
+  projected.setDate(projected.getDate() + Math.round(weeks * 7));
+  return projected.toISOString();
+}

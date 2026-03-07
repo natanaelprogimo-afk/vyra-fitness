@@ -3,18 +3,38 @@
 // Wrapper tipado con todos los eventos de la app
 // ============================================================
 
-// PostHog not installed - analytics disabled
-type PostHog = any;
+// ============================================================
+// VYRA FITNESS — Analytics (PostHog)
+// Wrapper tipado con todos los eventos de la app
+// ============================================================
+
+type PostHogClient = any;
 
 const POSTHOG_KEY = process.env.EXPO_PUBLIC_POSTHOG_KEY ?? '';
-const POSTHOG_HOST = 'https://app.posthog.com';
+const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://app.posthog.com';
 
-// Singleton — inicializar una sola vez
-let _client: PostHog | null = null;
+let _client: PostHogClient | null = null;
 
-export function getAnalytics(): PostHog | null {
-  // Analytics disabled - PostHog module not available
-  return null;
+export function getAnalytics(): PostHogClient | null {
+  if (_client) return _client;
+  if (!POSTHOG_KEY) return null;
+
+  try {
+    // Dynamically require the native PostHog client so the module is optional
+    // in non-native environments (web/tests).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PostHog } = require('posthog-react-native');
+    _client = new PostHog(POSTHOG_KEY, { apiHost: POSTHOG_HOST });
+    return _client;
+  } catch (err) {
+    // If the native module isn't available, gracefully disable analytics.
+    _client = null;
+    return null;
+  }
+}
+
+export function initAnalytics(): PostHogClient | null {
+  return getAnalytics();
 }
 
 // ─── Identificación de usuario ───────────────────────────────

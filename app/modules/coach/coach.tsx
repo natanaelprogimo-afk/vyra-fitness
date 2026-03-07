@@ -77,7 +77,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 // ─── Pantalla principal ───────────────────────────────────
 export default function CoachScreen() {
   const {
-    messages, isLoadingHistory, isSending, isTyping,
+    messages, isLoading, isSending, isTyping,
     isPremium, coachName, suggestedPrompts,
     sendMessage, clearHistory,
   } = useCoach();
@@ -171,7 +171,7 @@ export default function CoachScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {/* Mensaje de bienvenida */}
-          {messages.length === 0 && !isLoadingHistory && (
+          {messages.length === 0 && !isLoading && (
             <View style={styles.welcome}>
               <Text style={styles.welcomeEmoji}>👋</Text>
               <Text style={styles.welcomeTitle}>¡Hola, {profile?.name ?? 'atleta'}!</Text>

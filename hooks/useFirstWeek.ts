@@ -88,10 +88,19 @@ interface UseFirstWeekReturn {
   isLoading:            boolean;
 }
 
+function parseCompletedDaysFromCoachMemory(memory: unknown): boolean[] {
+  if (!memory || typeof memory !== 'object') return Array(7).fill(false);
+  const raw = (memory as any).first_week_completed_days;
+  if (!Array.isArray(raw)) return Array(7).fill(false);
+  const normalized = raw.map((item) => Boolean(item)).slice(0, 7);
+  while (normalized.length < 7) normalized.push(false);
+  return normalized;
+}
+
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 
 export function useFirstWeek(): UseFirstWeekReturn {
-  const { profile }   = useAuthStore();
+  const { profile, updateProfile } = useAuthStore();
   const { addCoins }  = useCoins();
   const { tryUnlock } = useBadges();
 
@@ -120,13 +129,14 @@ export function useFirstWeek(): UseFirstWeekReturn {
       try {
         const { data } = await supabase
           .from('profiles')
-          .select('first_week_completed_json')
+          .select('first_week_completed, coach_memory_json')
           .eq('id', profile!.id)
           .single();
 
-        if (data?.first_week_completed_json) {
-          const parsed: boolean[] = JSON.parse(data.first_week_completed_json);
-          setCompletedDays(parsed.length === 7 ? parsed : Array(7).fill(false));
+        if (data?.first_week_completed) {
+          setCompletedDays(Array(7).fill(true));
+        } else {
+          setCompletedDays(parseCompletedDaysFromCoachMemory(data?.coach_memory_json));
         }
       } catch {
         // silencioso — usa el estado default
@@ -155,13 +165,38 @@ export function useFirstWeek(): UseFirstWeekReturn {
       setCompletedDays(newCompleted);
 
       try {
+        const { data: profileSnapshot } = await supabase
+          .from('profiles')
+          .select('coach_memory_json')
+          .eq('id', profile.id)
+          .single();
+
+        const memory =
+          profileSnapshot?.coach_memory_json && typeof profileSnapshot.coach_memory_json === 'object'
+            ? (profileSnapshot.coach_memory_json as Record<string, unknown>)
+            : {};
+
+        const allCompleted = newCompleted.every(Boolean);
+
         // Guardar en Supabase
         await supabase
           .from('profiles')
           .update({
-            first_week_completed_json: JSON.stringify(newCompleted),
+            coach_memory_json: {
+              ...memory,
+              first_week_completed_days: newCompleted,
+            },
+            first_week_completed: allCompleted,
           })
           .eq('id', profile.id);
+
+        updateProfile({
+          coach_memory_json: {
+            ...memory,
+            first_week_completed_days: newCompleted,
+          },
+          first_week_completed: allCompleted,
+        } as any);
 
         // Dar recompensas
         await addCoins(task.coinReward, 'earn_onboarding', `Día ${day} primera semana`);

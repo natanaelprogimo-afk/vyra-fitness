@@ -4,7 +4,7 @@
 // totales diarios de macros, búsqueda de alimentos, historial
 // ============================================================
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -68,6 +68,7 @@ export function useNutrition() {
   const showToast   = useUIStore(s => s.showToast);
   const isOnline    = useUIStore(s => s.isOnline);
   const userId      = profile?.id ?? '';
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const calorieGoal = profile?.calorie_goal ?? 2000;
   const macroGoals  = calculateMacros(calorieGoal, (profile?.goal as any) ?? 'health');
@@ -149,13 +150,23 @@ export function useNutrition() {
   // ─── Buscar alimentos ─────────────────────────────────────
   const searchFoods = useCallback(async (query: string): Promise<FoodItem[]> => {
     if (!query.trim() || query.length < 2) return [];
-    const { data } = await supabase
-      .from('foods')
-      .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
-      .or(`is_global.eq.true,created_by.eq.${userId}`)
-      .ilike('name', `%${query.trim()}%`)
-      .limit(20);
-    return data ?? [];
+
+    return new Promise((resolve) => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+
+      searchDebounceRef.current = setTimeout(async () => {
+        const { data } = await supabase
+          .from('foods')
+          .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
+          .or(`is_global.eq.true,created_by.eq.${userId}`)
+          .ilike('name', `%${query.trim()}%`)
+          .limit(20);
+
+        resolve(data ?? []);
+      }, 300);
+    });
   }, [userId]);
 
   // ─── Buscar por código de barras (Open Food Facts API) ────
@@ -250,15 +261,38 @@ export function useNutrition() {
     },
   });
 
+  const checkBarcodeLimit = useCallback(async () => {
+    if (!userId) return { allowed: false, remaining: 0, limit: 5 };
+    if (profile?.is_premium) return { allowed: true, remaining: Infinity, limit: Infinity };
+
+    const { count } = await supabase
+      .from('meals')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('source', 'barcode')
+      .gte('logged_at', `${todayISO()}T00:00:00`)
+      .lte('logged_at', `${todayISO()}T23:59:59`);
+
+    const used = count ?? 0;
+    const remaining = Math.max(0, 5 - used);
+    return {
+      allowed: remaining > 0,
+      remaining,
+      limit: 5,
+    };
+  }, [profile?.is_premium, userId]);
+
   return {
     todayMeals, mealsByType, hasEaten,
     totals, caloriePct, remaining,
     calorieGoal, macroGoals,
     weeklyData,
     isLoading, isLogging,
+    addMeal: (input: LogMealInput) => logMeal(input),
+    getDailyMacros: () => ({ ...totals }),
+    checkBarcodeLimit,
     logMeal, deleteMeal,
     searchFoods, searchByBarcode, refetch,
   };
 }
-
 

@@ -11,6 +11,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { database } from '@/database/watermelon';
+import { writeLocalAndSync } from '@/database';
+import initSyncService from '@/services/sync';
 import { captureError } from '@/lib/sentry';
 import { todayISO } from '@/utils/dates';
 import { calculateHydrationEquivalent } from '@/utils/calculations';
@@ -124,16 +126,9 @@ export function useWater() {
         if (error) throw error;
         return data.id;
       } else {
-        // Offline: escribir en WatermelonDB
-        const id = `${userId}_${Date.now()}`;
-        await database.write(async () => {
-          const table = database.get('water_logs');
-          await table.create((log: any) => {
-            Object.assign(log, payload);
-            (log as any).id = id;
-          });
-        });
-        return id;
+        // Offline: escribir local + encolar sync (writeLocalAndSync usa DB y cola)
+        const localId = await writeLocalAndSync('water_logs', payload, userId);
+        return localId;
       }
     },
 
@@ -224,6 +219,11 @@ export function useWater() {
   // Agrupar historial por día para el gráfico
   const weeklyData = groupByDay(history, 7);
 
+  useEffect(() => {
+    // Start background sync service (idempotent)
+    try { initSyncService(); } catch (_) { /* ignore */ }
+  }, []);
+
   return {
     logs,
     totalMl,
@@ -237,6 +237,10 @@ export function useWater() {
     isLoading,
     isLogging,
     isDeleting,
+    addWaterLog: (amount_ml: number, drink_type: DrinkTypeId = 'water') =>
+      logWater({ amountMl: amount_ml, drinkType: drink_type }),
+    getDailyTotal: () => totalHydro,
+    getWeeklyHistory: () => weeklyData,
     logWater:   (amountMl: number, drinkType?: DrinkTypeId) => logWater({ amountMl, drinkType }),
     deleteLog,
     refetch,

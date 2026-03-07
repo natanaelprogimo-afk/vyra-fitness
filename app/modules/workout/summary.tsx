@@ -18,6 +18,7 @@ import LottieView from 'lottie-react-native';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
+import { RewardedAdButton } from '@/components/ui/RewardedAdButton';
 import { Colors } from '@/constants/colors';
 import { Spacing, Radius, FontFamily } from '@/constants/theme';
 
@@ -121,6 +122,13 @@ export default function WorkoutSummaryScreen() {
             <Text style={styles.coinsText}>+{prs * 50} 🪙 por récords personales</Text>
           )}
         </View>
+
+        <RewardedAdButton
+          context="post_workout_2x_xp"
+          label="Ver anuncio para x2 XP"
+          coins={0}
+          onReward={() => {}}
+        />
 
         {/* Botones */}
         <View style={styles.actions}>

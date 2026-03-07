@@ -370,6 +370,9 @@ export function useWorkout() {
     saving,
     startSession,
     addSet,
+    completeSession: finishSession,
+    getExercisePR: getPersonalRecord,
+    getHistory: () => history,
     finishSession,
     cancelSession,
     getPersonalRecord,
@@ -387,5 +390,4 @@ export interface WorkoutSummaryData {
   prs: WorkoutSet[];
   musclesWorked: string[];
 }
-
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
+import { addCoins as addCoinsService } from '@/services/supabase/profiles';
 
 export interface CoinTransaction {
   id:          string;
@@ -48,21 +49,18 @@ export function useCoins() {
     ): Promise<{ newBalance: number; capReached: boolean }> => {
       if (!userId) return { newBalance: balance, capReached: false };
       try {
-        const { data, error } = await supabase.rpc('increment_coins', {
-          p_user_id:     userId,
-          p_amount:      amount,
-          p_type:        type,
-          p_description: description,
-        });
+        const parsedBalance = await addCoinsService(userId, amount, type, description);
+        if (parsedBalance === null) {
+          throw new Error('No se pudo actualizar el balance de coins');
+        }
 
-        if (error) throw error;
+        const awarded = Math.max(0, parsedBalance - balance);
+        const capReached = amount > 0 && awarded < amount;
 
-        const result = data as { new_balance: number; cap_reached: boolean };
-        // Actualizar perfil local
-        await updateProfile({ coins: result.new_balance });
+        await updateProfile({ coins: parsedBalance });
         return {
-          newBalance: result.new_balance,
-          capReached: result.cap_reached,
+          newBalance: parsedBalance,
+          capReached,
         };
       } catch (err) {
         captureError(err instanceof Error ? err : new Error(String(err)), { action: "useCoins.addCoins" });
@@ -80,15 +78,25 @@ export function useCoins() {
     ): Promise<boolean> => {
       if (!userId || balance < amount) return false;
       try {
+        const itemId = description
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'store_item';
+
         const { data, error } = await supabase.rpc('purchase_store_item', {
-          p_user_id:     userId,
-          p_amount:      amount,
-          p_description: description,
+          p_user_id: userId,
+          p_item_id: itemId,
+          p_item_type: 'boosts',
+          p_coins_cost: amount,
+          p_expires_at: null,
         });
         if (error) throw error;
-        const result = data as { success: boolean; new_balance: number };
-        if (result.success) {
-          await updateProfile({ coins: result.new_balance });
+        const result = (Array.isArray(data) ? data[0] : data) as { success?: boolean; new_balance?: number } | null;
+        if (result?.success) {
+          const nextBalance = typeof result.new_balance === 'number'
+            ? result.new_balance
+            : Math.max(0, balance - amount);
+          await updateProfile({ coins: nextBalance });
           return true;
         }
         return false;
@@ -119,11 +127,11 @@ export function useCoins() {
     balance,
     transactions,
     loading,
+    getBalance: () => balance,
+    earnCoins: addCoins,
     addCoins,
     spendCoins,
     getCoinStats,
     refresh: fetchTransactions,
   };
 }
-
-

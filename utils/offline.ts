@@ -35,4 +35,41 @@ export function resolveConflict<T extends { updated_at?: string; logged_at?: str
   return getTs(local) >= getTs(remote) ? local : remote;
 }
 
-// TODO (F7): implementar WatermelonDB schemas y sync engine completo
+// Simple offline queue utilities (lightweight placeholders for F7)
+const syncQueue: SyncQueueItem[] = [];
+
+export function enqueueSync(item: SyncQueueItem) {
+  item.retries = item.retries ?? 0;
+  item.createdAt = item.createdAt ?? new Date().toISOString();
+  syncQueue.push(item);
+}
+
+export function peekQueue(): SyncQueueItem | null {
+  return syncQueue.length > 0 ? syncQueue[0] : null;
+}
+
+export async function processQueueOnce(sendFunc: (item: SyncQueueItem) => Promise<boolean>) {
+  if (syncQueue.length === 0) return;
+  const item = syncQueue[0];
+  try {
+    const ok = await sendFunc(item);
+    if (ok) {
+      syncQueue.shift();
+    } else {
+      item.retries = (item.retries ?? 0) + 1;
+      // backoff or move to dead-letter after N retries — keep simple here
+      if (item.retries > 3) syncQueue.shift();
+    }
+  } catch {
+    item.retries = (item.retries ?? 0) + 1;
+    if (item.retries > 3) syncQueue.shift();
+  }
+}
+
+export function drainQueue() {
+  return syncQueue.splice(0, syncQueue.length);
+}
+
+// Note: This is a minimal placeholder implementation. A complete F7 implementation
+// should integrate WatermelonDB local writes, change tracking, conflict resolution,
+// batched sync with headers and JWT, and exponential backoff.

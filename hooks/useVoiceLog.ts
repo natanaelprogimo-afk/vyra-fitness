@@ -17,7 +17,7 @@ export function useVoiceLog() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<any[]>([]);
   const recordingRef = useRef<Audio.Recording | null>(null);
-  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+  const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
   const startRecording = async () => {
     try {

@@ -109,7 +109,7 @@ export function useBadges() {
         await addCoins(badge.coins, 'badge_unlock', `Badge: ${badge.name}`);
         await supabase.rpc('increment_xp', {
           p_user_id: userId,
-          p_xp:      badge.xp,
+          p_xp_amount:      badge.xp,
         });
 
         setNewlyUnlocked(badge);

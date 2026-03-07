@@ -218,6 +218,8 @@ export function useSupplements() {
     todayLogs,
     loading,
     saving,
+    getActive: () => supplements.filter((s) => s.active),
+    logTaken: markTaken,
     markTaken,
     unmarkTaken,
     addSupplement,
@@ -227,5 +229,4 @@ export function useSupplements() {
     refresh: () => Promise.all([fetchSupplements(), fetchTodayLogs()]),
   };
 }
-
 
