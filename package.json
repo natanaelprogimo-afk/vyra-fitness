@@ -65,13 +65,16 @@
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
+        "listUnknownPackages": false,
         "exclude": [
           "@nozbe/watermelondb",
           "@react-native-community/voice",
           "posthog-js",
           "react-native-voice",
           "expo-av",
-          "@nozbe/simdjson"
+          "@nozbe/simdjson",
+          "react-native-sqlite-storage",
+          "react-native-unity-ads"
         ]
       }
     }
