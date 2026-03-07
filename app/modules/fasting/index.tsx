@@ -25,7 +25,7 @@ export default function FastingScreen() {
     elapsedSeconds, elapsedHours, progressPct,
     currentPhase, nextPhase, nextPhaseIn,
     isLoading, isStarting, isCompleting,
-    history, completedFasts, avgHours, longestFast,
+    history, completedFasts, avgHours, longestFast, fastingWeightCorrelation, protocolSuggestion, dailyAdaptiveSuggestion, cycleAwareNotice,
     startFast, completeFast, abandonFast,
   } = useFasting();
 
@@ -51,7 +51,22 @@ export default function FastingScreen() {
       `Llevas ${formatFastingTimeShort(elapsedSeconds)} de ayuno. ¿Seguro que querés cancelar?`,
       [
         { text: 'Seguir ayunando', style: 'cancel' },
-        { text: 'Cancelar ayuno', style: 'destructive', onPress: () => abandonFast() },
+        {
+          text: 'Cancelar ayuno',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Motivo de ruptura',
+              'Seleccioná el motivo principal para personalizar tu coach.',
+              [
+                { text: 'Hambre física', onPress: () => abandonFast('hambre_fisica') },
+                { text: 'Estrés/ansiedad', onPress: () => abandonFast('hambre_emocional') },
+                { text: 'Compromiso social', onPress: () => abandonFast('compromiso_social') },
+                { text: 'Sin especificar', onPress: () => abandonFast('sin_especificar') },
+              ],
+            );
+          },
+        },
       ]
     );
   };
@@ -100,8 +115,33 @@ export default function FastingScreen() {
             setSelectedProtocol={setSelectedProtocol}
             isStarting={isStarting}
             onStart={() => handleStartFast(selectedProtocol)}
+            protocolSuggestion={protocolSuggestion}
           />
         )}
+
+        {cycleAwareNotice ? (
+          <Card style={styles.cycleNoticeCard}>
+            <Text style={styles.cycleNoticeTitle}>Ajuste por ciclo femenino</Text>
+            <Text style={styles.cycleNoticeText}>{cycleAwareNotice}</Text>
+          </Card>
+        ) : null}
+
+        {!isActive && dailyAdaptiveSuggestion ? (
+          <Card style={styles.dailyAdaptiveCard}>
+            <Text style={styles.dailyAdaptiveTitle}>Recomendacion adaptativa de hoy</Text>
+            <Text style={styles.dailyAdaptiveText}>{dailyAdaptiveSuggestion.message}</Text>
+            {dailyAdaptiveSuggestion.suggestedProtocol !== selectedProtocol ? (
+              <Pressable
+                onPress={() => setSelectedProtocol(dailyAdaptiveSuggestion.suggestedProtocol)}
+                style={styles.dailyAdaptiveCta}
+              >
+                <Text style={styles.dailyAdaptiveCtaText}>
+                  Usar {dailyAdaptiveSuggestion.suggestedProtocol}
+                </Text>
+              </Pressable>
+            ) : null}
+          </Card>
+        ) : null}
 
         {/* Fases info */}
         <View style={styles.section}>
@@ -138,8 +178,15 @@ export default function FastingScreen() {
           <StatCard emoji="⏱️" label="Promedio" value={`${avgHours.toFixed(1)}h`} />
           <StatCard emoji="🏆" label="Más largo" value={`${longestFast.toFixed(1)}h`} />
         </View>
-
-        {/* Historial */}
+        {fastingWeightCorrelation.insight ? (
+          <Card style={styles.correlationCard}>
+            <Text style={styles.correlationTitle}>Correlacion ayuno - peso</Text>
+            <Text style={styles.correlationText}>{fastingWeightCorrelation.insight}</Text>
+            <Text style={styles.correlationMeta}>
+              Muestras: post-ayuno {fastingWeightCorrelation.samplePostFast} dias | sin ayuno {fastingWeightCorrelation.sampleNonFast} dias
+            </Text>
+          </Card>
+        ) : null}
         {history.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Historial reciente</Text>
@@ -247,7 +294,13 @@ function ActiveFastView({
 }
 
 // ─── Subcomponente: Sin ayuno activo ─────────────────────
-function IdleView({ selectedProtocol, setSelectedProtocol, isStarting, onStart }: any) {
+function IdleView({
+  selectedProtocol,
+  setSelectedProtocol,
+  isStarting,
+  onStart,
+  protocolSuggestion,
+}: any) {
   const proto = PROTOCOLS[selectedProtocol];
 
   return (
@@ -278,6 +331,21 @@ function IdleView({ selectedProtocol, setSelectedProtocol, isStarting, onStart }
           Ventana de comida: <Text style={{ color: Colors.fasting }}>{proto.windowHours}h</Text>
         </Text>
       </Card>
+
+      {protocolSuggestion?.reason && protocolSuggestion?.suggestedProtocol && (
+        <Card style={styles.suggestionCard}>
+          <Text style={styles.suggestionTitle}>Sugerencia adaptativa</Text>
+          <Text style={styles.suggestionText}>{protocolSuggestion.reason}</Text>
+          <Pressable
+            onPress={() => setSelectedProtocol(protocolSuggestion.suggestedProtocol)}
+            style={styles.suggestionCta}
+          >
+            <Text style={styles.suggestionCtaText}>
+              Usar {protocolSuggestion.suggestedProtocol}
+            </Text>
+          </Pressable>
+        </Card>
+      )}
 
       <Button
         onPress={onStart}
@@ -341,7 +409,92 @@ const styles = StyleSheet.create({
   protoInfoTitle:  { fontFamily: FontFamily.bold, fontSize: FontSize.lg, color: Colors.textPrimary, marginBottom: Spacing[1] },
   protoInfoDesc:   { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing[2] },
   protoInfoMeta:   { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textSecondary },
+  suggestionCard: {
+    width: '100%',
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: `${Colors.fasting}55`,
+    backgroundColor: `${Colors.fasting}12`,
+  },
+  suggestionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.fasting,
+    marginBottom: Spacing[1],
+  },
+  suggestionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+    marginBottom: Spacing[2],
+  },
+  suggestionCta: {
+    alignSelf: 'flex-start',
+    paddingVertical: Spacing[1],
+    paddingHorizontal: Spacing[2],
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.fasting,
+    backgroundColor: `${Colors.fasting}14`,
+  },
+  suggestionCtaText: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.fasting,
+  },
   startBtn: { shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8 },
+  cycleNoticeCard: {
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}12`,
+  },
+  cycleNoticeTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.female,
+    marginBottom: Spacing[1],
+  },
+  cycleNoticeText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  dailyAdaptiveCard: {
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: `${Colors.fasting}55`,
+    backgroundColor: `${Colors.fasting}10`,
+  },
+  dailyAdaptiveTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.fasting,
+    marginBottom: Spacing[1],
+  },
+  dailyAdaptiveText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  dailyAdaptiveCta: {
+    marginTop: Spacing[2],
+    alignSelf: 'flex-start',
+    paddingVertical: Spacing[1],
+    paddingHorizontal: Spacing[2],
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.fasting,
+    backgroundColor: `${Colors.fasting}15`,
+  },
+  dailyAdaptiveCtaText: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.fasting,
+  },
 
   // Phases grid
   section:      { marginBottom: Spacing[5] },
@@ -360,6 +513,30 @@ const styles = StyleSheet.create({
   statCard:   { flex: 1, alignItems: 'center', paddingVertical: Spacing[3] },
   statValue:  { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, marginTop: Spacing[1] },
   statLabel:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2, textAlign: 'center' },
+  correlationCard: {
+    marginBottom: Spacing[4],
+    backgroundColor: `${Colors.fasting}12`,
+    borderWidth: 1,
+    borderColor: `${Colors.fasting}55`,
+  },
+  correlationTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.fasting,
+    marginBottom: Spacing[1],
+  },
+  correlationText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  correlationMeta: {
+    marginTop: Spacing[2],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
 
   // History
   historyRow:     { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], paddingVertical: Spacing[2.5], borderBottomWidth: 1, borderBottomColor: Colors.divider },
@@ -369,3 +546,5 @@ const styles = StyleSheet.create({
   historyDate:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   historyHours:   { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textMuted },
 });
+
+

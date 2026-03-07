@@ -20,6 +20,11 @@ export interface SupplementLog {
   date: string;
 }
 
+interface SupplementInteractionWarning {
+  id: string;
+  message: string;
+}
+
 export function useSupplements() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
@@ -28,6 +33,8 @@ export function useSupplements() {
   const [todayLogs, setTodayLogs] = useState<SupplementLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dailyAdherenceStreak, setDailyAdherenceStreak] = useState(0);
+  const [interactionWarnings, setInteractionWarnings] = useState<SupplementInteractionWarning[]>([]);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -56,10 +63,72 @@ export function useSupplements() {
       }));
 
       setSupplements(mapped);
+
+      const names = mapped.map((item) => item.name.toLowerCase());
+      const hasIron = names.some((name) => name.includes('hierro') || name.includes('iron'));
+      const hasCalcium = names.some((name) => name.includes('calcio') || name.includes('calcium'));
+
+      const warnings: SupplementInteractionWarning[] = [];
+      if (hasIron && hasCalcium) {
+        warnings.push({
+          id: 'iron_calcium',
+          message:
+            'Hierro + calcio juntos pueden reducir absorcion de hierro. Considera separarlos 2-3 horas (consulta profesional).',
+        });
+      }
+      setInteractionWarnings(warnings);
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.fetch" });
     }
   }, [userId]);
+
+  const fetchAdherenceStreak = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const dailySupps = supplements.filter((supplement) => supplement.frequency === 'daily');
+      if (!dailySupps.length) {
+        setDailyAdherenceStreak(0);
+        return;
+      }
+
+      const ids = dailySupps.map((item) => item.id);
+      const from = new Date();
+      from.setDate(from.getDate() - 59);
+
+      const { data, error } = await supabase
+        .from('supplement_logs')
+        .select('supplement_id, date')
+        .eq('user_id', userId)
+        .in('supplement_id', ids)
+        .gte('date', from.toISOString().split('T')[0])
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      const byDate = new Map<string, Set<string>>();
+      for (const row of data ?? []) {
+        const key = row.date;
+        const set = byDate.get(key) ?? new Set<string>();
+        set.add(row.supplement_id);
+        byDate.set(key, set);
+      }
+
+      let streak = 0;
+      let cursor = new Date();
+      for (let i = 0; i < 60; i += 1) {
+        const day = cursor.toISOString().split('T')[0];
+        const taken = byDate.get(day);
+        const completed = ids.every((id) => taken?.has(id));
+        if (!completed) break;
+        streak += 1;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+
+      setDailyAdherenceStreak(streak);
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.fetchAdherenceStreak" });
+    }
+  }, [supplements, userId]);
 
   const fetchTodayLogs = useCallback(async () => {
     if (!userId) return;
@@ -103,11 +172,12 @@ export function useSupplements() {
         });
         if (error) throw error;
         await fetchTodayLogs();
+        await fetchAdherenceStreak();
       } catch (err) {
         captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.markTaken" });
       }
     },
-    [userId, todayLogs, todayStr, fetchTodayLogs],
+    [userId, todayLogs, todayStr, fetchTodayLogs, fetchAdherenceStreak],
   );
 
   const unmarkTaken = useCallback(
@@ -123,11 +193,12 @@ export function useSupplements() {
 
         if (error) throw error;
         await fetchTodayLogs();
+        await fetchAdherenceStreak();
       } catch (err) {
         captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.unmarkTaken" });
       }
     },
-    [userId, todayStr, fetchTodayLogs],
+    [userId, todayStr, fetchTodayLogs, fetchAdherenceStreak],
   );
 
   const addSupplement = useCallback(
@@ -213,11 +284,17 @@ export function useSupplements() {
     Promise.all([fetchSupplements(), fetchTodayLogs()]);
   }, []);
 
+  useEffect(() => {
+    void fetchAdherenceStreak();
+  }, [fetchAdherenceStreak]);
+
   return {
     supplements,
     todayLogs,
     loading,
     saving,
+    dailyAdherenceStreak,
+    interactionWarnings,
     getActive: () => supplements.filter((s) => s.active),
     logTaken: markTaken,
     markTaken,
@@ -229,4 +306,3 @@ export function useSupplements() {
     refresh: () => Promise.all([fetchSupplements(), fetchTodayLogs()]),
   };
 }
-

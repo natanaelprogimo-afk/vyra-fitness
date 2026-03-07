@@ -78,7 +78,8 @@ function TimePicker({
 export default function SleepScreen() {
   const {
     lastSleep, lastDurationHours, lastScore, qualityInfo,
-    goalHours, history, avgHours, avgScore, daysWithGoal, sleepDebt,
+    goalHours, history, avgHours, avgScore, daysWithGoal, sleepDebt, sleepDebtMessage,
+    recommendedBedtime, sleepIrregularity, physicalDayState,
     isLogging, logSleep, getOptimalAlarmTimes,
   } = useSleep();
 
@@ -153,6 +154,39 @@ export default function SleepScreen() {
                 </Text>
               </Card>
             )}
+
+            {sleepDebtMessage && (
+              <Card style={styles.recommendationCard}>
+                <Text style={styles.recommendationTitle}>Plan de recuperación</Text>
+                <Text style={styles.recommendationText}>{sleepDebtMessage}</Text>
+              </Card>
+            )}
+
+            {recommendedBedtime && (
+              <Card style={styles.recommendationCard}>
+                <Text style={styles.recommendationTitle}>Hora recomendada para dormir</Text>
+                <Text style={styles.recommendationText}>
+                  Para sostener tu objetivo de {goalHours}h, intentá acostarte cerca de las {recommendedBedtime}.
+                </Text>
+              </Card>
+            )}
+
+            {sleepIrregularity.isIrregular && sleepIrregularity.message && (
+              <Card style={styles.irregularCard}>
+                <Text style={styles.irregularTitle}>Patrón irregular detectado</Text>
+                <Text style={styles.irregularText}>
+                  {sleepIrregularity.message} Variación estimada: {sleepIrregularity.stdDevMinutes} min.
+                </Text>
+              </Card>
+            )}
+
+            <Card style={styles.dayStateCard}>
+              <Text style={styles.dayStateTitle}>Estado físico del día</Text>
+              <Text style={styles.dayStateText}>{physicalDayState.message}</Text>
+              <Text style={styles.dayStateMeta}>
+                Promedio 3 noches: {physicalDayState.avgLast3Hours}h · Entreno recomendado: {physicalDayState.workoutRecommendation}
+              </Text>
+            </Card>
 
             <Button
               onPress={() => setShowForm(true)}
@@ -351,6 +385,69 @@ const styles = StyleSheet.create({
   debtCard:         { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], marginTop: Spacing[4], borderWidth: 1, backgroundColor: Colors.warningBg, width: '100%' },
   debtEmoji:        { fontSize: 20 },
   debtText:         { flex: 1, fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: FontSize.sm * 1.5 },
+  recommendationCard: {
+    marginTop: Spacing[3],
+    width: '100%',
+    borderWidth: 1,
+    borderColor: `${Colors.sleep}44`,
+    backgroundColor: `${Colors.sleep}10`,
+  },
+  recommendationTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.sleep,
+    marginBottom: Spacing[1],
+  },
+  recommendationText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+  },
+  irregularCard: {
+    marginTop: Spacing[3],
+    width: '100%',
+    borderWidth: 1,
+    borderColor: `${Colors.warning}55`,
+    backgroundColor: `${Colors.warning}14`,
+  },
+  irregularTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.warning,
+    marginBottom: Spacing[1],
+  },
+  irregularText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+  },
+  dayStateCard: {
+    marginTop: Spacing[3],
+    width: '100%',
+    borderWidth: 1,
+    borderColor: `${Colors.steps}55`,
+    backgroundColor: `${Colors.steps}10`,
+  },
+  dayStateTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.steps,
+    marginBottom: Spacing[1],
+  },
+  dayStateText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+  },
+  dayStateMeta: {
+    marginTop: Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
   logAgainBtn:      { marginTop: Spacing[4] },
 
   // Form

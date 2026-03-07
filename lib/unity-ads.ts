@@ -1,70 +1,92 @@
-﻿// Unity Ads wrapper: tries to use `react-native-unity-ads` if available,
-// otherwise falls back to a simulated flow for development.
+import { Platform } from 'react-native';
+import UnityAdsNative, { UnityBannerView as NativeUnityBannerView } from 'react-native-unity-ads';
 
-type UnityResult = 'completed' | 'skipped' | 'failed';
+export type UnityResult = 'completed' | 'skipped' | 'failed';
+export type UnityBannerSize = 'standard' | 'leaderboard';
+
+function getGameId() {
+  return process.env.EXPO_PUBLIC_UNITY_GAME_ID_ANDROID ?? process.env.EXPO_PUBLIC_UNITY_GAME_ID ?? '';
+}
 
 function getPlacement(kind: 'rewarded' | 'interstitial') {
   if (kind === 'rewarded') {
     return process.env.EXPO_PUBLIC_UNITY_REWARDED_PLACEMENT ?? 'vyra_rewarded';
   }
+
   return process.env.EXPO_PUBLIC_UNITY_INTERSTITIAL_PLACEMENT ?? 'vyra_interstitial';
 }
 
-export async function initUnityAds(gameId?: string): Promise<void> {
+export function getUnityBannerPlacement() {
+  return process.env.EXPO_PUBLIC_UNITY_BANNER_PLACEMENT ?? '';
+}
+
+function isNativeAvailable() {
+  return Platform.OS === 'android' && Boolean(UnityAdsNative);
+}
+
+function getTestMode() {
+  return process.env.EXPO_PUBLIC_UNITY_TEST_MODE === 'true' || __DEV__;
+}
+
+export async function initUnityAds(gameId?: string): Promise<boolean> {
+  if (!isNativeAvailable()) return false;
+
+  const resolvedGameId = gameId ?? getGameId();
+  if (!resolvedGameId) return false;
+
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const UnityAds = require('react-native-unity-ads');
-    if (UnityAds && typeof UnityAds.initialize === 'function') {
-      UnityAds.initialize(
-        gameId ?? process.env.EXPO_PUBLIC_UNITY_GAME_ID_ANDROID ?? process.env.EXPO_PUBLIC_UNITY_GAME_ID ?? '',
-        true,
-      );
-    }
+    await UnityAdsNative.initialize(resolvedGameId, getTestMode());
+    return true;
   } catch {
-    // Native module missing - ignore (dev fallback will be used)
+    return false;
   }
 }
 
-async function showPlacement(placementId: string): Promise<UnityResult> {
+export async function isUnityAdsInitialized(): Promise<boolean> {
+  if (!isNativeAvailable()) return false;
+
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const UnityAds = require('react-native-unity-ads');
-    if (UnityAds && typeof UnityAds.show === 'function') {
-      return await new Promise<UnityResult>((resolve) => {
-        try {
-          UnityAds.show(placementId);
-
-          const onUnityEvent = (ev: any) => {
-            if (ev && ev.status === 'completed') {
-              resolve('completed');
-              // @ts-ignore
-              UnityAds.removeEventListener(onUnityEvent);
-            } else if (ev && ev.status === 'skipped') {
-              resolve('skipped');
-              // @ts-ignore
-              UnityAds.removeEventListener(onUnityEvent);
-            }
-          };
-
-          if (typeof UnityAds.addEventListener === 'function') {
-            // @ts-ignore
-            UnityAds.addEventListener(onUnityEvent);
-            setTimeout(() => resolve('completed'), 8000);
-          } else {
-            setTimeout(() => resolve('completed'), 4000);
-          }
-        } catch {
-          resolve('failed');
-        }
-      });
-    }
+    return await UnityAdsNative.isInitialized();
   } catch {
-    // Continue to fallback
+    return false;
   }
+}
 
-  return await new Promise<UnityResult>((resolve) => {
-    setTimeout(() => resolve('completed'), 2000);
-  });
+async function loadPlacement(placementId: string): Promise<boolean> {
+  if (!isNativeAvailable() || !placementId) return false;
+
+  try {
+    await UnityAdsNative.load(placementId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function preloadRewarded(): Promise<boolean> {
+  return loadPlacement(getPlacement('rewarded'));
+}
+
+export async function preloadInterstitial(): Promise<boolean> {
+  return loadPlacement(getPlacement('interstitial'));
+}
+
+async function showPlacement(placementId: string): Promise<UnityResult> {
+  if (!isNativeAvailable() || !placementId) return 'failed';
+
+  const loaded = await loadPlacement(placementId);
+  if (!loaded) return 'failed';
+
+  try {
+    const result = await UnityAdsNative.show(placementId);
+    const normalized = String(result).toUpperCase();
+
+    if (normalized === 'COMPLETED') return 'completed';
+    if (normalized === 'SKIPPED') return 'skipped';
+    return 'failed';
+  } catch {
+    return 'failed';
+  }
 }
 
 export async function showRewarded(): Promise<UnityResult> {
@@ -74,3 +96,5 @@ export async function showRewarded(): Promise<UnityResult> {
 export async function showInterstitial(): Promise<UnityResult> {
   return showPlacement(getPlacement('interstitial'));
 }
+
+export const UnityBannerView = NativeUnityBannerView;

@@ -39,8 +39,9 @@ const QUICK_AMOUNTS = [150, 250, 350, 500] as const;
 
 export default function WaterScreen() {
   const {
-    logs, totalHydro, goal, progressPct, remaining,
-    hydrationAlert, isLoading, isLogging, logWater, deleteLog,
+    logs, totalHydro, goal, baseGoal, goalAdjustments, progressPct, remaining,
+    hydrationAlert, morningContext, hydrationStreak, hydrationSleepCorrelation, beverageComposition,
+    isLoading, isLogging, logWater, deleteLog,
   } = useWater();
 
   const [selectedDrink, setSelectedDrink] = useState<DrinkTypeId>('water');
@@ -108,12 +109,66 @@ export default function WaterScreen() {
               ¡Meta alcanzada! 🎉
             </Text>
           )}
+
+          <Text style={styles.streakBadge}>
+            Racha hidratacion 100%: {hydrationStreak.streakDays} dias
+          </Text>
         </View>
+
+        {goalAdjustments.length > 0 && (
+          <Card style={styles.contextCard}>
+            <Text style={styles.contextTitle}>Meta dinamica activada</Text>
+            <Text style={styles.contextText}>
+              Meta base {baseGoal}ml {'->'} meta de hoy {goal}ml.
+            </Text>
+            {goalAdjustments.map((item) => (
+              <Text key={`${item.source}_${item.delta}`} style={styles.contextMeta}>
+                +{item.delta}ml - {item.reason}
+              </Text>
+            ))}
+          </Card>
+        )}
+
+        {morningContext && (
+          <Card style={styles.contextCard}>
+            <Text style={styles.contextTitle}>Contexto de hoy</Text>
+            <Text style={styles.contextText}>{morningContext}</Text>
+          </Card>
+        )}
 
         {/* Alerta de hidratación */}
         {hydrationAlert && (
           <Card style={[styles.alertCard, { borderColor: `${Colors.warning}44` }]}>
             <Text style={styles.alertText}>{hydrationAlert}</Text>
+          </Card>
+        )}
+
+        {hydrationSleepCorrelation.insight && (
+          <Card style={styles.correlationCard}>
+            <Text style={styles.correlationTitle}>Hidratacion y sueno</Text>
+            <Text style={styles.correlationText}>{hydrationSleepCorrelation.insight}</Text>
+            <Text style={styles.correlationMeta}>
+              Muestras: hidratacion alta {hydrationSleepCorrelation.sampleHigh} | baja {hydrationSleepCorrelation.sampleLow}
+            </Text>
+          </Card>
+        )}
+
+        {beverageComposition.length > 0 && (
+          <Card style={styles.compositionCard}>
+            <Text style={styles.compositionTitle}>Composicion semanal de bebidas</Text>
+            {beverageComposition.slice(0, 4).map((item) => {
+              const drink = DRINK_TYPES.find((d) => d.id === item.drinkType);
+              return (
+                <View key={String(item.drinkType)} style={styles.compositionRow}>
+                  <Text style={styles.compositionLabel}>
+                    {drink?.emoji ?? '🥤'} {drink?.label ?? item.drinkType}
+                  </Text>
+                  <Text style={styles.compositionValue}>
+                    {Math.round(item.amountMl)}ml (≈{Math.round(item.hydrationMl)}ml)
+                  </Text>
+                </View>
+              );
+            })}
           </Card>
         )}
 
@@ -265,6 +320,36 @@ const styles = StyleSheet.create({
     color:      Colors.textSecondary,
     marginTop:  Spacing[3],
   },
+  streakBadge: {
+    marginTop: Spacing[2],
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.water,
+  },
+  contextCard: {
+    marginBottom: Spacing[3],
+    borderWidth: 1,
+    borderColor: `${Colors.water}44`,
+    backgroundColor: `${Colors.water}10`,
+  },
+  contextTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.water,
+    marginBottom: Spacing[1],
+  },
+  contextText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+  },
+  contextMeta: {
+    marginTop: Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
 
   // Alert
   alertCard: {
@@ -278,6 +363,57 @@ const styles = StyleSheet.create({
     fontSize:   FontSize.sm,
     color:      Colors.warning,
     lineHeight: FontSize.sm * 1.5,
+  },
+  correlationCard: {
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: `${Colors.sleep}55`,
+    backgroundColor: `${Colors.sleep}12`,
+  },
+  correlationTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.sleep,
+    marginBottom: Spacing[1],
+  },
+  correlationText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.sm * 1.4,
+  },
+  correlationMeta: {
+    marginTop: Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  compositionCard: {
+    marginBottom: Spacing[4],
+  },
+  compositionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    marginBottom: Spacing[2],
+  },
+  compositionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing[1],
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  compositionLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  compositionValue: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
   },
 
   // Sections

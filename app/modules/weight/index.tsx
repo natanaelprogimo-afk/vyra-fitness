@@ -34,7 +34,7 @@ import { NewMinConfetti } from './components/NewMinConfetti';
 const { width } = Dimensions.get('window');
 
 export default function WeightScreen() {
-  const { stats, logs, loading, logWeight, getChartData } = useWeight();
+  const { stats, logs, loading, logWeight, getChartData, strictSensitiveMode } = useWeight();
   const [showLog, setShowLog] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -172,6 +172,22 @@ export default function WeightScreen() {
         {stats.variationContext ? (
           <Card style={styles.contextCard}>
             <Text style={styles.contextText}>ℹ️ {stats.variationContext}</Text>
+          </Card>
+        ) : null}
+
+        {strictSensitiveMode ? (
+          <Card style={styles.privacyCard}>
+            <Text style={styles.privacyTitle}>Modo estricto activo</Text>
+            <Text style={styles.privacyText}>
+              Tus valores de peso y composicion se guardan cifrados. Algunas correlaciones remotas pueden verse limitadas.
+            </Text>
+          </Card>
+        ) : null}
+
+        {stats.plateauDetected && stats.plateauMessage ? (
+          <Card style={styles.plateauCard}>
+            <Text style={styles.plateauTitle}>Plateau detectado</Text>
+            <Text style={styles.plateauText}>{stats.plateauMessage}</Text>
           </Card>
         ) : null}
 
@@ -374,6 +390,40 @@ const styles = StyleSheet.create({
   },
   contextText: {
     fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  privacyCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.brand}55`,
+    backgroundColor: `${Colors.brand}10`,
+  },
+  privacyTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 14,
+    color: Colors.brand,
+    marginBottom: Spacing[1],
+  },
+  privacyText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  plateauCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.weight}55`,
+    backgroundColor: `${Colors.weight}10`,
+  },
+  plateauTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 14,
+    color: Colors.weight,
+    marginBottom: Spacing[1],
+  },
+  plateauText: {
+    fontFamily: FontFamily.medium,
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 19,

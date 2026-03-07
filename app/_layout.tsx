@@ -19,6 +19,7 @@ import { Colors } from '@/constants/colors';
 import Toast from '@/components/ui/Toast';
 import AchievementModal from '@/components/ui/AchievementModal';
 import OfflineNotice from '@/components/layout/OfflineNotice';
+import NotificationsBootstrap from '@/components/system/NotificationsBootstrap';
 import NetInfo from '@/shims/netinfo';
 
 // QueryClient global
@@ -141,6 +142,7 @@ export default function RootLayout() {
           </Stack>
 
           {/* Sistema global de UI */}
+          <NotificationsBootstrap />
           <OfflineNotice />
           <Toast />
           <AchievementModal />

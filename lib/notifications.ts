@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 // import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
 
@@ -29,6 +30,24 @@ export type NotifType =
   | 'supplement_reminder'
   | 'workout_reminder';
 
+const NOTIF_TYPE_SET = new Set<NotifType>([
+  'water_reminder',
+  'fasting_phase',
+  'fasting_complete',
+  'step_milestone',
+  'sleep_bedtime',
+  'mental_checkin',
+  'daily_summary',
+  'streak_at_risk',
+  'coach_proactive',
+  'supplement_reminder',
+  'workout_reminder',
+]);
+
+function isNotifType(value: string): value is NotifType {
+  return NOTIF_TYPE_SET.has(value as NotifType);
+}
+
 export interface ScheduledNotif {
   id:        string;
   type:      NotifType;
@@ -36,6 +55,220 @@ export interface ScheduledNotif {
   body:      string;
   trigger:   Notifications.NotificationTriggerInput;
   data?:     Record<string, unknown>;
+}
+
+const NOTIF_ENGAGEMENT_KEY = '@vyra_notif_engagement_v1';
+type EngagementKind = 'scheduled' | 'opened' | 'actioned';
+type HourBucket = Record<string, { scheduled: number; opened: number; actioned: number }>;
+type NotifEngagementStore = Partial<Record<NotifType, HourBucket>>;
+const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+
+function getCurrentUtcOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset();
+}
+
+function resolveAndroidChannelId(type: NotifType): string {
+  if (type === 'fasting_phase' || type === 'fasting_complete') return 'vyra-fasting';
+  if (type === 'streak_at_risk' || type === 'coach_proactive') return 'vyra-important';
+  return 'vyra-reminders';
+}
+
+function extractTriggerHour(trigger: Notifications.NotificationTriggerInput): number | null {
+  if (!trigger || typeof trigger !== 'object') return null;
+  if ('type' in trigger && (trigger as any).type === 'daily') {
+    const hour = Number((trigger as any).hour);
+    if (Number.isFinite(hour)) return Math.max(0, Math.min(23, hour));
+  }
+  if ('date' in trigger) {
+    const rawDate = (trigger as any).date;
+    const date = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    if (!Number.isNaN(date.getTime())) return date.getHours();
+  }
+  return null;
+}
+
+async function readEngagementStore(): Promise<NotifEngagementStore> {
+  try {
+    const raw = await AsyncStorage.getItem(NOTIF_ENGAGEMENT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object'
+      ? (parsed as NotifEngagementStore)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeEngagementStore(store: NotifEngagementStore): Promise<void> {
+  try {
+    await AsyncStorage.setItem(NOTIF_ENGAGEMENT_KEY, JSON.stringify(store));
+  } catch {}
+}
+
+async function getAuthToken(): Promise<string | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendEngagementToBackend(input: {
+  type: NotifType;
+  kind: EngagementKind;
+  hour: number;
+  notificationId?: string;
+  actionId?: string;
+  source?: string;
+}): Promise<void> {
+  try {
+    if (!BACKEND_URL) return;
+    const token = await getAuthToken();
+    if (!token) return;
+
+    await fetch(`${BACKEND_URL}/api/notifications/engagement`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        type: input.type,
+        kind: input.kind,
+        hour: input.hour,
+        notificationId: input.notificationId ?? '',
+        actionId: input.actionId ?? '',
+        source: input.source ?? 'app',
+      }),
+    });
+  } catch {}
+}
+
+async function recordEngagement(
+  type: NotifType,
+  kind: EngagementKind,
+  hour: number,
+  meta?: { notificationId?: string; actionId?: string; source?: string },
+): Promise<void> {
+  try {
+    const store = await readEngagementStore();
+    const byType = store[type] ?? {};
+    const key = String(hour);
+    const prev = byType[key] ?? { scheduled: 0, opened: 0, actioned: 0 };
+
+    byType[key] = {
+      scheduled: kind === 'scheduled' ? prev.scheduled + 1 : prev.scheduled,
+      opened: kind === 'opened' ? prev.opened + 1 : prev.opened,
+      actioned: kind === 'actioned' ? prev.actioned + 1 : prev.actioned,
+    };
+
+    store[type] = byType;
+    await writeEngagementStore(store);
+    await sendEngagementToBackend({
+      type,
+      kind,
+      hour,
+      notificationId: meta?.notificationId,
+      actionId: meta?.actionId,
+      source: meta?.source,
+    });
+  } catch {}
+}
+
+export async function getLowEngagementHours(
+  type: NotifType,
+  minScheduled = 4,
+  minOpenRate = 0.2,
+): Promise<number[]> {
+  const store = await readEngagementStore();
+  const buckets = store[type] ?? {};
+  const hours: number[] = [];
+
+  for (const [hourStr, values] of Object.entries(buckets)) {
+    const hour = Number(hourStr);
+    if (!Number.isFinite(hour)) continue;
+    const scheduled = Number(values?.scheduled ?? 0);
+    const opened = Number(values?.opened ?? 0);
+    const openRate = scheduled > 0 ? opened / scheduled : 0;
+    if (scheduled >= minScheduled && openRate < minOpenRate) {
+      hours.push(hour);
+    }
+  }
+
+  return hours;
+}
+
+export async function getLowEngagementHoursFromBackend(
+  type: NotifType,
+  minScheduled = 4,
+  minOpenRate = 0.2,
+): Promise<number[]> {
+  try {
+    if (!BACKEND_URL) return [];
+    const token = await getAuthToken();
+    if (!token) return [];
+
+    const params = new URLSearchParams({
+      type,
+      minScheduled: String(minScheduled),
+      minOpenRate: String(minOpenRate),
+    });
+
+    const res = await fetch(`${BACKEND_URL}/api/notifications/engagement/low-hours?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) return [];
+    const payload = await res.json().catch(() => ({} as any));
+    const parsedHours: number[] = [];
+    if (Array.isArray(payload?.hours)) {
+      for (const raw of payload.hours as unknown[]) {
+        const hour = Number(raw);
+        if (Number.isFinite(hour)) {
+          parsedHours.push(Math.max(0, Math.min(23, Math.floor(hour))));
+        }
+      }
+    }
+    return [...new Set<number>(parsedHours)].sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+export async function getCombinedLowEngagementHours(
+  type: NotifType,
+  minScheduled = 4,
+  minOpenRate = 0.2,
+): Promise<number[]> {
+  const [local, remote] = await Promise.all([
+    getLowEngagementHours(type, minScheduled, minOpenRate),
+    getLowEngagementHoursFromBackend(type, minScheduled, minOpenRate),
+  ]);
+  return [...new Set([...local, ...remote])].sort((a, b) => a - b);
+}
+
+export async function getBackendTodayScheduledCount(): Promise<number> {
+  try {
+    if (!BACKEND_URL) return 0;
+    const token = await getAuthToken();
+    if (!token) return 0;
+
+    const res = await fetch(`${BACKEND_URL}/api/notifications/engagement/today-count`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return 0;
+    const payload = await res.json().catch(() => ({} as any));
+    const scheduled = Number(payload?.scheduled ?? 0);
+    return Number.isFinite(scheduled) ? Math.max(0, Math.floor(scheduled)) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 // ── Permisos ───────────────────────────────────────────────────────────────
@@ -71,9 +304,17 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     });
 
     await Notifications.setNotificationChannelAsync('vyra-reminders', {
-      name:       'Vyra — Recordatorios',
+      name:       'Vyra - Recordatorios',
       importance: Notifications.AndroidImportance.DEFAULT,
       sound:      'default',
+    });
+
+    await Notifications.setNotificationChannelAsync('vyra-important', {
+      name:       'Vyra - Alertas importantes',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 300, 200, 300],
+      sound:      'default',
+      bypassDnd:  false,
     });
   }
 
@@ -108,6 +349,7 @@ export async function registerPushToken(userId: string): Promise<void> {
         coach_memory_json: {
           ...coachMemory,
           push_token: token,
+          notification_utc_offset_minutes: getCurrentUtcOffsetMinutes(),
         },
       })
       .eq('id', userId);
@@ -119,17 +361,28 @@ export async function registerPushToken(userId: string): Promise<void> {
 // ── Programar notificación local ───────────────────────────────────────────
 export async function scheduleNotif(notif: ScheduledNotif): Promise<string | null> {
   try {
+    const androidChannelId = resolveAndroidChannelId(notif.type);
     const id = await Notifications.scheduleNotificationAsync({
       identifier: notif.id,
       content: {
         title:    notif.title,
         body:     notif.body,
-        data:     notif.data ?? {},
+        data:     { type: notif.type, ...(notif.data ?? {}) },
         sound:    'default',
         categoryIdentifier: notif.type,
-      },
+        channelId: androidChannelId,
+      } as any,
       trigger: notif.trigger,
     });
+
+    const triggerHour = extractTriggerHour(notif.trigger);
+    if (triggerHour !== null) {
+      await recordEngagement(notif.type, 'scheduled', triggerHour, {
+        notificationId: id,
+        source: 'schedule_local',
+      });
+    }
+
     return id;
   } catch (err) {
     captureError(err instanceof Error ? err : new Error(String(err)), { action: `scheduleNotif.${notif.type}` });
@@ -304,12 +557,46 @@ export async function scheduleSupplementReminder(
   });
 }
 
+export async function scheduleOnboardingWelcomeReminder(triggerDate: Date, displayName?: string): Promise<void> {
+  await cancelNotif('onboarding_welcome_24h');
+  if (triggerDate.getTime() <= Date.now()) return;
+
+  const safeName = displayName && displayName.trim().length > 0 ? displayName.trim() : 'Tu racha';
+  await scheduleNotif({
+    id: 'onboarding_welcome_24h',
+    type: 'coach_proactive',
+    title: 'Tu racha empieza hoy',
+    body: `${safeName}, un log de agua de 10 segundos alcanza para arrancar fuerte.`,
+    trigger: { date: triggerDate } as any,
+    data: { action: 'open_quick_log', source: 'onboarding_welcome_24h' },
+  });
+}
+
 // ── Listener de respuesta a notificaciones ────────────────────────────────
 export function setupNotificationResponseListener(
   handler: (notification: Notifications.Notification) => void,
 ): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    handler(response.notification);
+    const notification = response.notification;
+    const maybeType =
+      notification.request.content.categoryIdentifier ||
+      (typeof notification.request.content.data?.type === 'string'
+        ? String(notification.request.content.data.type)
+        : '');
+    if (typeof maybeType === 'string' && isNotifType(maybeType)) {
+      const actionIdentifier = response.actionIdentifier;
+      const kind: EngagementKind =
+        actionIdentifier && actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
+          ? 'actioned'
+          : 'opened';
+      void recordEngagement(maybeType, kind, new Date().getHours(), {
+        notificationId: notification.request.identifier,
+        actionId: actionIdentifier,
+        source: 'response_listener',
+      });
+    }
+    handler(notification);
   });
   return () => sub.remove();
 }
+

@@ -115,10 +115,17 @@ function MessageBubble({ message, isLast, isLoading }: MessageBubbleProps) {
 // ─── PANTALLA PRINCIPAL ──────────────────────────────────────────────────────
 
 export default function CoachScreen() {
-  const { messages, sendMessage, isLoading, dailyMessagesLeft } = useCoach();
+  const { messages, sendMessage, isLoading, dailyMessagesLeft, proactivityLevel } = useCoach();
   const { isPremium } = usePremium();
   const [input, setInput] = useState('');
   const listRef = useRef<FlatList>(null);
+
+  const proactivityLabel =
+    proactivityLevel === 'silent'
+      ? 'silencioso'
+      : proactivityLevel === 'active'
+        ? 'activo'
+        : 'normal';
 
   const handleSend = useCallback(async (text?: string) => {
     const msg = (text ?? input).trim();
@@ -160,7 +167,7 @@ export default function CoachScreen() {
           <View>
             <Text style={styles.headerTitle}>Vyra Coach</Text>
             <Text style={styles.headerSubtitle}>
-              {isLoading ? 'Pensando...' : 'Lista para ayudarte'}
+              {isLoading ? 'Pensando...' : `Modo ${proactivityLabel}`}
             </Text>
           </View>
         </View>

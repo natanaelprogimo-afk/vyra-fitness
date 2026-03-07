@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { usePathname } from 'expo-router';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useAdsStore } from '@/stores/adsStore';
 import { captureError } from '@/lib/sentry';
 import {
   initUnityAds as unityInit,
+  preloadRewarded,
+  preloadInterstitial,
   showRewarded as unityShowRewarded,
   showInterstitial as unityShowInterstitial,
 } from '@/lib/unity-ads';
@@ -34,6 +37,14 @@ export function useAds() {
   const { isPremium } = usePremiumStore();
   const pathname = usePathname();
   const { achievementModal } = useUIStore();
+  const {
+    rewardedLoaded,
+    interstitialLoaded,
+    isInitialized,
+    setRewardedLoaded,
+    setInterstitialLoaded,
+    setInitialized,
+  } = useAdsStore();
 
   const [showing, setShowing] = useState(false);
   const [contextViews, setContextViews] = useState<Record<AdContext, number>>({
@@ -47,6 +58,30 @@ export function useAds() {
   const [adsShownToday, setAdsShownToday] = useState<number>(0);
   const [lastAchievementAt, setLastAchievementAt] = useState<number>(0);
 
+  const loadPlacements = useCallback(async () => {
+    const [rewardedOk, interstitialOk] = await Promise.all([
+      preloadRewarded(),
+      preloadInterstitial(),
+    ]);
+
+    setRewardedLoaded(rewardedOk);
+    setInterstitialLoaded(interstitialOk);
+  }, [setInterstitialLoaded, setRewardedLoaded]);
+
+  const initUnityAds = useCallback(async () => {
+    const initialized = await unityInit(process.env.EXPO_PUBLIC_UNITY_GAME_ID_ANDROID);
+    setInitialized(initialized);
+
+    if (initialized) {
+      await loadPlacements();
+    } else {
+      setRewardedLoaded(false);
+      setInterstitialLoaded(false);
+    }
+
+    return initialized;
+  }, [loadPlacements, setInitialized, setInterstitialLoaded, setRewardedLoaded]);
+
   useEffect(() => {
     if (achievementModal.visible) {
       setLastAchievementAt(Date.now());
@@ -54,10 +89,10 @@ export function useAds() {
   }, [achievementModal.visible]);
 
   useEffect(() => {
-    void unityInit(process.env.EXPO_PUBLIC_UNITY_GAME_ID_ANDROID);
-  }, []);
+    void initUnityAds();
+  }, [initUnityAds]);
 
-  const resetIfNewDay = () => {
+  const resetIfNewDay = useCallback(() => {
     const today = toIsoDay(new Date());
     if (today !== adsDate) {
       setAdsDate(today);
@@ -69,7 +104,7 @@ export function useAds() {
         store_discount: 0,
       });
     }
-  };
+  }, [adsDate]);
 
   const isWorkoutActive = useMemo(
     () => pathname.includes('/modules/workout/session') || pathname.includes('/modules/workout/active'),
@@ -87,31 +122,50 @@ export function useAds() {
     );
   }, [isWorkoutActive, pathname]);
 
-  const inAchievementGrace = () => Date.now() - lastAchievementAt < POST_ACHIEVEMENT_GRACE_MS;
+  const inAchievementGrace = useCallback(
+    () => Date.now() - lastAchievementAt < POST_ACHIEVEMENT_GRACE_MS,
+    [lastAchievementAt],
+  );
 
-  const canShowRewarded = (context: AdContext) => {
+  const canShowRewarded = useCallback((context: AdContext) => {
     resetIfNewDay();
     if (isPremium) return false;
+    if (!isInitialized || !rewardedLoaded) return false;
     if (isProhibitedScreen) return false;
     if (inAchievementGrace()) return false;
     if (adsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
     return contextViews[context] < DAILY_LIMITS[context];
-  };
+  }, [
+    adsShownToday,
+    contextViews,
+    inAchievementGrace,
+    isInitialized,
+    isPremium,
+    isProhibitedScreen,
+    resetIfNewDay,
+    rewardedLoaded,
+  ]);
 
-  const canShowInterstitial = () => {
+  const canShowInterstitial = useCallback(() => {
     resetIfNewDay();
     if (isPremium) return false;
+    if (!isInitialized || !interstitialLoaded) return false;
     if (isProhibitedScreen) return false;
     if (inAchievementGrace()) return false;
     if (adsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
     return Date.now() - lastInterstitialAt >= INTERSTITIAL_MIN_INTERVAL_MS;
-  };
+  }, [
+    adsShownToday,
+    inAchievementGrace,
+    interstitialLoaded,
+    isInitialized,
+    isPremium,
+    isProhibitedScreen,
+    lastInterstitialAt,
+    resetIfNewDay,
+  ]);
 
-  const initUnityAds = async () => {
-    await unityInit(process.env.EXPO_PUBLIC_UNITY_GAME_ID_ANDROID);
-  };
-
-  const showRewardedAd = async (
+  const showRewardedAd = useCallback(async (
     context: AdContext,
     onReward?: (coinsEarned: number) => void,
   ) => {
@@ -126,9 +180,11 @@ export function useAds() {
         setAdsShownToday((prev) => prev + 1);
         const coins = context === 'quick_log_coins' ? 15 : 10;
         onReward?.(coins);
+        void preloadRewarded().then(setRewardedLoaded);
         return true;
       }
 
+      void preloadRewarded().then(setRewardedLoaded);
       return false;
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), {
@@ -139,19 +195,23 @@ export function useAds() {
     } finally {
       setShowing(false);
     }
-  };
+  }, [canShowRewarded, setRewardedLoaded]);
 
-  const showInterstitial = async () => {
+  const showInterstitial = useCallback(async () => {
     if (!canShowInterstitial()) return false;
 
     try {
       setShowing(true);
       const result = await unityShowInterstitial();
+
       if (result === 'completed') {
         setLastInterstitialAt(Date.now());
         setAdsShownToday((prev) => prev + 1);
+        void preloadInterstitial().then(setInterstitialLoaded);
         return true;
       }
+
+      void preloadInterstitial().then(setInterstitialLoaded);
       return false;
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), {
@@ -161,11 +221,11 @@ export function useAds() {
     } finally {
       setShowing(false);
     }
-  };
+  }, [canShowInterstitial, setInterstitialLoaded]);
 
   return {
-    rewardedReady: true,
-    interstReady: true,
+    rewardedReady: rewardedLoaded,
+    interstReady: interstitialLoaded,
     showing,
     isPremium,
     isWorkoutActive,

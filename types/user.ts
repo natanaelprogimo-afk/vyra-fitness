@@ -365,9 +365,11 @@ export interface Achievement {
 // ─── SUSCRIPCIÓN ─────────────────────────────────────────────────────────────
 
 export type SubscriptionStatus =
+  | 'pending'
   | 'active'
   | 'cancelled'
   | 'expired'
+  | 'suspended'
   | 'trial';
 
 export type SubscriptionPlan = 'monthly' | 'yearly';

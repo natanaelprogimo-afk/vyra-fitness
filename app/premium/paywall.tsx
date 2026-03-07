@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Animated, {
@@ -15,7 +14,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Header } from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
@@ -29,87 +28,215 @@ const FEATURES_FREE = [
   '5 módulos de salud básicos',
   'Log manual de comidas',
   '7 días de historial',
-  'Coach IA — 10 mensajes/día',
-  'Barcode — 5 scans/día',
+  'Coach IA - 10 mensajes/día',
+  'Barcode - 5 scans/día',
   'Anuncios Unity Ads',
 ];
 
 const FEATURES_PREMIUM = [
-  '✅ Todos los módulos sin límite',
-  '✅ Coach IA ilimitado con memoria',
-  '✅ Foto IA y log por voz',
-  '✅ Historial ilimitado + exportar CSV',
-  '✅ Barcode scanner ilimitado',
-  '✅ Proyección de peso con IA',
-  '✅ Correlaciones avanzadas',
-  '✅ Sin anuncios',
-  '✅ Plan semanal personalizado',
+  'Todos los módulos sin límite',
+  'Coach IA ilimitado con memoria',
+  'Foto IA y log por voz',
+  'Historial ilimitado + exportar CSV',
+  'Barcode scanner ilimitado',
+  'Proyección de peso con IA',
+  'Correlaciones avanzadas',
+  'Sin anuncios',
+  'Plan semanal personalizado',
 ];
 
-type Step = 'plans' | 'webview' | 'success';
+type Step = 'plans' | 'webview' | 'success' | 'pending';
+
+function getQueryParam(url: string, key: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.searchParams.get(key);
+  } catch {
+    return null;
+  }
+}
 
 export default function PaywallScreen() {
-  const { isPremium, checkStatus } = usePremium();
+  const params = useLocalSearchParams<{
+    subscription_status?: string;
+    subscription_id?: string;
+    plan?: string;
+  }>();
+
+  const { checkStatus, confirmSubscriptionFlow, confirming } = usePremium();
+
   const [selectedPlan, setSelectedPlan] = useState<PlanType>('monthly');
-  const [step, setStep]         = useState<Step>('plans');
+  const [step, setStep] = useState<Step>('plans');
   const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
-  const [loading, setLoading]   = useState(false);
+  const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [handledExternalStatus, setHandledExternalStatus] = useState<string | null>(null);
 
   const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
-  // Animación del plan seleccionado
   const monthlyScale = useSharedValue(selectedPlan === 'monthly' ? 1.02 : 1);
-  const yearlyScale  = useSharedValue(selectedPlan === 'yearly'  ? 1.02 : 1);
+  const yearlyScale = useSharedValue(selectedPlan === 'yearly' ? 1.02 : 1);
+
+  useEffect(() => {
+    const externalStatus =
+      typeof params.subscription_status === 'string' ? params.subscription_status : null;
+
+    if (!externalStatus || externalStatus === handledExternalStatus) {
+      return;
+    }
+
+    setHandledExternalStatus(externalStatus);
+
+    if (typeof params.subscription_id === 'string' && params.subscription_id) {
+      setSubscriptionId(params.subscription_id);
+    }
+
+    if (externalStatus === 'active') {
+      setStep('success');
+      return;
+    }
+
+    if (externalStatus === 'pending') {
+      setStep('pending');
+      return;
+    }
+
+    if (externalStatus === 'cancelled') {
+      setStep('plans');
+      Alert.alert('Pago cancelado', 'Podés volver a intentarlo cuando quieras. No se realizó ningún cargo.');
+    }
+  }, [handledExternalStatus, params.subscription_id, params.subscription_status]);
 
   const selectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
     monthlyScale.value = withSpring(plan === 'monthly' ? 1.02 : 1);
-    yearlyScale.value  = withSpring(plan === 'yearly'  ? 1.02 : 1);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    yearlyScale.value = withSpring(plan === 'yearly' ? 1.02 : 1);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const monthlyStyle = useAnimatedStyle(() => ({ transform: [{ scale: monthlyScale.value }] }));
-  const yearlyStyle  = useAnimatedStyle(() => ({ transform: [{ scale: yearlyScale.value }] }));
+  const yearlyStyle = useAnimatedStyle(() => ({ transform: [{ scale: yearlyScale.value }] }));
 
   const handleStartSubscription = useCallback(async () => {
     setLoading(true);
+
     try {
       const result = await createSubscription(selectedPlan);
-      if (!result?.approvalUrl) {
+      if (!result?.approvalUrl || !result.subscriptionId) {
         Alert.alert(
           'Error al iniciar',
-          'Hubo un problema con el pago. No se te cobró nada — intentá de nuevo.',
+          'Hubo un problema con PayPal. No se te cobró nada. Verificá la configuración e intentá de nuevo.',
         );
         return;
       }
+
+      setSubscriptionId(result.subscriptionId);
       setApprovalUrl(result.approvalUrl);
       setStep('webview');
     } catch {
-      Alert.alert('Error', 'Hubo un problema con el pago. No se te cobró nada — intentá de nuevo.');
+      Alert.alert('Error', 'Hubo un problema con el pago. No se te cobró nada. Intentá de nuevo.');
     } finally {
       setLoading(false);
     }
   }, [selectedPlan]);
 
-  // El WebView captura la URL de retorno del backend
-  const handleWebViewNavigation = useCallback(
-    async (navState: { url: string }) => {
-      const { url } = navState;
+  const handleSubscriptionNavigation = useCallback(async (url: string) => {
+    if (!url) return;
 
-      // PayPal redirige a nuestro backend al completar o cancelar
-      if (url.includes(`${BACKEND_URL}/paypal/return`) || url.includes('subscription_approved')) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        await checkStatus();
-        setStep('success');
-      } else if (url.includes(`${BACKEND_URL}/paypal/cancel`) || url.includes('subscription_cancelled')) {
-        setStep('plans');
-        Alert.alert('Pago cancelado', 'Podés volver a intentarlo cuando quieras. No se realizó ningún cargo.');
-      }
-    },
-    [BACKEND_URL, checkStatus],
-  );
+    const cancelled =
+      url.includes(`${BACKEND_URL}/paypal/cancel`) ||
+      getQueryParam(url, 'subscription_status') === 'cancelled';
 
-  // ── PASO: WEBVIEW PAYPAL ──────────────────────────────────────────
+    if (cancelled) {
+      setStep('plans');
+      setApprovalUrl(null);
+      Alert.alert('Pago cancelado', 'Podés volver a intentarlo cuando quieras. No se realizó ningún cargo.');
+      return;
+    }
+
+    const isReturnUrl =
+      url.includes(`${BACKEND_URL}/paypal/return`) ||
+      getQueryParam(url, 'subscription_status') === 'active' ||
+      getQueryParam(url, 'subscription_status') === 'pending';
+
+    if (!isReturnUrl) return;
+
+    const nextSubscriptionId =
+      getQueryParam(url, 'subscription_id') ??
+      getQueryParam(url, 'subscriptionId') ??
+      getQueryParam(url, 'subscription_id'.toLowerCase()) ??
+      subscriptionId;
+
+    if (!nextSubscriptionId) {
+      await checkStatus();
+      setStep('pending');
+      return;
+    }
+
+    setSubscriptionId(nextSubscriptionId);
+    const outcome = await confirmSubscriptionFlow(nextSubscriptionId);
+
+    if (outcome === 'active') {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setApprovalUrl(null);
+      setStep('success');
+      return;
+    }
+
+    if (outcome === 'pending') {
+      setApprovalUrl(null);
+      setStep('pending');
+      return;
+    }
+
+    setApprovalUrl(null);
+    setStep('plans');
+    Alert.alert(
+      'Suscripción pendiente',
+      'PayPal todavía no confirmó la activación. Revisá de nuevo en unos segundos o volvé a intentar.',
+    );
+  }, [BACKEND_URL, checkStatus, confirmSubscriptionFlow, subscriptionId]);
+
+  const shouldInterceptUrl = useCallback((url: string) => {
+    if (!url) return false;
+
+    return (
+      url.includes(`${BACKEND_URL}/paypal/return`) ||
+      url.includes(`${BACKEND_URL}/paypal/cancel`) ||
+      url.includes('subscription_status=active') ||
+      url.includes('subscription_status=pending') ||
+      url.includes('subscription_status=cancelled')
+    );
+  }, [BACKEND_URL]);
+
+  const handleShouldStartLoad = useCallback((request: { url: string }) => {
+    if (!request?.url) return true;
+
+    if (shouldInterceptUrl(request.url)) {
+      void handleSubscriptionNavigation(request.url);
+      return false;
+    }
+
+    return true;
+  }, [handleSubscriptionNavigation, shouldInterceptUrl]);
+
+  const handlePendingRefresh = useCallback(async () => {
+    if (!subscriptionId) {
+      await checkStatus();
+      return;
+    }
+
+    const outcome = await confirmSubscriptionFlow(subscriptionId);
+    if (outcome === 'active') {
+      setStep('success');
+      return;
+    }
+
+    if (outcome === 'failed') {
+      Alert.alert('Todavía pendiente', 'PayPal todavía no confirmó la activación. Probá nuevamente en unos segundos.');
+    }
+  }, [checkStatus, confirmSubscriptionFlow, subscriptionId]);
+
   if (step === 'webview' && approvalUrl) {
     return (
       <SafeScreen padHorizontal={false} padBottom={false}>
@@ -121,7 +248,12 @@ export default function PaywallScreen() {
         />
         <WebView
           source={{ uri: approvalUrl }}
-          onNavigationStateChange={handleWebViewNavigation}
+          onShouldStartLoadWithRequest={handleShouldStartLoad}
+          onNavigationStateChange={(navState) => {
+            if (shouldInterceptUrl(navState.url)) {
+              void handleSubscriptionNavigation(navState.url);
+            }
+          }}
           startInLoadingState
           style={{ flex: 1 }}
         />
@@ -129,15 +261,14 @@ export default function PaywallScreen() {
     );
   }
 
-  // ── PASO: ÉXITO ────────────────────────────────────────────────────
   if (step === 'success') {
     return (
       <SafeScreen padHorizontal={false} padBottom>
         <View style={styles.successContainer}>
-          <Text style={styles.successEmoji}>🎉</Text>
-          <Text style={styles.successTitle}>¡Bienvenido a Vyra Premium!</Text>
+          <Text style={styles.successEmoji}>Premium</Text>
+          <Text style={styles.successTitle}>Tu suscripción Premium ya está activa</Text>
           <Text style={styles.successSubtitle}>
-            Tu prueba gratuita de 7 días ya está activa. Explorá todas las features sin límites.
+            Ya podés usar todas las funciones Premium sin límites. El estado quedó confirmado contra PayPal.
           </Text>
           <Button
             label="Empezar a explorar"
@@ -150,7 +281,30 @@ export default function PaywallScreen() {
     );
   }
 
-  // ── PASO: PLANES ───────────────────────────────────────────────────
+  if (step === 'pending') {
+    return (
+      <SafeScreen padHorizontal={false} padBottom>
+        <View style={styles.successContainer}>
+          <Text style={styles.successEmoji}>PayPal</Text>
+          <Text style={styles.successTitle}>Estamos confirmando tu pago</Text>
+          <Text style={styles.successSubtitle}>
+            PayPal todavía no terminó de confirmar la activación. Esto suele resolverse en segundos.
+          </Text>
+          <Button
+            label={confirming ? 'Verificando...' : 'Verificar ahora'}
+            onPress={handlePendingRefresh}
+            disabled={confirming}
+            color={Colors.premium}
+            style={styles.successBtn}
+          />
+          <TouchableOpacity onPress={() => router.back()} style={styles.skipBtn}>
+            <Text style={styles.skipText}>Volver</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeScreen>
+    );
+  }
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header title="" showBack color={Colors.brand} />
@@ -159,38 +313,34 @@ export default function PaywallScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero */}
         <View style={styles.hero}>
-          <Text style={styles.heroEmoji}>💎</Text>
+          <Text style={styles.heroEmoji}>Premium</Text>
           <Text style={styles.heroTitle}>Vyra Premium</Text>
           <Text style={styles.heroSubtitle}>
-            7 días gratis, sin compromiso. Cancelás cuando querés.
+            Pago seguro con PayPal. Cancelás cuando quieras desde la app.
           </Text>
         </View>
 
-        {/* Comparativa */}
         <Card style={styles.compareCard}>
           <View style={styles.compareRow}>
             <View style={styles.compareCol}>
               <Text style={styles.compareColTitle}>Free</Text>
-              {FEATURES_FREE.map((f, i) => (
-                <Text key={i} style={styles.compareFeatureFree}>· {f}</Text>
+              {FEATURES_FREE.map((feature, index) => (
+                <Text key={index} style={styles.compareFeatureFree}>· {feature}</Text>
               ))}
             </View>
             <View style={styles.compareDivider} />
             <View style={styles.compareCol}>
               <Text style={[styles.compareColTitle, { color: Colors.premium }]}>Premium</Text>
-              {FEATURES_PREMIUM.map((f, i) => (
-                <Text key={i} style={styles.compareFeaturePremium}>{f}</Text>
+              {FEATURES_PREMIUM.map((feature, index) => (
+                <Text key={index} style={styles.compareFeaturePremium}>- {feature}</Text>
               ))}
             </View>
           </View>
         </Card>
 
-        {/* Selector de plan */}
         <Text style={styles.planSectionTitle}>Elegí tu plan</Text>
 
-        {/* Plan mensual */}
         <Animated.View style={monthlyStyle}>
           <TouchableOpacity
             style={[
@@ -214,7 +364,6 @@ export default function PaywallScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Plan anual */}
         <Animated.View style={yearlyStyle}>
           <TouchableOpacity
             style={[
@@ -241,9 +390,8 @@ export default function PaywallScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* CTA */}
         <Button
-          label={loading ? 'Iniciando...' : 'Empezar prueba gratis 7 días'}
+          label={loading ? 'Iniciando...' : 'Suscribirme con PayPal'}
           onPress={handleStartSubscription}
           disabled={loading}
           color={Colors.premium}
@@ -252,13 +400,11 @@ export default function PaywallScreen() {
         />
 
         <Text style={styles.ctaDisclaimer}>
-          Sin cargos durante los 7 días de prueba. Podés cancelar antes de que termine sin costo.
-          Pago procesado por PayPal de forma segura.
+          El cobro se procesa al confirmar en PayPal. Podés cancelar desde la app y mantener acceso hasta el fin del período ya pagado.
         </Text>
 
-        {/* Skip */}
         <TouchableOpacity onPress={() => router.back()} style={styles.skipBtn}>
-          <Text style={styles.skipText}>Continuar con Free →</Text>
+          <Text style={styles.skipText}>Continuar con Free</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeScreen>
@@ -277,7 +423,7 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing[2],
     gap: Spacing[2],
   },
-  heroEmoji: { fontSize: 56 },
+  heroEmoji: { fontSize: 44, fontFamily: FontFamily.bold, color: Colors.premium },
   heroTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 30,
@@ -289,7 +435,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textSecondary,
     textAlign: 'center',
-    maxWidth: 280,
+    maxWidth: 320,
   },
   compareCard: { padding: Spacing[4] },
   compareRow: { flexDirection: 'row', gap: Spacing[3] },
@@ -416,7 +562,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[8],
     gap: Spacing[5],
   },
-  successEmoji: { fontSize: 80 },
+  successEmoji: {
+    fontFamily: FontFamily.bold,
+    fontSize: 40,
+    color: Colors.premium,
+  },
   successTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 28,

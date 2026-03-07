@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
+import { decryptSensitiveText, encryptSensitiveText } from '@/lib/sensitive-crypto';
 
 export interface WeightLog {
   id: string;
@@ -10,6 +11,18 @@ export interface WeightLog {
   photo_url: string | null;
   note: string | null;
   logged_at: string;
+}
+
+function parseEncryptedNumeric(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function roundForAnalytics(value: number, step: number): number {
+  if (!Number.isFinite(value) || step <= 0) return value;
+  return Math.round(value / step) * step;
 }
 
 export interface WeightStats {
@@ -28,11 +41,18 @@ export interface WeightStats {
   dailyDelta: number | null;
   variationContext: string | null;
   projectedGoalDate: string | null;
+  plateauDetected: boolean;
+  plateauMessage: string | null;
 }
 
 export function useWeight() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
+  const coachMemory =
+    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
+      ? (profile.coach_memory_json as Record<string, unknown>)
+      : {};
+  const strictSensitiveMode = Boolean(coachMemory.privacy_strict_sensitive_mode);
 
   const [logs, setLogs] = useState<WeightLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +73,8 @@ export function useWeight() {
     dailyDelta: null,
     variationContext: null,
     projectedGoalDate: null,
+    plateauDetected: false,
+    plateauMessage: null,
   });
 
   const fetchLogs = useCallback(async () => {
@@ -66,8 +88,32 @@ export function useWeight() {
         .limit(90);
 
       if (error) throw error;
-      setLogs(data ?? []);
-      computeStats(data ?? []);
+      const normalized = await Promise.all(
+        (data ?? []).map(async (entry: any) => {
+          const [decryptedNote, decryptedWeightRaw, decryptedBodyFatRaw] = await Promise.all([
+            decryptSensitiveText(entry.note ?? null),
+            decryptSensitiveText(entry.weight_kg_encrypted ?? null),
+            decryptSensitiveText(entry.body_fat_pct_encrypted ?? null),
+          ]);
+
+          const decryptedWeight = parseEncryptedNumeric(decryptedWeightRaw);
+          const decryptedBodyFat = parseEncryptedNumeric(decryptedBodyFatRaw);
+
+          return {
+            ...entry,
+            weight_kg: decryptedWeight ?? Number(entry.weight_kg ?? 0),
+            body_fat_pct:
+              decryptedBodyFat !== null
+                ? decryptedBodyFat
+                : entry.body_fat_pct !== null && entry.body_fat_pct !== undefined
+                  ? Number(entry.body_fat_pct)
+                  : null,
+            note: decryptedNote,
+          };
+        }),
+      );
+      setLogs(normalized as WeightLog[]);
+      computeStats(normalized as WeightLog[]);
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), { action: "useWeight.fetchLogs" });
     } finally {
@@ -138,6 +184,15 @@ export function useWeight() {
       weeklyDelta,
     });
 
+    const recent21 = data.slice(0, 21).map((item) => item.weight_kg);
+    const plateauDetected =
+      recent21.length >= 12 &&
+      Math.max(...recent21) - Math.min(...recent21) <= 0.3 &&
+      (profile.goal === 'lose_fat' || (toGoal !== null && toGoal > 0));
+    const plateauMessage = plateauDetected
+      ? 'Tu peso viene estable hace ~3 semanas. Probemos ajustar calorias, pasos o carga de entrenamiento para destrabar.'
+      : null;
+
     // Nuevo mínimo histórico
     const allWeights = data.map((l) => l.weight_kg);
     const isNewMin =
@@ -161,6 +216,8 @@ export function useWeight() {
       dailyDelta,
       variationContext,
       projectedGoalDate,
+      plateauDetected,
+      plateauMessage,
     });
   }
 
@@ -176,21 +233,59 @@ export function useWeight() {
         const allWeights = logs.map((l) => l.weight_kg);
         const isNewMin = allWeights.length > 0 && weightKg < Math.min(...allWeights);
 
-        const { error } = await supabase.from('weight_logs').insert({
+        const encryptedNote = await encryptSensitiveText(note ?? null);
+        const encryptedWeight = await encryptSensitiveText(String(weightKg));
+        const encryptedBodyFat =
+          bodyFatPct !== undefined && bodyFatPct !== null
+            ? await encryptSensitiveText(String(bodyFatPct))
+            : null;
+
+        const analyticsWeight = roundForAnalytics(weightKg, strictSensitiveMode ? 2 : 0.5);
+        const analyticsBodyFat =
+          bodyFatPct !== undefined && bodyFatPct !== null
+            ? roundForAnalytics(bodyFatPct, strictSensitiveMode ? 5 : 1)
+            : null;
+
+        const securePayload = {
           user_id: userId,
-          weight_kg: weightKg,
-          body_fat_pct: bodyFatPct ?? null,
-          note: note ?? null,
+          weight_kg: strictSensitiveMode ? null : analyticsWeight,
+          body_fat_pct: strictSensitiveMode ? null : analyticsBodyFat,
+          weight_kg_encrypted: encryptedWeight,
+          body_fat_pct_encrypted: encryptedBodyFat,
+          note: encryptedNote,
           logged_at: new Date().toISOString(),
-        });
+        };
+
+        let { error } = await supabase.from('weight_logs').insert(securePayload);
+        if (error) {
+          const message = String((error as any).message ?? '');
+          const missingSecureColumns =
+            message.includes('weight_kg_encrypted') || message.includes('body_fat_pct_encrypted');
+
+          if (missingSecureColumns) {
+            if (strictSensitiveMode) {
+              throw new Error('El modo estricto requiere las columnas cifradas en weight_logs.');
+            }
+            const fallback = await supabase.from('weight_logs').insert({
+              user_id: userId,
+              weight_kg: analyticsWeight,
+              body_fat_pct: analyticsBodyFat,
+              note: encryptedNote,
+              logged_at: new Date().toISOString(),
+            });
+            error = fallback.error;
+          }
+        }
 
         if (error) throw error;
 
         // Actualizar peso actual en perfil
-        await supabase
-          .from('profiles')
-          .update({ weight_current_kg: weightKg })
-          .eq('id', userId);
+        if (!strictSensitiveMode) {
+          await supabase
+            .from('profiles')
+            .update({ weight_current_kg: analyticsWeight })
+            .eq('id', userId);
+        }
 
         await fetchLogs();
         return { isNewMin };
@@ -201,7 +296,7 @@ export function useWeight() {
         setSaving(false);
       }
     },
-    [userId, logs, fetchLogs],
+    [strictSensitiveMode, userId, logs, fetchLogs],
   );
 
   const deleteLog = useCallback(
@@ -264,6 +359,7 @@ export function useWeight() {
     getChartData,
     getProjectionWeeks,
     refresh: fetchLogs,
+    strictSensitiveMode,
   };
 }
 

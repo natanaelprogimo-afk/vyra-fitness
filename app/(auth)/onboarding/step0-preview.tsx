@@ -40,12 +40,19 @@ export default function OnboardingPreview() {
           variant="primary"
           size="lg"
           fullWidth
+          onPress={() => router.push('/(auth)/onboarding/step1-conversation' as any)}
+        >
+          Empezar onboarding conversacional
+        </Button>
+        <Button
+          variant="ghost"
+          fullWidth
           onPress={() => router.push('/(auth)/onboarding/step1-goals' as any)}
         >
-          Quiero empezar ahora
+          Usar modo clasico
         </Button>
         <Text style={styles.note}>
-          Te vamos a pedir solo 3 datos rápidos para personalizar todo.
+          Te vamos a pedir solo 4 datos rapidos para personalizar todo.
         </Text>
       </View>
     </SafeScreen>

@@ -185,12 +185,12 @@ export default function ProfileScreen() {
               />
             </>
           ) : (
-            <ProfileRow
-              emoji="✦"
-              label="Subir a Premium"
-              value="7 días gratis"
-              onPress={() => router.push('/premium/paywall' as any)}
-            />
+          <ProfileRow
+            emoji="✦"
+            label="Subir a Premium"
+            value="Mensual o anual"
+            onPress={() => router.push('/premium/paywall' as any)}
+          />
           )}
           <ProfileRow
             emoji="🛒"

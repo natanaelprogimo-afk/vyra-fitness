@@ -50,6 +50,25 @@
                                  ],
                                  "expo-secure-store",
                                  [
+                                     "@bittingz/expo-widgets",
+                                     {
+                                         "android": {
+                                             "src": "./widgets/android",
+                                             "distPlaceholder": "com.vyrafitness.app",
+                                             "widgets": [
+                                                 {
+                                                     "name": "VyraCompactWidgetProvider",
+                                                     "resourceName": "@xml/vyra_widget_compact_info"
+                                                 },
+                                                 {
+                                                     "name": "VyraExpandedWidgetProvider",
+                                                     "resourceName": "@xml/vyra_widget_expanded_info"
+                                                 }
+                                             ]
+                                         }
+                                     }
+                                 ],
+                                 [
                                      "@sentry/react-native/expo",
                                      {
                                          "organization":  "vyra-fitness",

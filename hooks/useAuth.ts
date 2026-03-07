@@ -145,6 +145,24 @@ export function useAuth() {
             data.activity_level
           )
         : 2000;
+      const activeModules =
+        Array.isArray(data.active_modules)
+          ? data.active_modules
+              .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+              .map((value) => value.trim())
+          : [];
+      const currentCoachMemory =
+        profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
+          ? (profile.coach_memory_json as Record<string, unknown>)
+          : {};
+      const onboardingCompletedAt = new Date().toISOString();
+      const nextCoachMemory: Record<string, unknown> = {
+        ...currentCoachMemory,
+        onboarding_completed_at: onboardingCompletedAt,
+      };
+      if (activeModules.length > 0) {
+        nextCoachMemory.active_modules = activeModules;
+      }
 
       const updatePayload: Record<string, unknown> = {
         gender:               normalizeGender(data.gender),
@@ -162,6 +180,7 @@ export function useAuth() {
         onboarding_completed: true,
         coins:                50, // bonus de onboarding
         updated_at:           new Date().toISOString(),
+        coach_memory_json:    nextCoachMemory,
       };
 
       const { error } = await supabase

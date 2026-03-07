@@ -11,6 +11,7 @@ export default function OnboardingLayout() {
       }}
     >
       <Stack.Screen name="step0-preview" />
+      <Stack.Screen name="step1-conversation" />
       <Stack.Screen name="step1-goals" />
       <Stack.Screen name="step2-body" />
       <Stack.Screen name="step3-activity" />

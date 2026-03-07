@@ -105,6 +105,7 @@ export const Routes = {
   settings: {
     index:         '/settings/',
     notifications: '/settings/notifications',
+    coach:         '/settings/coach',
     theme:         '/settings/theme',
     units:         '/settings/units',
     privacy:       '/settings/privacy',

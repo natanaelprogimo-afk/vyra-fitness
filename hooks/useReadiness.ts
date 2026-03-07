@@ -42,6 +42,17 @@ export interface ScoreReason {
   type: 'positive' | 'negative';
 }
 
+export interface SimilarDayComparison {
+  message: string;
+  delta: number;
+}
+
+export interface FocusAction {
+  title: string;
+  route: string;
+  metric: keyof ScoreBreakdown;
+}
+
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
 function normalizeDailyScorePayload(raw: any, date: string): DailyScore {
@@ -155,6 +166,159 @@ function buildMorningNarrative(score: DailyScore | null): string | null {
   return `Tu punto fuerte hoy es ${labels[best[0]]} (${best[1]}). Oportunidad principal: ${labels[lowest[0]]} (${lowest[1]}).`;
 }
 
+function averageScore(rows: ScoreHistory[]): number | null {
+  if (!rows.length) return null;
+  return Math.round(rows.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0) / rows.length);
+}
+
+function normalizeDateOnly(value: string): Date {
+  return new Date(`${value}T00:00:00`);
+}
+
+function isNextCalendarDay(previous: string, current: string): boolean {
+  const prev = normalizeDateOnly(previous);
+  const cur = normalizeDateOnly(current);
+  const diffMs = prev.getTime() - cur.getTime();
+  return diffMs === 24 * 60 * 60 * 1000;
+}
+
+function buildSimilarDayComparison(
+  history: ScoreHistory[],
+  todayScore: DailyScore | null,
+): SimilarDayComparison | null {
+  if (!todayScore) return null;
+  const todayDate = todayScore.date;
+  const weekday = normalizeDateOnly(todayDate).getDay();
+  const sameWeekdayPast = history.filter((row) => row.date !== todayDate && normalizeDateOnly(row.date).getDay() === weekday);
+  if (sameWeekdayPast.length < 3) return null;
+
+  const avg = Math.round(
+    sameWeekdayPast.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0) / sameWeekdayPast.length,
+  );
+  const delta = todayScore.score - avg;
+  const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const dayName = dayNames[weekday] ?? 'día';
+  const trendText =
+    delta > 0
+      ? `por encima de tu promedio`
+      : delta < 0
+        ? `por debajo de tu promedio`
+        : `igual a tu promedio`;
+
+  return {
+    delta,
+    message: `Los ${dayName}s solés promediar ${avg}. Hoy estás en ${todayScore.score}, ${trendText}.`,
+  };
+}
+
+function buildQualityStreak(history: ScoreHistory[]): number {
+  if (!history.length) return 0;
+  const sortedDesc = [...history].sort((a, b) => normalizeDateOnly(b.date).getTime() - normalizeDateOnly(a.date).getTime());
+  let streak = 0;
+  let previousDate: string | null = null;
+
+  for (const row of sortedDesc) {
+    const score = Number(row.total_score ?? 0);
+    if (score < 60) break;
+
+    if (previousDate !== null && !isNextCalendarDay(previousDate, row.date)) {
+      break;
+    }
+
+    streak += 1;
+    previousDate = row.date;
+  }
+
+  return streak;
+}
+
+function buildFocusActions(score: DailyScore | null): FocusAction[] {
+  if (!score) return [];
+  const shouldFocus = score.score < 60 || score.breakdown.mental < 45;
+  if (!shouldFocus) return [];
+
+  const moduleByMetric: Record<keyof ScoreBreakdown, { title: string; route: string }> = {
+    hydration: { title: 'Tomá un vaso de agua', route: '/modules/water' },
+    activity: { title: 'Hacé una caminata corta', route: '/modules/steps' },
+    sleep: { title: 'Planificá tu sueño de hoy', route: '/modules/sleep' },
+    nutrition: { title: 'Registrá una comida simple', route: '/modules/nutrition' },
+    mental: { title: 'Hacé un check-in mental', route: '/modules/mental' },
+  };
+
+  return (Object.entries(score.breakdown) as Array<[keyof ScoreBreakdown, number]>)
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 2)
+    .map(([metric]) => ({
+      metric,
+      title: moduleByMetric[metric].title,
+      route: moduleByMetric[metric].route,
+    }));
+}
+
+function buildCrossModuleInsights(history: ScoreHistory[]): string[] {
+  if (history.length < 10) return [];
+  const insights: string[] = [];
+
+  const highHydration = history.filter((row) => Number(row.hydration_pct ?? 0) >= 80);
+  const lowHydration = history.filter((row) => Number(row.hydration_pct ?? 0) < 60);
+  if (highHydration.length >= 4 && lowHydration.length >= 4) {
+    const avgSleepHighHydration = Math.round(
+      highHydration.reduce((sum, row) => sum + Number(row.sleep_pct ?? 0), 0) / highHydration.length,
+    );
+    const avgSleepLowHydration = Math.round(
+      lowHydration.reduce((sum, row) => sum + Number(row.sleep_pct ?? 0), 0) / lowHydration.length,
+    );
+    const diff = avgSleepHighHydration - avgSleepLowHydration;
+    if (Math.abs(diff) >= 6) {
+      insights.push(
+        diff > 0
+          ? `En tus días con hidratación alta, tu sueño sube ~${diff} puntos.`
+          : `Cuando hidratás menos, tu sueño cae ~${Math.abs(diff)} puntos.`,
+      );
+    }
+  }
+
+  const highSleep = history.filter((row) => Number(row.sleep_pct ?? 0) >= 75);
+  const lowSleep = history.filter((row) => Number(row.sleep_pct ?? 0) < 55);
+  if (highSleep.length >= 4 && lowSleep.length >= 4) {
+    const avgScoreHighSleep = Math.round(
+      highSleep.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0) / highSleep.length,
+    );
+    const avgScoreLowSleep = Math.round(
+      lowSleep.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0) / lowSleep.length,
+    );
+    const diff = avgScoreHighSleep - avgScoreLowSleep;
+    if (Math.abs(diff) >= 6) {
+      insights.push(
+        diff > 0
+          ? `Cuando dormís mejor, tu score total mejora ~${diff} puntos.`
+          : `Tus días de poco sueño suelen impactar ~${Math.abs(diff)} puntos en el score.`,
+      );
+    }
+  }
+
+  const highNutrition = history.filter((row) => Number(row.nutrition_pct ?? 0) >= 70);
+  const lowNutrition = history.filter((row) => Number(row.nutrition_pct ?? 0) < 50);
+  if (highNutrition.length >= 4 && lowNutrition.length >= 4) {
+    const avgMentalHighNutrition = Math.round(
+      highNutrition.reduce((sum, row) => sum + Number(row.mental_pct ?? 0), 0) / highNutrition.length,
+    );
+    const avgMentalLowNutrition = Math.round(
+      lowNutrition.reduce((sum, row) => sum + Number(row.mental_pct ?? 0), 0) / lowNutrition.length,
+    );
+    const diff = avgMentalHighNutrition - avgMentalLowNutrition;
+    if (Math.abs(diff) >= 6) {
+      insights.push(
+        diff > 0
+          ? `Con mejor nutrición, tu métrica mental sube ~${diff} puntos.`
+          : `Tus días de nutrición baja suelen impactar ~${Math.abs(diff)} puntos en lo mental.`,
+      );
+    }
+  }
+
+  return insights.slice(0, 2);
+}
+
 export function useReadiness() {
   const { session } = useAuthStore();
   const [dailyScore, setDailyScore] = useState<DailyScore | null>(null);
@@ -208,7 +372,7 @@ export function useReadiness() {
   );
 
   const fetchHistory = useCallback(
-    async (days: number = 14) => {
+    async (days: number = 35) => {
       if (!session?.access_token) return;
       try {
         const res = await fetch(`${BACKEND_URL}/scores/history?days=${days}`, {
@@ -232,7 +396,7 @@ export function useReadiness() {
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([calculate(today, true), fetchHistory(14)]);
+    await Promise.all([calculate(today, true), fetchHistory(35)]);
     setRefreshing(false);
   }, [calculate, fetchHistory, today]);
 
@@ -256,7 +420,7 @@ export function useReadiness() {
   }
 
   useEffect(() => {
-    void Promise.all([calculate(today), fetchHistory(14)]);
+    void Promise.all([calculate(today), fetchHistory(35)]);
   }, [calculate, fetchHistory, today]);
 
   useEffect(() => {
@@ -269,6 +433,13 @@ export function useReadiness() {
   const momentum14 = [...history]
     .slice(-14)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const weeklyAverage = averageScore(sortedHistory.slice(-7));
+  const monthlyAverage = averageScore(sortedHistory.slice(-30));
+  const similarDayComparison = buildSimilarDayComparison(sortedHistory, dailyScore);
+  const qualityScoreStreak = buildQualityStreak(sortedHistory);
+  const focusActions = buildFocusActions(dailyScore);
+  const crossModuleInsights = buildCrossModuleInsights(sortedHistory);
 
   return {
     dailyScore,
@@ -285,5 +456,11 @@ export function useReadiness() {
     predictedScore: predictEndOfDayScore(dailyScore),
     momentum14,
     morningNarrative: buildMorningNarrative(dailyScore),
+    weeklyAverage,
+    monthlyAverage,
+    similarDayComparison,
+    qualityScoreStreak,
+    focusActions,
+    crossModuleInsights,
   };
 }

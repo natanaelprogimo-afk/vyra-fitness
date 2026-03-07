@@ -8,6 +8,7 @@ import { OnboardingProgress } from './step1-goals';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 import type { ActivityLevel } from '@/types/user';
+import type { ModuleId } from '@/constants/modules';
 
 const LEVELS: { id: ActivityLevel; emoji: string; label: string; desc: string }[] = [
   { id: 0, emoji: '🛋️', label: 'Sedentario', desc: 'Casi sin actividad' },
@@ -26,22 +27,89 @@ const EQUIPMENT: { id: string; emoji: string; label: string }[] = [
   { id: 'none', emoji: '❌', label: 'Aun no entreno' },
 ];
 
+const MODULE_CHOICES: Array<{ id: ModuleId; emoji: string; label: string }> = [
+  { id: 'water', emoji: '💧', label: 'Hidratación' },
+  { id: 'sleep', emoji: '😴', label: 'Sueño' },
+  { id: 'nutrition', emoji: '🍎', label: 'Nutrición' },
+  { id: 'steps', emoji: '🚶', label: 'Pasos' },
+  { id: 'workout', emoji: '💪', label: 'Entrenamiento' },
+  { id: 'weight', emoji: '⚖️', label: 'Peso' },
+  { id: 'mental', emoji: '🧠', label: 'Salud mental' },
+  { id: 'fasting', emoji: '⏳', label: 'Ayuno' },
+  { id: 'supplements', emoji: '💊', label: 'Suplementos' },
+  { id: 'female', emoji: '🌸', label: 'Salud femenina' },
+];
+
+function defaultModulesByGoal(goal?: string): ModuleId[] {
+  switch (goal) {
+    case 'gain_muscle':
+      return ['workout', 'nutrition', 'sleep', 'water', 'steps', 'weight'];
+    case 'sport_performance':
+      return ['workout', 'sleep', 'steps', 'water', 'nutrition', 'mental'];
+    case 'mental_wellbeing':
+      return ['mental', 'sleep', 'water', 'steps', 'nutrition'];
+    case 'lose_fat':
+      return ['nutrition', 'weight', 'steps', 'water', 'sleep', 'mental'];
+    default:
+      return ['water', 'sleep', 'nutrition', 'steps', 'workout', 'mental'];
+  }
+}
+
 export default function Step3Activity() {
-  const params = useLocalSearchParams();
-  const [level, setLevel] = useState<ActivityLevel>(2);
+  const params = useLocalSearchParams<{ goal?: string; active_modules?: string; activity?: string }>();
+  const initialLevel = (() => {
+    const value = Number(params.activity ?? 2);
+    if (Number.isFinite(value) && value >= 0 && value <= 5) {
+      return value as ActivityLevel;
+    }
+    return 2 as ActivityLevel;
+  })();
+  const [level, setLevel] = useState<ActivityLevel>(initialLevel);
   const [equip, setEquip] = useState('gym');
+  const [activeModules, setActiveModules] = useState<ModuleId[]>(() => {
+    if (params.active_modules) {
+      const preset = params.active_modules
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value): value is ModuleId =>
+          MODULE_CHOICES.some((module) => module.id === value),
+        );
+      if (preset.length > 0) return preset;
+    }
+    return defaultModulesByGoal(params.goal);
+  });
+
+  const toggleModule = (moduleId: ModuleId) => {
+    setActiveModules((prev) => {
+      if (prev.includes(moduleId)) {
+        if (prev.length <= 3) return prev;
+        return prev.filter((module) => module !== moduleId);
+      }
+      return [...prev, moduleId];
+    });
+  };
 
   const continueFast = () => {
     router.push({
       pathname: '/(auth)/onboarding/step5-premium',
-      params: { ...params, activity: level.toString(), equipment: equip },
+      params: {
+        ...params,
+        activity: level.toString(),
+        equipment: equip,
+        active_modules: activeModules.join(','),
+      },
     } as any);
   };
 
   const openAdvanced = () => {
     router.push({
       pathname: '/(auth)/onboarding/step4-schedule',
-      params: { ...params, activity: level.toString(), equipment: equip },
+      params: {
+        ...params,
+        activity: level.toString(),
+        equipment: equip,
+        active_modules: activeModules.join(','),
+      },
     } as any);
   };
 
@@ -87,6 +155,26 @@ export default function Step3Activity() {
             </Text>
           </Pressable>
         ))}
+      </View>
+
+      <Text style={[styles.subtitle, { marginBottom: Spacing[3] }]}>Elegi tus modulos activos</Text>
+      <Text style={styles.modulesHint}>
+        Elegi al menos 3. Solo vas a ver estos modulos en tu dashboard y registro rapido.
+      </Text>
+      <View style={styles.modulesRow}>
+        {MODULE_CHOICES.map((item) => {
+          const selected = activeModules.includes(item.id);
+          return (
+            <Pressable
+              key={item.id}
+              onPress={() => toggleModule(item.id)}
+              style={[styles.moduleChip, selected && styles.moduleChipActive]}
+            >
+              <Text style={styles.moduleEmoji}>{item.emoji}</Text>
+              <Text style={[styles.moduleLabel, selected && styles.moduleLabelActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <Button onPress={continueFast} variant="primary" fullWidth size="lg" style={styles.cta}>
@@ -187,6 +275,44 @@ const styles = StyleSheet.create({
   },
   equipLabelActive: {
     color: Colors.steps,
+  },
+  modulesHint: {
+    marginBottom: Spacing[2],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  modulesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+    marginBottom: Spacing[6],
+  },
+  moduleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1.5],
+    paddingVertical: Spacing[2],
+    paddingHorizontal: Spacing[3],
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgSurface,
+  },
+  moduleChipActive: {
+    borderColor: Colors.brand,
+    backgroundColor: `${Colors.brand}15`,
+  },
+  moduleEmoji: {
+    fontSize: 14,
+  },
+  moduleLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  moduleLabelActive: {
+    color: Colors.brand,
   },
   cta: {
     marginBottom: Spacing[2],

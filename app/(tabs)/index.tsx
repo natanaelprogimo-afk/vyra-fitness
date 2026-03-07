@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,9 @@ import { FontFamily, Spacing, Radius } from '@/constants/theme';
 import { useReadiness } from '@/hooks/useReadiness';
 import { useAuthStore } from '@/stores/authStore';
 import { useDashboard } from '@/hooks/useDashboard';
+import { getActiveModules } from '@/lib/active-modules';
+import { useFemaleHealth } from '@/hooks/useFemaleHealth';
+import { syncHomeWidgetSnapshot } from '@/lib/widget-sync';
 
 function MomentumSparkline({ values }: { values: number[] }) {
   if (values.length < 2) return null;
@@ -55,6 +58,7 @@ function MomentumSparkline({ values }: { values: number[] }) {
 
 export default function HomeScreen() {
   const { profile } = useAuthStore();
+  const { currentPhase, phaseGuidance, strictSensitiveMode: strictFemaleMode } = useFemaleHealth();
   const {
     dailyScore,
     loading,
@@ -64,6 +68,12 @@ export default function HomeScreen() {
     predictedScore,
     momentum14,
     morningNarrative,
+    weeklyAverage,
+    monthlyAverage,
+    similarDayComparison,
+    qualityScoreStreak,
+    focusActions,
+    crossModuleInsights,
   } = useReadiness();
   const { mentalDoneToday } = useDashboard();
 
@@ -80,6 +90,62 @@ export default function HomeScreen() {
 
   const name = profile?.name?.split(' ')[0] ?? 'ahi';
   const momentumValues = momentum14.map((item) => item.total_score);
+  const activeModules = getActiveModules(profile);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const pendingAction = focusActions[0]?.title
+      ?? (!dailyScore?.meta.hasWaterLog
+        ? 'Tomar agua'
+        : !dailyScore?.meta.hasMentalCheckin
+          ? 'Check-in mental'
+          : !dailyScore?.meta.hasMealsLog
+            ? 'Registrar comida'
+            : 'Abrir Vyra');
+
+    const phaseName = profile.female_health_enabled ? currentPhase : null;
+    const phaseTone =
+      phaseName === 'menstrual' || phaseName === 'luteal'
+        ? 'recovery'
+        : phaseName === 'follicular' || phaseName === 'ovulation'
+          ? 'push'
+          : 'neutral';
+    const phaseContext = profile.female_health_enabled
+      ? strictFemaleMode
+        ? 'Automatizacion por fase limitada por privacidad.'
+        : phaseGuidance.training
+      : null;
+
+    syncHomeWidgetSnapshot({
+      score: dailyScore?.score ?? null,
+      weeklyAverage: weeklyAverage ?? null,
+      streak,
+      qualityStreak: qualityScoreStreak,
+      pendingAction,
+      comparison: similarDayComparison?.message ?? morningNarrative ?? '',
+      phaseName,
+      phaseTone,
+      phaseContext,
+      updatedAt: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+    });
+  }, [
+    currentPhase,
+    dailyScore?.meta.hasMealsLog,
+    dailyScore?.meta.hasMentalCheckin,
+    dailyScore?.meta.hasWaterLog,
+    dailyScore?.score,
+    focusActions,
+    morningNarrative,
+    phaseGuidance.training,
+    profile?.female_health_enabled,
+    profile?.id,
+    qualityScoreStreak,
+    similarDayComparison?.message,
+    streak,
+    strictFemaleMode,
+    weeklyAverage,
+  ]);
 
   return (
     <SafeScreen padHorizontal={false} padBottom={false}>
@@ -148,13 +214,62 @@ export default function HomeScreen() {
             <Text style={styles.insightTitle}>Momentum de 14 dias</Text>
             <MomentumSparkline values={momentumValues} />
           </View>
+
+          <View style={styles.statsCard}>
+            <View style={styles.statsRow}>
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Semana</Text>
+                <Text style={styles.statValue}>{weeklyAverage ?? '--'}</Text>
+              </View>
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Mes</Text>
+                <Text style={styles.statValue}>{monthlyAverage ?? '--'}</Text>
+              </View>
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Racha {'>='}60</Text>
+                <Text style={styles.statValue}>{qualityScoreStreak}</Text>
+              </View>
+            </View>
+            {similarDayComparison ? (
+              <Text style={styles.comparisonText}>{similarDayComparison.message}</Text>
+            ) : null}
+          </View>
+
+          {focusActions.length > 0 ? (
+            <View style={styles.focusCard}>
+              <Text style={styles.focusTitle}>Modo recuperacion</Text>
+              <Text style={styles.focusSubtitle}>Hoy prioriza solo estas 2 acciones:</Text>
+              <View style={styles.focusActions}>
+                {focusActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.metric}
+                    style={styles.focusActionBtn}
+                    onPress={() => router.push(action.route as any)}
+                  >
+                    <Text style={styles.focusActionText}>{action.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {crossModuleInsights.length > 0 ? (
+            <View style={styles.insightCard}>
+              <Text style={styles.insightTitle}>Conexiones de tus datos</Text>
+              {crossModuleInsights.map((insight, index) => (
+                <Text key={`${insight}_${index}`} style={styles.connectionText}>
+                  • {insight}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         {morningNarrative ? <AIInsight insight={morningNarrative} /> : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tus modulos</Text>
-          <ModuleGrid />
+          <ModuleGrid activeModules={activeModules} />
         </View>
 
         <View style={styles.bottomPad} />
@@ -226,6 +341,81 @@ const styles = StyleSheet.create({
     padding: Spacing[4],
     gap: Spacing[2],
   },
+  statsCard: {
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing[4],
+    gap: Spacing[2],
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  statChip: {
+    flex: 1,
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing[2],
+    paddingHorizontal: Spacing[2],
+    alignItems: 'center',
+    gap: 2,
+  },
+  statLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  statValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: Colors.textPrimary,
+  },
+  comparisonText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  focusCard: {
+    backgroundColor: `${Colors.warning}15`,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}50`,
+    padding: Spacing[4],
+    gap: Spacing[2],
+  },
+  focusTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 15,
+    color: Colors.warning,
+  },
+  focusSubtitle: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  focusActions: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  focusActionBtn: {
+    flex: 1,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: Spacing[2.5],
+    paddingHorizontal: Spacing[2],
+    alignItems: 'center',
+  },
+  focusActionText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 12,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
   insightTitle: {
     fontFamily: FontFamily.semibold,
     fontSize: 14,
@@ -246,6 +436,12 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: 13,
     color: Colors.textSecondary,
+  },
+  connectionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
   },
   bottomPad: {
     height: 100,

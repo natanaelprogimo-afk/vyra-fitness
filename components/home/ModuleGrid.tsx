@@ -32,12 +32,15 @@ export interface ModuleProgress {
 
 interface ModuleGridProps {
   progress?: ModuleProgress;
+  activeModules?: ModuleId[];
 }
 
-export const ModuleGrid = ({ progress = {} }: ModuleGridProps) => {
+export const ModuleGrid = ({ progress = {}, activeModules }: ModuleGridProps) => {
+  const visibleModules = activeModules && activeModules.length > 0 ? activeModules : GridModules;
+
   return (
     <View style={styles.grid}>
-      {GridModules.map((id) => (
+      {visibleModules.map((id) => (
         <ModuleCell
           key={id}
           id={id}

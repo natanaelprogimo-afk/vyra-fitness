@@ -23,8 +23,8 @@ export default function ManageSubscriptionScreen() {
     Alert.alert(
       'Cancelar suscripción',
       isInTrial
-        ? `Todavía tenés ${trialDaysLeft} días de prueba. Si cancelás ahora perderás el acceso al terminar el trial. ¿Querés cancelar?`
-        : '¿Estás seguro? Perderás acceso a todas las features Premium al final del período actual.',
+        ? `Todavía tenés ${trialDaysLeft} días de trial heredado. Si cancelás ahora perderás el acceso al terminar ese período. ¿Querés cancelar?`
+        : '¿Estás seguro? Se detendrá la renovación y conservarás Premium hasta el fin del período actual.',
       [
         { text: 'Mantener Premium', style: 'cancel' },
         {
@@ -35,7 +35,7 @@ export default function ManageSubscriptionScreen() {
             if (success) {
               Alert.alert(
                 'Suscripción cancelada',
-                'Seguís teniendo acceso Premium hasta el fin del período actual.',
+                'La renovación quedó cancelada. Seguís teniendo acceso Premium hasta el fin del período actual.',
               );
               router.back();
             } else {
@@ -80,9 +80,17 @@ export default function ManageSubscriptionScreen() {
                 valueColor={Colors.success}
               />
             )}
-            {status?.expiresAt && (
+            {isInTrial && status?.trialEndsAt && (
               <StatusRow
-                label={isInTrial ? 'Trial vence' : 'Próxima renovación'}
+                label="Trial vence"
+                value={new Date(status.trialEndsAt).toLocaleDateString('es-AR', {
+                  day: '2-digit', month: 'long', year: 'numeric',
+                })}
+              />
+            )}
+            {!isInTrial && status?.expiresAt && (
+              <StatusRow
+                label="Próxima renovación"
                 value={new Date(status.expiresAt).toLocaleDateString('es-AR', {
                   day: '2-digit', month: 'long', year: 'numeric',
                 })}
@@ -119,8 +127,8 @@ export default function ManageSubscriptionScreen() {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          Al cancelar seguís teniendo acceso hasta el fin del período ya pagado.
-          Los datos de tu cuenta se conservan al volver al plan Free.
+          Al cancelar detenés la renovación en PayPal, pero mantenés acceso hasta el fin del período ya pagado.
+          Tus datos se conservan al volver al plan Free.
         </Text>
       </ScrollView>
     </SafeScreen>

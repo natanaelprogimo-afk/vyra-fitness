@@ -14,6 +14,8 @@ import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
 import { calculateMentalScore } from '@/utils/calculations';
+import { decryptSensitiveText, encryptSensitiveText } from '@/lib/sensitive-crypto';
+import { isStrictSensitiveMode } from '@/lib/privacy-settings';
 
 export interface MentalEntry {
   id:         string;
@@ -39,6 +41,33 @@ interface EmotionalDrift {
   message: string | null;
 }
 
+type MentalRow = Record<string, unknown>;
+
+function parseMentalMetric(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+}
+
+async function resolveMentalEntry(row: MentalRow): Promise<MentalEntry> {
+  const [notes, moodRaw, energyRaw, stressRaw, motivationRaw] = await Promise.all([
+    decryptSensitiveText(typeof row.notes === 'string' ? row.notes : null),
+    decryptSensitiveText(typeof row.mood_encrypted === 'string' ? row.mood_encrypted : null),
+    decryptSensitiveText(typeof row.energy_encrypted === 'string' ? row.energy_encrypted : null),
+    decryptSensitiveText(typeof row.stress_encrypted === 'string' ? row.stress_encrypted : null),
+    decryptSensitiveText(typeof row.motivation_encrypted === 'string' ? row.motivation_encrypted : null),
+  ]);
+
+  return {
+    ...(row as unknown as MentalEntry),
+    mood: parseMentalMetric(moodRaw ?? row.mood, 3),
+    energy: parseMentalMetric(energyRaw ?? row.energy, 5),
+    stress: parseMentalMetric(stressRaw ?? row.stress, 5),
+    motivation: parseMentalMetric(motivationRaw ?? row.motivation, 5),
+    notes,
+  };
+}
+
 // Labels y colores para score
 export function getMentalScoreInfo(score: number): { label: string; color: string; emoji: string } {
   if (score >= 85) return { label: 'Excelente',   color: '#7BC67E', emoji: '🌟' };
@@ -54,6 +83,7 @@ export function useMental() {
   const showToast   = useUIStore((s) => s.showToast);
   const isOnline    = useUIStore((s) => s.isOnline);
   const userId      = profile?.id ?? '';
+  const strictSensitiveMode = isStrictSensitiveMode(profile);
 
   // ─── Check-in de hoy ────────────────────────────────────
   const { data: todayEntry, isLoading: isLoadingToday } = useQuery<MentalEntry | null>({
@@ -66,7 +96,8 @@ export function useMental() {
         .eq('user_id', userId)
         .eq('check_date', todayISO())
         .single();
-      return data;
+      if (!data) return null;
+      return resolveMentalEntry(data as MentalRow);
     },
     enabled:   !!userId,
     staleTime: 5 * 60 * 1000,
@@ -88,7 +119,12 @@ export function useMental() {
         .eq('user_id', userId)
         .gte('check_date', daysAgoISO(29))
         .order('check_date', { ascending: true });
-      return data ?? [];
+      if (!data?.length) return [];
+
+      const decrypted = await Promise.all(
+        data.map((entry) => resolveMentalEntry(entry as MentalRow)),
+      );
+      return decrypted as MentalEntry[];
     },
     enabled:   !!userId && isOnline,
     staleTime: 5 * 60 * 1000,
@@ -125,27 +161,74 @@ export function useMental() {
     : 0;
 
   // ─── Guardar check-in (upsert) ────────────────────────────
-  const { mutate: saveCheckin, isPending: isSaving } = useMutation({
+  const { mutate: saveCheckin, mutateAsync: saveCheckinAsync, isPending: isSaving } = useMutation({
     mutationFn: async (input: MentalInput) => {
       if (!userId) throw new Error('No user');
 
       const score = calculateMentalScore(input.mood, input.energy, input.stress, input.motivation);
+      const [encryptedNotes, encryptedMood, encryptedEnergy, encryptedStress, encryptedMotivation] =
+        await Promise.all([
+          encryptSensitiveText(input.notes ?? null),
+          encryptSensitiveText(String(input.mood)),
+          encryptSensitiveText(String(input.energy)),
+          encryptSensitiveText(String(input.stress)),
+          encryptSensitiveText(String(input.motivation)),
+        ]);
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('mental_checkins')
         .upsert({
           user_id:    userId,
-          mood:       input.mood,
-          energy:     input.energy,
-          stress:     input.stress,
-          motivation: input.motivation,
-          notes:      input.notes ?? null,
+          mood:       strictSensitiveMode ? null : input.mood,
+          energy:     strictSensitiveMode ? null : input.energy,
+          stress:     strictSensitiveMode ? null : input.stress,
+          motivation: strictSensitiveMode ? null : input.motivation,
+          mood_encrypted: encryptedMood,
+          energy_encrypted: encryptedEnergy,
+          stress_encrypted: encryptedStress,
+          motivation_encrypted: encryptedMotivation,
+          notes:      encryptedNotes,
           check_date: todayISO(),
         }, { onConflict: 'user_id,check_date' })
         .select('id')
         .single();
 
+      if (error) {
+        const message = String((error as any).message ?? '');
+        const missingSecureColumns =
+          message.includes('mood_encrypted') ||
+          message.includes('energy_encrypted') ||
+          message.includes('stress_encrypted') ||
+          message.includes('motivation_encrypted');
+
+        if (missingSecureColumns) {
+          if (strictSensitiveMode) {
+            throw new Error('El modo estricto requiere columnas cifradas en mental_checkins.');
+          }
+
+          const fallback = await supabase
+            .from('mental_checkins')
+            .upsert({
+              user_id:    userId,
+              mood:       input.mood,
+              energy:     input.energy,
+              stress:     input.stress,
+              motivation: input.motivation,
+              notes:      encryptedNotes,
+              check_date: todayISO(),
+            }, { onConflict: 'user_id,check_date' })
+            .select('id')
+            .single();
+
+          data = fallback.data;
+          error = fallback.error;
+        }
+      }
+
       if (error) throw error;
+      if (!data?.id) {
+        throw new Error('mental_checkins upsert did not return an id.');
+      }
       return { id: data.id, score };
     },
 
@@ -259,5 +342,7 @@ export function useMental() {
     logQuickMood,
     detectEmotionalDrift,
     emotionalDrift,
+    strictSensitiveMode,
+    saveCheckinAsync,
   };
 }

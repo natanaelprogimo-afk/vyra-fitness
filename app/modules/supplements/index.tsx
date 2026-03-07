@@ -44,6 +44,8 @@ export default function SupplementsScreen() {
     addSupplement,
     deactivateSupplement,
     isTakenToday,
+    dailyAdherenceStreak,
+    interactionWarnings,
   } = useSupplements();
 
   const [showAdd, setShowAdd] = useState(false);
@@ -131,6 +133,21 @@ export default function SupplementsScreen() {
             </View>
           </Card>
         )}
+
+        {dailyAdherenceStreak > 0 && (
+          <Card style={styles.streakCard}>
+            <Text style={styles.streakTitle}>Racha de adherencia</Text>
+            <Text style={styles.streakValue}>{dailyAdherenceStreak} días</Text>
+            <Text style={styles.streakHint}>Días seguidos tomando todos tus suplementos diarios.</Text>
+          </Card>
+        )}
+
+        {interactionWarnings.map((warning) => (
+          <Card key={warning.id} style={styles.warningCard}>
+            <Text style={styles.warningTitle}>Interacción a revisar</Text>
+            <Text style={styles.warningText}>{warning.message}</Text>
+          </Card>
+        ))}
 
         {/* Lista de suplementos */}
         {supplements.length === 0 ? (
@@ -280,6 +297,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
     textTransform: 'capitalize',
+  },
+  streakCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.brand}40`,
+    backgroundColor: `${Colors.brand}10`,
+  },
+  streakTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 14,
+    color: Colors.brand,
+    marginBottom: Spacing[1],
+  },
+  streakValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 30,
+    color: Colors.textPrimary,
+    lineHeight: 34,
+  },
+  streakHint: {
+    marginTop: Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  warningCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.warning}55`,
+    backgroundColor: `${Colors.warning}14`,
+  },
+  warningTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 14,
+    color: Colors.warning,
+    marginBottom: Spacing[1],
+  },
+  warningText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
   },
   supplementCard: {
     gap: Spacing[3],

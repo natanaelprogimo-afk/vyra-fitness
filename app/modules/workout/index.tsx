@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
@@ -20,7 +19,7 @@ import { Spacing, Radius, FontFamily } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
 
 export default function WorkoutScreen() {
-  const { routines, history, loading, getWeeklyStats, startSession } = useWorkout();
+  const { routines, history, loading, getWeeklyStats, startSession, fatigueRisk } = useWorkout();
   const [starting, setStarting] = useState(false);
 
   const weeklyStats = getWeeklyStats();
@@ -74,6 +73,56 @@ export default function WorkoutScreen() {
             <StatItem value={weeklyStats.muscles.length} label="Músculos" />
           </View>
         </Card>
+
+        {fatigueRisk.level !== 'low' && fatigueRisk.message ? (
+          <Card
+            style={[
+              styles.fatigueCard,
+              fatigueRisk.level === 'high' ? styles.fatigueHigh : styles.fatigueModerate,
+            ]}
+          >
+            <Text style={styles.fatigueTitle}>
+              {fatigueRisk.level === 'high' ? 'Fatiga acumulada alta' : 'Atencion a la fatiga'}
+            </Text>
+            <Text style={styles.fatigueMessage}>{fatigueRisk.message}</Text>
+            <View style={styles.fatigueMetaRow}>
+              <Text style={styles.fatigueMetaText}>Dias seguidos: {fatigueRisk.consecutiveTrainingDays}</Text>
+              {typeof fatigueRisk.avgSleepHoursLast3 === 'number' ? (
+                <Text style={styles.fatigueMetaText}>Sueno: {fatigueRisk.avgSleepHoursLast3}h</Text>
+              ) : null}
+              {typeof fatigueRisk.avgStressLast3 === 'number' ? (
+                <Text style={styles.fatigueMetaText}>Estres: {fatigueRisk.avgStressLast3}/10</Text>
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
+
+        {fatigueRisk.cycleAdjustedRecommendation ? (
+          <Card style={styles.cycleAdjustCard}>
+            <Text style={styles.cycleAdjustTitle}>Ajuste por fase del ciclo</Text>
+            <Text style={styles.cycleAdjustText}>{fatigueRisk.cycleAdjustedRecommendation}</Text>
+            {fatigueRisk.cycleLoadProfile ? (
+              <View style={styles.cycleMetaGrid}>
+                <Text style={styles.cycleMetaText}>
+                  RPE max: {fatigueRisk.cycleLoadProfile.intensityCapRpe}
+                </Text>
+                <Text style={styles.cycleMetaText}>
+                  Volumen: {Math.round(fatigueRisk.cycleLoadProfile.volumeMultiplier * 100)}%
+                </Text>
+                <Text style={styles.cycleMetaText}>
+                  Pasos: {fatigueRisk.cycleLoadProfile.stepGoalAdjustmentPct > 0 ? '+' : ''}
+                  {fatigueRisk.cycleLoadProfile.stepGoalAdjustmentPct}%
+                </Text>
+                <Text style={styles.cycleMetaText}>
+                  Prioriza: {fatigueRisk.cycleLoadProfile.preferredFocus}
+                </Text>
+                <Text style={styles.cycleMetaText}>
+                  Evita: {fatigueRisk.cycleLoadProfile.avoidFocus}
+                </Text>
+              </View>
+            ) : null}
+          </Card>
+        ) : null}
 
         {/* Botón sesión libre */}
         <Button
@@ -214,6 +263,67 @@ const styles = StyleSheet.create({
     marginBottom: Spacing[3],
   },
   statsCard: {},
+  fatigueCard: {
+    borderWidth: 1,
+    gap: Spacing[1],
+  },
+  fatigueHigh: {
+    borderColor: `${Colors.warning}66`,
+    backgroundColor: `${Colors.warning}16`,
+  },
+  fatigueModerate: {
+    borderColor: `${Colors.workout}55`,
+    backgroundColor: `${Colors.workout}10`,
+  },
+  fatigueTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 16,
+    color: Colors.textPrimary,
+  },
+  fatigueMessage: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  fatigueMetaRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  fatigueMetaText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  cycleAdjustCard: {
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}10`,
+    gap: Spacing[1],
+  },
+  cycleAdjustTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 15,
+    color: Colors.female,
+  },
+  cycleAdjustText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+  },
+  cycleMetaGrid: {
+    marginTop: Spacing[2],
+    gap: Spacing[1],
+  },
+  cycleMetaText: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 18,
+  },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',

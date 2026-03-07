@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import CoinBadge from '@/components/ui/CoinBadge';
 import { RewardedAdButton } from '@/components/ui/RewardedAdButton';
+import UnityAdBanner from '@/components/ui/UnityAdBanner';
 import Button from '@/components/ui/Button';
 import { Colors } from '@/constants/colors';
 import { FontFamily, Spacing, Radius } from '@/constants/theme';
@@ -114,9 +115,13 @@ const CATEGORY_LABELS = {
 
 export default function StoreScreen() {
   const { balance, spendCoins, addCoins } = useCoins();
-  const { showRewarded } = useAds();
+  const { showInterstitial } = useAds();
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<'boost' | 'cosmetic' | 'feature'>('boost');
+
+  useEffect(() => {
+    void showInterstitial();
+  }, [showInterstitial]);
 
   const filteredItems = STORE_ITEMS.filter((i) => i.category === activeCategory);
 
@@ -193,6 +198,8 @@ export default function StoreScreen() {
             ))}
           </View>
         </Card>
+
+        <UnityAdBanner style={styles.banner} />
 
         {/* Filtro categorías */}
         <ScrollView
@@ -356,4 +363,7 @@ const styles = StyleSheet.create({
     color: Colors.coins,
   },
   itemPriceInsufficient: { color: Colors.textMuted },
+  banner: {
+    alignSelf: 'center',
+  },
 });

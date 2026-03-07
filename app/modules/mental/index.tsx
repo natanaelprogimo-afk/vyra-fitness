@@ -70,7 +70,7 @@ export default function MentalScreen() {
     todayEntry, todayDone, todayScore,
     weeklyAvgScore, avgMood, avgEnergy, avgStress,
     checkinStreak, insights,
-    isSaving, saveCheckin, logQuickMood, emotionalDrift,
+    isSaving, saveCheckin, logQuickMood, emotionalDrift, strictSensitiveMode,
   } = useMental();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -113,6 +113,15 @@ export default function MentalScreen() {
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {strictSensitiveMode ? (
+          <Card style={styles.privacyCard}>
+            <Text style={styles.privacyTitle}>Modo estricto activo</Text>
+            <Text style={styles.privacyText}>
+              Tus metricas mentales se guardan cifradas. Algunas automatizaciones remotas pueden reducirse para proteger privacidad.
+            </Text>
+          </Card>
+        ) : null}
+
         {!todayDone && !isEditing && (
           <Card style={styles.quickCard}>
             <Text style={styles.quickTitle}>Check-in rápido (1 toque)</Text>
@@ -336,6 +345,15 @@ const styles = StyleSheet.create({
   histBtn:     { paddingHorizontal: Spacing[2] },
   histText:    { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.mental },
   quickCard:   { marginTop: Spacing[4], marginBottom: Spacing[4], backgroundColor: `${Colors.mental}0A` },
+  privacyCard: {
+    marginTop: Spacing[4],
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: `${Colors.brand}55`,
+    backgroundColor: `${Colors.brand}12`,
+  },
+  privacyTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.sm, color: Colors.brand, marginBottom: Spacing[1] },
+  privacyText: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 20 },
   quickTitle:  { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
   quickSubtitle:{ fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2, marginBottom: Spacing[3] },
   quickMoodRow:{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing[3] },

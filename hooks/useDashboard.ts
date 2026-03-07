@@ -42,7 +42,7 @@ export function useDashboard() {
         supabase.from('step_logs').select('steps, distance_m, calories').eq('user_id', userId).eq('logged_date', today).single(),
         supabase.from('fasting_logs').select('*').eq('user_id', userId).eq('completed', false).is('end_time', null).single(),
         supabase.from('sleep_logs').select('duration_min, quality_score').eq('user_id', userId).gte('end_time', `${yesterday}T18:00:00`).lte('end_time', `${today}T18:00:00`).order('end_time', { ascending: false }).limit(1),
-        supabase.from('mental_checkins').select('mood, energy, stress, motivation').eq('user_id', userId).eq('check_date', today).single(),
+        supabase.from('mental_checkins').select('id').eq('user_id', userId).eq('check_date', today).single(),
       ]);
 
       const totalWater = (waterRes.data ?? []).reduce((sum, r) => sum + (r.hydration_equivalent_ml ?? 0), 0);

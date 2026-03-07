@@ -8,12 +8,14 @@ import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 const ITEMS = [
-  { emoji: '👤', title: 'Cuenta', route: '/settings/account' },
-  { emoji: '🔔', title: 'Notificaciones', route: '/settings/notifications' },
-  { emoji: '🎨', title: 'Tema', route: '/settings/theme' },
-  { emoji: '📏', title: 'Unidades', route: '/settings/units' },
-  { emoji: '🔐', title: 'Privacidad', route: '/settings/privacy' },
-  { emoji: '🗑️', title: 'Zona de peligro', route: '/settings/danger' },
+  { emoji: '\u{1F464}', title: 'Cuenta', route: '/settings/account' },
+  { emoji: '\u{1F514}', title: 'Notificaciones', route: '/settings/notifications' },
+  { emoji: '\u{1F916}', title: 'Coach IA', route: '/settings/coach' },
+  { emoji: '\u{1F3A8}', title: 'Tema', route: '/settings/theme' },
+  { emoji: '\u{1F4CF}', title: 'Unidades', route: '/settings/units' },
+  { emoji: '\u{1F9E9}', title: 'Modulos activos', route: '/settings/modules' },
+  { emoji: '\u{1F510}', title: 'Privacidad', route: '/settings/privacy' },
+  { emoji: '\u{1F5D1}\u{FE0F}', title: 'Zona de peligro', route: '/settings/danger' },
 ];
 
 export default function SettingsScreen() {
@@ -76,3 +78,5 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 });
+
+

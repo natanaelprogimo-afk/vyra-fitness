@@ -31,7 +31,7 @@ const NOTIF_ROWS: NotifRow[] = [
     key:         'water',
     emoji:       '💧',
     label:       'Recordatorios de agua',
-    description: '3 recordatorios diarios (9h, 13h, 17h)',
+    description: 'Horario inteligente segun tus habitos',
   },
   {
     key:         'mental',
@@ -76,6 +76,7 @@ export default function NotificationsScreen() {
     permissionGranted,
     loading,
     prefs,
+    deliveryMode,
     updatePref,
     savePrefs,
     disableAll,
@@ -153,6 +154,14 @@ export default function NotificationsScreen() {
               </Text>
             </TouchableOpacity>
           )}
+
+          {settings.notificationsEnabled && (
+            <View style={styles.deliveryPill}>
+              <Text style={styles.deliveryPillText}>
+                Entrega actual: {deliveryMode === 'remote' ? 'push remota adaptativa' : 'programacion local'}
+              </Text>
+            </View>
+          )}
         </Card>
 
         {/* Por tipo */}
@@ -189,7 +198,8 @@ export default function NotificationsScreen() {
 
             <Text style={styles.footer}>
               Las notificaciones locales funcionan sin internet. Los mensajes del coach IA
-              y el resumen diario se envían desde nuestros servidores y requieren conexión.
+              y el resumen diario se envian desde nuestros servidores y requieren conexion.
+              Horario de silencio: 22:00 a 07:00.
             </Text>
           </>
         )}
@@ -233,6 +243,18 @@ const styles = StyleSheet.create({
     color: Colors.warning,
     lineHeight: 18,
   },
+  deliveryPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.full,
+    backgroundColor: `${Colors.brand}14`,
+  },
+  deliveryPillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.brand,
+  },
   sectionTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 12,
@@ -272,3 +294,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+
+

@@ -51,12 +51,15 @@ export default function FemaleHealthScreen() {
   const {
     cycleLength, nextPeriodDate, currentPhase, daysInPhase,
     lastPeriodDate, isLogging, log, updateSymptoms,
-    history, isInCycle,
+    history, isInCycle, phaseGuidance, imminentPhaseNotice, cycleIrregularity,
+    strictSensitiveMode, saveCycleSetup, isSavingSetup,
   } = useFemaleHealth();
 
   const [showLogForm, setShowLogForm]       = useState(false);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [symptomSeverity, setSymptomSeverity] = useState<Record<string, number>>({});
   const [notes, setNotes]                   = useState('');
+  const [setupCycleLength, setSetupCycleLength] = useState(cycleLength || 28);
 
   const phaseEmoji = PHASE_EMOJIS[currentPhase] || '❓';
   const phaseColor = PHASE_COLORS[currentPhase] || Colors.textSecondary;
@@ -68,18 +71,46 @@ export default function FemaleHealthScreen() {
 
   const handleLogPeriod = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    log(currentPhase, selectedSymptoms, notes.trim() || undefined);
+    log(currentPhase, selectedSymptoms, notes.trim() || undefined, symptomSeverity);
     setSelectedSymptoms([]);
+    setSymptomSeverity({});
     setNotes('');
     setShowLogForm(false);
   };
 
+  const handleSetupCycle = () => {
+    const today = new Date().toISOString().split('T')[0] ?? '';
+    void saveCycleSetup(today, setupCycleLength);
+  };
+
   const toggleSymptom = (symptom: string) => {
-    setSelectedSymptoms((prev) =>
-      prev.includes(symptom)
-        ? prev.filter((s) => s !== symptom)
-        : [...prev, symptom]
-    );
+    setSelectedSymptoms((prev) => {
+      if (prev.includes(symptom)) {
+        setSymptomSeverity((current) => {
+          const next = { ...current };
+          delete next[symptom];
+          return next;
+        });
+        return prev.filter((s) => s !== symptom);
+      }
+
+      setSymptomSeverity((current) => ({
+        ...current,
+        [symptom]: current[symptom] ?? 3,
+      }));
+      return [...prev, symptom];
+    });
+  };
+
+  const adjustSymptomSeverity = (symptom: string, delta: number) => {
+    setSymptomSeverity((current) => {
+      const prev = current[symptom] ?? 3;
+      const nextValue = Math.max(1, Math.min(5, prev + delta));
+      return {
+        ...current,
+        [symptom]: nextValue,
+      };
+    });
   };
 
   return (
@@ -96,6 +127,46 @@ export default function FemaleHealthScreen() {
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {strictSensitiveMode ? (
+          <Card style={styles.privacyCard}>
+            <Text style={styles.privacyTitle}>Modo estricto activo</Text>
+            <Text style={styles.privacyText}>
+              La fase diaria se guarda cifrada. El modulo sigue funcionando localmente, pero algunas automatizaciones remotas por fase pueden reducirse.
+            </Text>
+          </Card>
+        ) : null}
+
+        {!isInCycle ? (
+          <Card style={styles.setupCard}>
+            <Text style={styles.setupTitle}>Inicializa tu ciclo</Text>
+            <Text style={styles.setupText}>
+              Marca el inicio del ultimo periodo para que Vyra adapte entreno, ayuno, hidratacion y widget segun la fase.
+            </Text>
+            <View style={styles.setupChips}>
+              {[26, 28, 30].map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => setSetupCycleLength(option)}
+                  style={[
+                    styles.setupChip,
+                    setupCycleLength === option && styles.setupChipActive,
+                  ]}
+                >
+                  <Text style={[styles.setupChipText, setupCycleLength === option && styles.setupChipTextActive]}>
+                    {option} dias
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Button
+              label="Usar hoy como inicio"
+              onPress={handleSetupCycle}
+              loading={isSavingSetup}
+              variant="primary"
+              fullWidth
+            />
+          </Card>
+        ) : null}
 
         {/* Ring con fase actual */}
         <View style={styles.cycleSection}>
@@ -159,6 +230,33 @@ export default function FemaleHealthScreen() {
           )}
         </Card>
 
+        <Card style={styles.guidanceCard}>
+          <Text style={styles.guidanceTitle}>Adaptación automática recomendada</Text>
+          <Text style={styles.guidanceText}>Entrenamiento: {phaseGuidance.training}</Text>
+          <Text style={styles.guidanceText}>Ayuno: {phaseGuidance.fasting}</Text>
+          <Text style={styles.guidanceText}>Nutrición: {phaseGuidance.nutrition}</Text>
+          {phaseGuidance.hydrationBoostMl > 0 && (
+            <Text style={styles.guidanceMeta}>Hidratación sugerida: +{phaseGuidance.hydrationBoostMl} ml.</Text>
+          )}
+          {phaseGuidance.weightContext && (
+            <Text style={styles.guidanceMeta}>{phaseGuidance.weightContext}</Text>
+          )}
+        </Card>
+
+        {imminentPhaseNotice && (
+          <Card style={styles.noticeCard}>
+            <Text style={styles.noticeTitle}>Fase inminente</Text>
+            <Text style={styles.noticeText}>{imminentPhaseNotice}</Text>
+          </Card>
+        )}
+
+        {cycleIrregularity.isIrregular && cycleIrregularity.message && (
+          <Card style={styles.irregularCard}>
+            <Text style={styles.irregularTitle}>Variación de ciclo detectada</Text>
+            <Text style={styles.irregularText}>{cycleIrregularity.message}</Text>
+          </Card>
+        )}
+
         {/* Log de síntomas */}
         {!showLogForm ? (
           <Button
@@ -200,6 +298,35 @@ export default function FemaleHealthScreen() {
               })}
             </View>
 
+            {selectedSymptoms.length > 0 ? (
+              <View style={styles.severityPanel}>
+                <Text style={styles.severityTitle}>Severidad (1-5)</Text>
+                {selectedSymptoms.map((symptom) => {
+                  const severity = symptomSeverity[symptom] ?? 3;
+                  return (
+                    <View key={symptom} style={styles.severityRow}>
+                      <Text style={styles.severitySymptom}>{symptom}</Text>
+                      <View style={styles.severityControls}>
+                        <Pressable
+                          onPress={() => adjustSymptomSeverity(symptom, -1)}
+                          style={styles.severityBtn}
+                        >
+                          <Text style={styles.severityBtnText}>-</Text>
+                        </Pressable>
+                        <Text style={styles.severityValue}>{severity}</Text>
+                        <Pressable
+                          onPress={() => adjustSymptomSeverity(symptom, 1)}
+                          style={styles.severityBtn}
+                        >
+                          <Text style={styles.severityBtnText}>+</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+
             <View style={styles.formActions}>
               <Button
                 label="Cancelar"
@@ -235,6 +362,12 @@ export default function FemaleHealthScreen() {
                     <Text style={styles.historySymptoms}>
                       {entry.symptoms.slice(0, 2).join(', ')}
                       {entry.symptoms.length > 2 ? ` +${entry.symptoms.length - 2}` : ''}
+                      {entry.symptomSeverity && Object.keys(entry.symptomSeverity).length > 0
+                        ? ` · sev ${(
+                            Object.values(entry.symptomSeverity).reduce((sum, value) => sum + value, 0) /
+                            Math.max(1, Object.values(entry.symptomSeverity).length)
+                          ).toFixed(1)}`
+                        : ''}
                     </Text>
                   )}
                 </View>
@@ -274,6 +407,70 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
     color: Colors.brand,
+  },
+  privacyCard: {
+    marginTop: Spacing[4],
+    marginBottom: Spacing[2],
+    borderWidth: 1,
+    borderColor: `${Colors.brand}55`,
+    backgroundColor: `${Colors.brand}12`,
+  },
+  privacyTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: Colors.brand,
+    marginBottom: Spacing[1],
+  },
+  privacyText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    fontFamily: FontFamily.regular,
+  },
+  setupCard: {
+    marginBottom: Spacing[2],
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}10`,
+  },
+  setupTitle: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing[1],
+  },
+  setupText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.regular,
+    lineHeight: 20,
+    marginBottom: Spacing[3],
+  },
+  setupChips: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+    marginBottom: Spacing[3],
+  },
+  setupChip: {
+    flex: 1,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: Colors.bgSurface,
+    paddingVertical: Spacing[2],
+    alignItems: 'center',
+  },
+  setupChipActive: {
+    backgroundColor: Colors.female,
+    borderColor: Colors.female,
+  },
+  setupChipText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textSecondary,
+  },
+  setupChipTextActive: {
+    color: Colors.white,
   },
   cycleSection: {
     alignItems: 'center',
@@ -324,6 +521,68 @@ const styles = StyleSheet.create({
     marginBottom: Spacing[1],
     lineHeight: 20,
   },
+  guidanceCard: {
+    marginBottom: Spacing[3],
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}10`,
+  },
+  guidanceTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: Colors.female,
+    marginBottom: Spacing[2],
+  },
+  guidanceText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: Spacing[1],
+    fontFamily: FontFamily.medium,
+  },
+  guidanceMeta: {
+    marginTop: Spacing[1],
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontFamily: FontFamily.regular,
+    lineHeight: 17,
+  },
+  noticeCard: {
+    marginBottom: Spacing[3],
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}18`,
+  },
+  noticeTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: Colors.female,
+    marginBottom: Spacing[1],
+  },
+  noticeText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    fontFamily: FontFamily.medium,
+  },
+  irregularCard: {
+    marginBottom: Spacing[3],
+    borderWidth: 1,
+    borderColor: `${Colors.warning}66`,
+    backgroundColor: `${Colors.warning}15`,
+  },
+  irregularTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: Colors.warning,
+    marginBottom: Spacing[1],
+  },
+  irregularText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    fontFamily: FontFamily.medium,
+  },
   logBtn: {
     marginVertical: Spacing[3],
   },
@@ -340,6 +599,59 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: Spacing[2],
     marginBottom: Spacing[4],
+  },
+  severityPanel: {
+    marginBottom: Spacing[3],
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bgSurface,
+    padding: Spacing[3],
+    gap: Spacing[2],
+  },
+  severityTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: Colors.textPrimary,
+  },
+  severityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  severitySymptom: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.medium,
+  },
+  severityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  severityBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgElevated,
+  },
+  severityBtnText: {
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    fontFamily: FontFamily.bold,
+  },
+  severityValue: {
+    width: 18,
+    textAlign: 'center',
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontFamily: FontFamily.bold,
   },
   symptomTag: {
     paddingHorizontal: Spacing[3],

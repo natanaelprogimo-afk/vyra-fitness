@@ -72,6 +72,7 @@ export type RootStackParamList = {
   // Settings
   'settings/index':         undefined;
   'settings/notifications': undefined;
+  'settings/coach':         undefined;
   'settings/theme':         undefined;
   'settings/units':         undefined;
   'settings/privacy':       undefined;

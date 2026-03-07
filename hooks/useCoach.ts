@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { captureError } from '@/lib/sentry';
+import { getCoachProactivityLevel } from '@/lib/coach-settings';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 const FREE_LIMIT = 5;
@@ -61,11 +62,13 @@ export function useCoach() {
   const showToast = useUIStore((s) => s.showToast);
   const isPremium = useAuthStore((s) => s.isPremium());
   const userId = profile?.id ?? '';
+  const proactivityLevel = getCoachProactivityLevel(profile);
 
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [dailyMessagesLeft, setDailyMessagesLeft] = useState<number>(FREE_LIMIT);
   const abortRef = useRef<AbortController | null>(null);
+  const proactiveFetchRef = useRef<string | null>(null);
 
   const refreshRemaining = useCallback(async () => {
     if (!userId || isPremium) {
@@ -118,6 +121,54 @@ export function useCoach() {
     enabled: !!userId,
     staleTime: 60 * 1000,
   });
+
+  const fetchProactiveMessage = useCallback(async () => {
+    if (!userId || !BACKEND_URL || proactivityLevel === 'silent') return;
+
+    const dayKey = `${userId}:${new Date().toISOString().split('T')[0]}`;
+    if (proactiveFetchRef.current === dayKey) return;
+    proactiveFetchRef.current = dayKey;
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${BACKEND_URL}/api/ai/proactive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) return;
+      const payload = await response.json().catch(() => ({} as any));
+      const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+      if (!message) return;
+
+      setLocalMessages((prev) => {
+        const exists = prev.some(
+          (msg) => msg.role === 'assistant' && msg.content.trim().toLowerCase() === message.toLowerCase(),
+        );
+        if (exists) return prev;
+        return [
+          ...prev,
+          {
+            id: `proactive_${Date.now()}`,
+            role: 'assistant',
+            content: message,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      });
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useCoach.fetchProactive' });
+    }
+  }, [proactivityLevel, userId]);
+
+  useEffect(() => {
+    if (isLoadingHistory) return;
+    void fetchProactiveMessage();
+  }, [fetchProactiveMessage, isLoadingHistory]);
 
   const { mutate: sendMessage, isPending: isSending } = useMutation({
     mutationFn: async (text: string) => {
@@ -250,5 +301,6 @@ export function useCoach() {
     sendMessage,
     clearHistory,
     dailyMessagesLeft,
+    proactivityLevel,
   };
 }

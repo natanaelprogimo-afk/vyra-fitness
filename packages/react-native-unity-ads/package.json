@@ -1,0 +1,17 @@
+{
+  "name": "react-native-unity-ads",
+  "version": "2.0.0-local",
+  "main": "index.js",
+  "react-native": "index.js",
+  "license": "MIT",
+  "files": [
+    "android",
+    "index.js",
+    "RNUnityAds.js",
+    "react-native.config.js"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

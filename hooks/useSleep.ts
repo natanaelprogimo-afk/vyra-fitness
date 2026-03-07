@@ -38,6 +38,20 @@ export interface SleepEntry {
   created_at:    string;
 }
 
+interface SleepIrregularity {
+  isIrregular: boolean;
+  stdDevMinutes: number;
+  message: string | null;
+}
+
+interface PhysicalDayState {
+  state: 'recovery' | 'normal' | 'high';
+  avgLast3Hours: number;
+  stepGoalAdjustmentPct: number;
+  workoutRecommendation: 'recovery' | 'moderate' | 'intense';
+  message: string;
+}
+
 // Rangos de calidad de sueño según duración + edad
 function getSleepQualityLabel(score: number): { label: string; color: string } {
   if (score >= 85) return { label: 'Excelente',  color: '#7BC67E' };
@@ -45,6 +59,25 @@ function getSleepQualityLabel(score: number): { label: string; color: string } {
   if (score >= 55) return { label: 'Regular',    color: '#FFD43B' };
   if (score >= 40) return { label: 'Malo',       color: '#FF922B' };
   return                  { label: 'Muy malo',   color: '#FF6B6B' };
+}
+
+function average(values: number[]): number {
+  if (!values.length) return 0;
+  return values.reduce((sum, item) => sum + item, 0) / values.length;
+}
+
+function stdDeviation(values: number[]): number {
+  if (!values.length) return 0;
+  const avg = average(values);
+  const variance = values.reduce((sum, item) => sum + (item - avg) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function minuteToLabel(totalMinutes: number): string {
+  const minutes = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+  const hour = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
 }
 
 export function useSleep() {
@@ -108,6 +141,64 @@ export function useSleep() {
   const sleepDebt = last7.reduce((debt, h) => {
     return debt + Math.max(0, goalHours * 60 - h.duration_min);
   }, 0) / 60;
+
+  const wakeMinutesLast7 = last7.map((entry) => {
+    const end = new Date(entry.end_time);
+    return end.getHours() * 60 + end.getMinutes();
+  });
+  const avgWakeMinutes = wakeMinutesLast7.length ? average(wakeMinutesLast7) : null;
+  const estimatedLatencyMin = 14;
+  const recommendedBedtime = avgWakeMinutes !== null
+    ? minuteToLabel(avgWakeMinutes - goalHours * 60 - estimatedLatencyMin)
+    : null;
+
+  const bedtimeMinutes = history.slice(-28).map((entry) => {
+    const start = new Date(entry.start_time);
+    const minutes = start.getHours() * 60 + start.getMinutes();
+    // Normaliza horarios de madrugada para que no distorsionen la variabilidad.
+    return minutes < 12 * 60 ? minutes + 1440 : minutes;
+  });
+  const bedtimeStdDev = Math.round(stdDeviation(bedtimeMinutes));
+  const sleepIrregularity: SleepIrregularity = {
+    isIrregular: bedtimeStdDev > 90,
+    stdDevMinutes: bedtimeStdDev,
+    message: bedtimeStdDev > 90
+      ? 'Tu horario de sueno es irregular. Acostarte en una franja mas estable puede mejorar calidad.'
+      : null,
+  };
+
+  const last3 = history.slice(-3);
+  const avgLast3Hours = last3.length
+    ? average(last3.map((item) => item.duration_min / 60))
+    : 0;
+  const physicalDayState: PhysicalDayState = avgLast3Hours < 6
+    ? {
+        state: 'recovery',
+        avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
+        stepGoalAdjustmentPct: -20,
+        workoutRecommendation: 'recovery',
+        message: 'Ultimas 3 noches cortas. Hoy conviene bajar carga y priorizar recuperacion.',
+      }
+    : avgLast3Hours > 8
+      ? {
+          state: 'high',
+          avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
+          stepGoalAdjustmentPct: 0,
+          workoutRecommendation: 'intense',
+          message: 'Dormiste bien los ultimos dias. Hoy es buena ventana para entrenar fuerte.',
+        }
+      : {
+          state: 'normal',
+          avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
+          stepGoalAdjustmentPct: 0,
+          workoutRecommendation: 'moderate',
+          message: 'Sueno estable. Manten una carga moderada y consistente hoy.',
+        };
+
+  const compensationHours = Math.min(9.5, goalHours + Math.min(2, sleepDebt));
+  const sleepDebtMessage = sleepDebt > 0.5
+    ? `Deuda acumulada: ${sleepDebt.toFixed(1)}h. Objetivo de compensacion: una noche de ~${compensationHours.toFixed(1)}h.`
+    : null;
 
   // ─── Guardar sueño ───────────────────────────────────────
   const { mutate: logSleep, isPending: isLogging } = useMutation({
@@ -195,6 +286,10 @@ export function useSleep() {
     avgScore,
     daysWithGoal,
     sleepDebt,
+    sleepDebtMessage,
+    recommendedBedtime,
+    sleepIrregularity,
+    physicalDayState,
     isLoading,
     isLogging,
     logSleep,

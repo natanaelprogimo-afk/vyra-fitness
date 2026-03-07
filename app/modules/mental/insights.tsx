@@ -33,21 +33,21 @@ export default function MentalInsightsScreen() {
   } = useMental();
   const userId     = useAuthStore(s => s.profile?.id);
   const scoreInfo  = getMentalScoreInfo(weeklyAvgScore);
+  const historySignature = history.map((entry) => entry.check_date).join('|');
 
   // Correlación humor ↔ sueño + pasos (Premium)
   const { data: correlData } = useQuery({
-    queryKey: ['mental_correlations', userId],
+    queryKey: ['mental_correlations', userId, historySignature],
     queryFn: async () => {
       if (!userId) return null;
-      const [mentalRes, sleepRes, stepsRes] = await Promise.all([
-        supabase.from('mental_checkins').select('check_date, mood, energy, stress').eq('user_id', userId).gte('check_date', daysAgoISO(13)).order('check_date'),
+      const [sleepRes, stepsRes] = await Promise.all([
         supabase.from('sleep_logs').select('end_time, quality_score, duration_min').eq('user_id', userId).gte('end_time', `${daysAgoISO(13)}T00:00:00`),
         supabase.from('step_logs').select('logged_date, steps').eq('user_id', userId).gte('logged_date', daysAgoISO(13)),
       ]);
 
       const byDate: Record<string, { mood?: number; sleepScore?: number; steps?: number }> = {};
 
-      for (const m of mentalRes.data ?? []) {
+      for (const m of history.filter((entry) => entry.check_date >= daysAgoISO(13))) {
         byDate[m.check_date] = { ...byDate[m.check_date], mood: m.mood };
       }
       for (const s of sleepRes.data ?? []) {

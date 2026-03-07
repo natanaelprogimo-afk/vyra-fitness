@@ -20,7 +20,8 @@ export default function NutritionScreen() {
     mealsByType, hasEaten,
     totals, caloriePct, remaining,
     calorieGoal, macroGoals,
-    deleteMeal, isLoading,
+    deleteMeal, isLoading, frequentMeals, logFrequentMeal,
+    nutritionSleepEnergyCorrelation, cycleNutritionGuidance,
   } = useNutrition();
 
   const proteinPct = Math.min(100, (totals.protein / macroGoals.protein) * 100);
@@ -131,6 +132,55 @@ export default function NutritionScreen() {
             />
           </View>
         </Card>
+
+        {frequentMeals.length > 0 && (
+          <Card style={styles.frequentCard}>
+            <Text style={styles.frequentTitle}>Comidas frecuentes (1 tap)</Text>
+            <View style={styles.frequentGrid}>
+              {frequentMeals.slice(0, 10).map((meal) => (
+                <Pressable
+                  key={meal.key}
+                  onPress={() => logFrequentMeal(meal)}
+                  style={styles.frequentChip}
+                >
+                  <Text style={styles.frequentName} numberOfLines={1}>{meal.food_name}</Text>
+                  <Text style={styles.frequentMeta}>
+                    {Math.round(meal.calories)} kcal · {meal.uses}x
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Card>
+        )}
+
+        {cycleNutritionGuidance ? (
+          <Card style={styles.cycleCard}>
+            <Text style={styles.cycleTitle}>Nutricion segun fase del ciclo</Text>
+            <Text style={styles.cycleText}>{cycleNutritionGuidance}</Text>
+          </Card>
+        ) : null}
+
+        {nutritionSleepEnergyCorrelation.insight ? (
+          <Card style={styles.correlationCard}>
+            <Text style={styles.correlationTitle}>Nutricion, sueno y energia</Text>
+            <Text style={styles.correlationText}>{nutritionSleepEnergyCorrelation.insight}</Text>
+            <Text style={styles.correlationMeta}>
+              Muestras: nutricion alta {nutritionSleepEnergyCorrelation.sampleHigh} dias | baja {nutritionSleepEnergyCorrelation.sampleLow} dias
+            </Text>
+            <View style={styles.correlationStats}>
+              {nutritionSleepEnergyCorrelation.avgSleepHighNutrition !== null && nutritionSleepEnergyCorrelation.avgSleepLowNutrition !== null ? (
+                <Text style={styles.correlationStatText}>
+                  Sueno: {nutritionSleepEnergyCorrelation.avgSleepHighNutrition} vs {nutritionSleepEnergyCorrelation.avgSleepLowNutrition}
+                </Text>
+              ) : null}
+              {nutritionSleepEnergyCorrelation.avgEnergyHighNutrition !== null && nutritionSleepEnergyCorrelation.avgEnergyLowNutrition !== null ? (
+                <Text style={styles.correlationStatText}>
+                  Energia: {nutritionSleepEnergyCorrelation.avgEnergyHighNutrition} vs {nutritionSleepEnergyCorrelation.avgEnergyLowNutrition}
+                </Text>
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
 
         {/* Comidas del día */}
         <Text style={styles.sectionTitle}>Comidas de hoy</Text>
@@ -260,6 +310,94 @@ const styles = StyleSheet.create({
   macroValue:    { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.textPrimary },
   macroLabel:    { fontFamily: FontFamily.medium, fontSize: 9, color: Colors.textSecondary },
   macroGoal:     { fontFamily: FontFamily.regular, fontSize: 9, color: Colors.textMuted },
+  frequentCard: {
+    marginBottom: Spacing[5],
+    borderWidth: 1,
+    borderColor: `${Colors.nutrition}55`,
+    backgroundColor: `${Colors.nutrition}10`,
+  },
+  frequentTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.nutrition,
+    marginBottom: Spacing[3],
+  },
+  frequentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  frequentChip: {
+    width: '48%',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: `${Colors.nutrition}55`,
+    backgroundColor: Colors.bgSurface,
+    paddingVertical: Spacing[2],
+    paddingHorizontal: Spacing[2],
+  },
+  frequentName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  frequentMeta: {
+    marginTop: 2,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  cycleCard: {
+    marginBottom: Spacing[5],
+    borderWidth: 1,
+    borderColor: `${Colors.female}55`,
+    backgroundColor: `${Colors.female}10`,
+  },
+  cycleTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.female,
+    marginBottom: Spacing[1],
+  },
+  cycleText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  correlationCard: {
+    marginBottom: Spacing[5],
+    borderWidth: 1,
+    borderColor: `${Colors.nutrition}55`,
+    backgroundColor: `${Colors.nutrition}10`,
+    gap: Spacing[1],
+  },
+  correlationTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.nutrition,
+  },
+  correlationText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    lineHeight: 20,
+  },
+  correlationMeta: {
+    marginTop: 2,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  correlationStats: {
+    marginTop: Spacing[1],
+    gap: 2,
+  },
+  correlationStatText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
 
   // Comidas
   sectionTitle:  { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[3] },

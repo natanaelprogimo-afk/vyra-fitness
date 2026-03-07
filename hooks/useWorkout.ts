@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
+import { decryptSensitiveText } from '@/lib/sensitive-crypto';
 
 export interface Exercise {
   id: string;
@@ -56,6 +57,95 @@ export interface WorkoutHistory {
   muscles_worked: string[];
 }
 
+export interface WorkoutFatigueRisk {
+  level: 'low' | 'moderate' | 'high';
+  message: string | null;
+  reasons: string[];
+  recommendRecoveryDay: boolean;
+  consecutiveTrainingDays: number;
+  avgSleepHoursLast3: number | null;
+  avgStressLast3: number | null;
+  cyclePhase: string | null;
+  cycleAdjustedRecommendation: string | null;
+  cycleLoadProfile: {
+    intensityCapRpe: number;
+    volumeMultiplier: number;
+    stepGoalAdjustmentPct: number;
+    preferredFocus: string;
+    avoidFocus: string;
+  } | null;
+}
+
+function normalizeDay(value: string): string {
+  return new Date(value).toISOString().split('T')[0] ?? '';
+}
+
+function isPreviousCalendarDay(previousDay: string, currentDay: string): boolean {
+  const prev = new Date(`${previousDay}T00:00:00`);
+  const current = new Date(`${currentDay}T00:00:00`);
+  return prev.getTime() - current.getTime() === 24 * 60 * 60 * 1000;
+}
+
+function getConsecutiveTrainingDays(history: WorkoutHistory[]): number {
+  const uniqueDays = [...new Set(
+    history
+      .map((entry) => normalizeDay(entry.started_at))
+      .filter((day) => day.length > 0),
+  )].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+  if (!uniqueDays.length) return 0;
+
+  let streak = 1;
+  for (let index = 1; index < uniqueDays.length; index += 1) {
+    if (isPreviousCalendarDay(uniqueDays[index - 1]!, uniqueDays[index]!)) {
+      streak += 1;
+      continue;
+    }
+    break;
+  }
+  return streak;
+}
+
+function buildCycleLoadProfile(phase: string | null) {
+  if (phase === 'menstrual') {
+    return {
+      intensityCapRpe: 6.5,
+      volumeMultiplier: 0.7,
+      stepGoalAdjustmentPct: -20,
+      preferredFocus: 'movilidad, tecnica, fuerza liviana y recuperacion activa',
+      avoidFocus: 'PRs, intervalos duros y volumen alto',
+    };
+  }
+  if (phase === 'follicular') {
+    return {
+      intensityCapRpe: 8.5,
+      volumeMultiplier: 1.05,
+      stepGoalAdjustmentPct: 5,
+      preferredFocus: 'progresion de carga, fuerza e hipertrofia',
+      avoidFocus: 'subestimar la recuperacion cuando sube la energia',
+    };
+  }
+  if (phase === 'ovulation') {
+    return {
+      intensityCapRpe: 9,
+      volumeMultiplier: 1.1,
+      stepGoalAdjustmentPct: 10,
+      preferredFocus: 'sesiones intensas, potencia y PRs controlados',
+      avoidFocus: 'gestos explosivos sin buen calentamiento',
+    };
+  }
+  if (phase === 'luteal') {
+    return {
+      intensityCapRpe: 7.5,
+      volumeMultiplier: 0.85,
+      stepGoalAdjustmentPct: -5,
+      preferredFocus: 'fuerza estable, accesorios y tecnica limpia',
+      avoidFocus: 'volumen basura y deficit de recuperacion',
+    };
+  }
+  return null;
+}
+
 export function useWorkout() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
@@ -66,6 +156,9 @@ export function useWorkout() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [avgSleepHoursLast3, setAvgSleepHoursLast3] = useState<number | null>(null);
+  const [avgStressLast3, setAvgStressLast3] = useState<number | null>(null);
+  const [cyclePhase, setCyclePhase] = useState<string | null>(null);
 
   // ── Cargar datos ─────────────────────────────────────────────────────────────
 
@@ -157,6 +250,61 @@ export function useWorkout() {
       setLoading(false);
     }
   }, [userId]);
+
+  const fetchRecoverySignals = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const [sleepRes, mentalRes, femaleRes] = await Promise.all([
+        supabase
+          .from('sleep_logs')
+          .select('duration_min')
+          .eq('user_id', userId)
+          .order('end_time', { ascending: false })
+          .limit(3),
+        supabase
+          .from('mental_checkins')
+          .select('*')
+          .eq('user_id', userId)
+          .order('check_date', { ascending: false })
+          .limit(3),
+        profile?.female_health_enabled
+          ? supabase
+              .from('female_cycle_logs')
+              .select('phase_override')
+              .eq('user_id', userId)
+              .order('period_start', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : Promise.resolve({ data: null as { phase_override: string | null } | null }),
+      ]);
+
+      const sleepRows = sleepRes.data ?? [];
+      const stressRowsRaw = mentalRes.data ?? [];
+      const stressRows = await Promise.all(
+        stressRowsRaw.map(async (row) => {
+          const decryptedStress = await decryptSensitiveText(
+            typeof row.stress_encrypted === 'string' ? row.stress_encrypted : null,
+          );
+          return {
+            ...row,
+            stress: Number(decryptedStress ?? row.stress ?? 0),
+          };
+        }),
+      );
+      const sleepAvg = sleepRows.length
+        ? sleepRows.reduce((sum, row) => sum + Number(row.duration_min ?? 0), 0) / sleepRows.length / 60
+        : null;
+      const stressAvg = stressRows.length
+        ? stressRows.reduce((sum, row) => sum + Number(row.stress ?? 0), 0) / stressRows.length
+        : null;
+
+      setAvgSleepHoursLast3(sleepAvg !== null ? Math.round(sleepAvg * 10) / 10 : null);
+      setAvgStressLast3(stressAvg !== null ? Math.round(stressAvg * 10) / 10 : null);
+      setCyclePhase(typeof femaleRes.data?.phase_override === 'string' ? femaleRes.data.phase_override : null);
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useWorkout.fetchRecoverySignals' });
+    }
+  }, [profile?.female_health_enabled, userId]);
 
   // ── Sesión activa ─────────────────────────────────────────────────────────────
 
@@ -357,9 +505,77 @@ export function useWorkout() {
     };
   }
 
+  function getFatigueRisk(): WorkoutFatigueRisk {
+    const consecutiveTrainingDays = getConsecutiveTrainingDays(history);
+    const reasons: string[] = [];
+    let riskScore = 0;
+    const cycleLoadProfile = buildCycleLoadProfile(cyclePhase);
+
+    if (consecutiveTrainingDays >= 5) {
+      riskScore += 2;
+      reasons.push(`${consecutiveTrainingDays} dias seguidos de entrenamiento.`);
+    } else if (consecutiveTrainingDays >= 4) {
+      riskScore += 1;
+      reasons.push(`${consecutiveTrainingDays} dias consecutivos entrenando.`);
+    }
+
+    if (typeof avgSleepHoursLast3 === 'number' && avgSleepHoursLast3 < 6) {
+      riskScore += 2;
+      reasons.push(`Sueno corto reciente (${avgSleepHoursLast3}h promedio).`);
+    } else if (typeof avgSleepHoursLast3 === 'number' && avgSleepHoursLast3 < 6.8) {
+      riskScore += 1;
+      reasons.push(`Sueno ajustado (${avgSleepHoursLast3}h promedio).`);
+    }
+
+    if (typeof avgStressLast3 === 'number' && avgStressLast3 >= 7) {
+      riskScore += 2;
+      reasons.push(`Estres alto (${avgStressLast3}/10).`);
+    } else if (typeof avgStressLast3 === 'number' && avgStressLast3 >= 6) {
+      riskScore += 1;
+      reasons.push(`Estres en subida (${avgStressLast3}/10).`);
+    }
+
+    if (cyclePhase === 'luteal' || cyclePhase === 'menstrual') {
+      riskScore += 1;
+      reasons.push('Fase del ciclo con mayor fatiga potencial.');
+    }
+
+    let cycleAdjustedRecommendation: string | null = null;
+    if (cyclePhase === 'menstrual') {
+      cycleAdjustedRecommendation = 'Fase menstrual: conviene movilidad o fuerza liviana con foco en recuperacion.';
+    } else if (cyclePhase === 'luteal') {
+      cycleAdjustedRecommendation = 'Fase lutea: prioriza carga moderada y volumen estable para sostener adherencia.';
+    } else if (cyclePhase === 'follicular') {
+      cycleAdjustedRecommendation = 'Fase folicular: buena ventana para progresar intensidad y volumen.';
+    } else if (cyclePhase === 'ovulation') {
+      cycleAdjustedRecommendation = 'Fase ovulatoria: energia alta, ideal para sesiones exigentes y PRs controlados.';
+    }
+
+    const level: WorkoutFatigueRisk['level'] = riskScore >= 5 ? 'high' : riskScore >= 3 ? 'moderate' : 'low';
+    const message =
+      level === 'high'
+        ? 'Fatiga acumulada alta. Hoy conviene un dia de recuperacion activa.'
+        : level === 'moderate'
+          ? 'Hay senales de fatiga. Baja volumen/intensidad para sostener progreso.'
+          : null;
+
+    return {
+      level,
+      message,
+      reasons,
+      recommendRecoveryDay: level === 'high',
+      consecutiveTrainingDays,
+      avgSleepHoursLast3,
+      avgStressLast3,
+      cyclePhase,
+      cycleAdjustedRecommendation,
+      cycleLoadProfile,
+    };
+  }
+
   useEffect(() => {
-    Promise.all([fetchRoutines(), fetchExercises(), fetchHistory()]);
-  }, []);
+    void Promise.all([fetchRoutines(), fetchExercises(), fetchHistory(), fetchRecoverySignals()]);
+  }, [fetchExercises, fetchHistory, fetchRecoverySignals, fetchRoutines]);
 
   return {
     routines,
@@ -377,7 +593,9 @@ export function useWorkout() {
     cancelSession,
     getPersonalRecord,
     getWeeklyStats,
-    refresh: () => Promise.all([fetchRoutines(), fetchHistory()]),
+    getFatigueRisk,
+    fatigueRisk: getFatigueRisk(),
+    refresh: () => Promise.all([fetchRoutines(), fetchHistory(), fetchRecoverySignals()]),
   };
 }
 
@@ -390,4 +608,3 @@ export interface WorkoutSummaryData {
   prs: WorkoutSet[];
   musclesWorked: string[];
 }
-

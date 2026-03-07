@@ -14,6 +14,8 @@ import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
 import { calculateMacros } from '@/utils/calculations';
+import { decryptSensitiveText } from '@/lib/sensitive-crypto';
+import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
@@ -60,6 +62,35 @@ export interface LogMealInput {
   carbs_g:   number;
   fat_g:     number;
   fiber_g:   number;
+}
+
+export interface FrequentMeal {
+  key: string;
+  meal_type: MealType;
+  food_name: string;
+  food_id: string | null;
+  amount_g: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fiber_g: number;
+  uses: number;
+}
+
+export interface NutritionSleepEnergyCorrelation {
+  insight: string | null;
+  avgSleepHighNutrition: number | null;
+  avgSleepLowNutrition: number | null;
+  avgEnergyHighNutrition: number | null;
+  avgEnergyLowNutrition: number | null;
+  sampleHigh: number;
+  sampleLow: number;
+}
+
+function average(values: number[]): number | null {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 export function useNutrition() {
@@ -169,6 +200,201 @@ export function useNutrition() {
     });
   }, [userId]);
 
+  const { data: frequentMeals = [] } = useQuery<FrequentMeal[]>({
+    queryKey: ['nutrition_frequent_meals', userId],
+    queryFn: async () => {
+      if (!userId || !isOnline) return [];
+      const from = `${daysAgoISO(59)}T00:00:00`;
+      const { data } = await supabase
+        .from('meals')
+        .select('meal_type, food_name, food_id, amount_g, calories, protein_g, carbs_g, fat_g, fiber_g, logged_at')
+        .eq('user_id', userId)
+        .gte('logged_at', from)
+        .order('logged_at', { ascending: false })
+        .limit(500);
+
+      const map = new Map<string, FrequentMeal>();
+      for (const row of data ?? []) {
+        const key = `${row.meal_type}::${row.food_name.trim().toLowerCase()}`;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            key,
+            meal_type: row.meal_type as MealType,
+            food_name: row.food_name,
+            food_id: row.food_id ?? null,
+            amount_g: row.amount_g,
+            calories: row.calories,
+            protein_g: row.protein_g,
+            carbs_g: row.carbs_g,
+            fat_g: row.fat_g,
+            fiber_g: row.fiber_g,
+            uses: 1,
+          });
+          continue;
+        }
+        existing.uses += 1;
+      }
+
+      return [...map.values()]
+        .sort((a, b) => b.uses - a.uses)
+        .slice(0, 10);
+    },
+    enabled: !!userId && isOnline,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: nutritionSleepEnergyCorrelation = {
+    insight: null,
+    avgSleepHighNutrition: null,
+    avgSleepLowNutrition: null,
+    avgEnergyHighNutrition: null,
+    avgEnergyLowNutrition: null,
+    sampleHigh: 0,
+    sampleLow: 0,
+  } } = useQuery<NutritionSleepEnergyCorrelation>({
+    queryKey: ['nutrition_sleep_energy_corr', userId],
+    queryFn: async () => {
+      if (!userId || !isOnline) {
+        return {
+          insight: null,
+          avgSleepHighNutrition: null,
+          avgSleepLowNutrition: null,
+          avgEnergyHighNutrition: null,
+          avgEnergyLowNutrition: null,
+          sampleHigh: 0,
+          sampleLow: 0,
+        };
+      }
+
+      const from = daysAgoISO(20);
+      const [scoresRes, mentalRes] = await Promise.all([
+        supabase
+          .from('daily_scores')
+          .select('date, nutrition_pct, sleep_pct')
+          .eq('user_id', userId)
+          .gte('date', from)
+          .order('date', { ascending: true }),
+        supabase
+          .from('mental_checkins')
+          .select('*')
+          .eq('user_id', userId)
+          .gte('check_date', from)
+          .order('check_date', { ascending: true }),
+      ]);
+
+      const energyByDate = new Map<string, number>();
+      for (const row of mentalRes.data ?? []) {
+        const decryptedEnergy = await decryptSensitiveText(
+          typeof row.energy_encrypted === 'string' ? row.energy_encrypted : null,
+        );
+        const energy = Number(decryptedEnergy ?? row.energy ?? 0);
+        if (energy > 0) {
+          energyByDate.set(row.check_date, energy);
+        }
+      }
+
+      const rows = (scoresRes.data ?? [])
+        .map((row) => ({
+          nutrition: Number(row.nutrition_pct ?? 0),
+          sleep: Number(row.sleep_pct ?? 0),
+          energy: energyByDate.get(row.date) ?? null,
+        }))
+        .filter((row) => row.nutrition > 0 && row.sleep > 0);
+
+      const highNutrition = rows.filter((row) => row.nutrition >= 70);
+      const lowNutrition = rows.filter((row) => row.nutrition < 50);
+
+      const avgSleepHigh = average(highNutrition.map((row) => row.sleep));
+      const avgSleepLow = average(lowNutrition.map((row) => row.sleep));
+      const avgEnergyHigh = average(
+        highNutrition
+          .map((row) => row.energy)
+          .filter((value): value is number => typeof value === 'number'),
+      );
+      const avgEnergyLow = average(
+        lowNutrition
+          .map((row) => row.energy)
+          .filter((value): value is number => typeof value === 'number'),
+      );
+
+      let insight: string | null = null;
+      if (highNutrition.length >= 4 && lowNutrition.length >= 4) {
+        const sleepDiff = (avgSleepHigh ?? 0) - (avgSleepLow ?? 0);
+        const energyDiff = (avgEnergyHigh ?? 0) - (avgEnergyLow ?? 0);
+        const hasSleepSignal = Math.abs(sleepDiff) >= 5;
+        const hasEnergySignal = Math.abs(energyDiff) >= 1;
+
+        if (hasSleepSignal && hasEnergySignal) {
+          insight =
+            sleepDiff >= 0 && energyDiff >= 0
+              ? `Con nutricion alta, tu sueno sube ~${Math.round(sleepDiff)} pts y tu energia ~${energyDiff.toFixed(1)} pts.`
+              : `En dias de nutricion baja, sueno y energia tienden a caer (sueno ${Math.round(Math.abs(sleepDiff))} pts, energia ${Math.abs(energyDiff).toFixed(1)} pts).`;
+        } else if (hasSleepSignal) {
+          insight =
+            sleepDiff >= 0
+              ? `Cuando comes mejor, tu sueno mejora ~${Math.round(sleepDiff)} puntos.`
+              : `Cuando baja tu calidad nutricional, tu sueno cae ~${Math.round(Math.abs(sleepDiff))} puntos.`;
+        } else if (hasEnergySignal) {
+          insight =
+            energyDiff >= 0
+              ? `Con mejor nutricion, tu energia reportada sube ~${energyDiff.toFixed(1)} puntos.`
+              : `Con nutricion baja, tu energia reportada cae ~${Math.abs(energyDiff).toFixed(1)} puntos.`;
+        }
+      }
+
+      return {
+        insight,
+        avgSleepHighNutrition: avgSleepHigh !== null ? Math.round(avgSleepHigh) : null,
+        avgSleepLowNutrition: avgSleepLow !== null ? Math.round(avgSleepLow) : null,
+        avgEnergyHighNutrition: avgEnergyHigh !== null ? Math.round(avgEnergyHigh * 10) / 10 : null,
+        avgEnergyLowNutrition: avgEnergyLow !== null ? Math.round(avgEnergyLow * 10) / 10 : null,
+        sampleHigh: highNutrition.length,
+        sampleLow: lowNutrition.length,
+      };
+    },
+    enabled: !!userId && isOnline,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: femaleCyclePhase = null } = useQuery({
+    queryKey: ['nutrition_cycle_phase', userId],
+    queryFn: async () => {
+      if (!userId || !isOnline || !profile?.female_health_enabled) return null;
+      const { data } = await supabase
+        .from('female_health_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('logged_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const phase = await resolveFemalePhaseFromRecord(data as Record<string, unknown> | null | undefined);
+      if (phase === 'menstrual' || phase === 'follicular' || phase === 'ovulation' || phase === 'luteal') {
+        return phase as 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
+      }
+      return null;
+    },
+    enabled: !!userId && isOnline && Boolean(profile?.female_health_enabled),
+    staleTime: 60 * 60 * 1000,
+  });
+
+  const cycleNutritionGuidance = (() => {
+    if (femaleCyclePhase === 'menstrual') {
+      return 'Fase menstrual: prioriza hierro y omega-3 (espinaca, legumbres, pescado azul).';
+    }
+    if (femaleCyclePhase === 'follicular') {
+      return 'Fase folicular: buena ventana para subir proteina y zinc y apoyar recuperacion.';
+    }
+    if (femaleCyclePhase === 'ovulation') {
+      return 'Fase ovulatoria: reforza antioxidantes y carbos de calidad para sostener rendimiento.';
+    }
+    if (femaleCyclePhase === 'luteal') {
+      return 'Fase lutea: suma magnesio y carbos complejos para energia estable y menos ansiedad.';
+    }
+    return null;
+  })();
+
   // ─── Buscar por código de barras (Open Food Facts API) ────
   const searchByBarcode = useCallback(async (barcode: string): Promise<FoodItem | null> => {
     try {
@@ -236,6 +462,8 @@ export function useNutrition() {
 
       queryClient.invalidateQueries({ queryKey: ['meals_today'] });
       queryClient.invalidateQueries({ queryKey: ['nutrition_weekly'] });
+      queryClient.invalidateQueries({ queryKey: ['nutrition_frequent_meals'] });
+      queryClient.invalidateQueries({ queryKey: ['nutrition_sleep_energy_corr'] });
       queryClient.invalidateQueries({ queryKey: ['today_summary'] });
 
       showToast(`+${Math.round(input.calories)} kcal — ${input.food_name}`, 'success');
@@ -287,12 +515,26 @@ export function useNutrition() {
     totals, caloriePct, remaining,
     calorieGoal, macroGoals,
     weeklyData,
+    frequentMeals,
+    nutritionSleepEnergyCorrelation,
+    cycleNutritionGuidance,
     isLoading, isLogging,
     addMeal: (input: LogMealInput) => logMeal(input),
+    logFrequentMeal: (meal: FrequentMeal) =>
+      logMeal({
+        meal_type: meal.meal_type,
+        food_name: meal.food_name,
+        food_id: meal.food_id ?? undefined,
+        amount_g: meal.amount_g,
+        calories: meal.calories,
+        protein_g: meal.protein_g,
+        carbs_g: meal.carbs_g,
+        fat_g: meal.fat_g,
+        fiber_g: meal.fiber_g,
+      }),
     getDailyMacros: () => ({ ...totals }),
     checkBarcodeLimit,
     logMeal, deleteMeal,
     searchFoods, searchByBarcode, refetch,
   };
 }
-

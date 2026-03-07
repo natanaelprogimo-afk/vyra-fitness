@@ -45,7 +45,7 @@ const SECTIONS = [
   },
   {
     title: '5. Suscripciones y pagos',
-    text:  'Las suscripciones Premium se facturan mediante PayPal. Los precios están en dólares estadounidenses. El período de prueba de 7 días es por única vez por cuenta. Las suscripciones se renuevan automáticamente hasta que las canceles.',
+    text:  'Las suscripciones Premium se facturan mediante PayPal. Los precios están en dólares estadounidenses. El período de prueba de 14 días es por única vez por cuenta. Las suscripciones se renuevan automáticamente hasta que las canceles.',
   },
   {
     title: '6. Reembolsos',
