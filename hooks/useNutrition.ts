@@ -38,7 +38,10 @@ export interface MealEntry {
   fiber_g:    number;
   amount_g:   number;
   logged_at:  string;
+  source?:    MealSource;
 }
+
+export type MealSource = 'manual' | 'barcode' | 'photo_ai' | 'voice' | 'recipe';
 
 export interface FoodItem {
   id:                string;
@@ -62,6 +65,7 @@ export interface LogMealInput {
   carbs_g:   number;
   fat_g:     number;
   fiber_g:   number;
+  source?:   MealSource;
 }
 
 export interface FrequentMeal {
@@ -397,18 +401,51 @@ export function useNutrition() {
 
   // ─── Buscar por código de barras (Open Food Facts API) ────
   const searchByBarcode = useCallback(async (barcode: string): Promise<FoodItem | null> => {
+    const trimmedBarcode = barcode.trim();
+    if (!trimmedBarcode) return null;
+
     try {
-      // Primero verificar en nuestra base de datos
+      const apiBase = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token ?? null;
+
+      if (apiBase && accessToken) {
+        const response = await fetch(
+          `${apiBase}/api/food/barcode/${encodeURIComponent(trimmedBarcode)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          },
+        );
+
+        const raw = await response.text();
+        const payload = raw.trim() ? JSON.parse(raw) : {};
+
+        if (response.ok) {
+          return (payload.food ?? null) as FoodItem | null;
+        }
+
+        if (response.status === 404) {
+          return null;
+        }
+
+        throw new Error(
+          typeof payload?.error === 'string'
+            ? payload.error
+            : 'No pudimos consultar el código de barras.',
+        );
+      }
+
       const { data: existingFood } = await supabase
         .from('foods')
-        .select('*')
-        .eq('barcode', barcode)
-        .single();
+        .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
+        .eq('barcode', trimmedBarcode)
+        .maybeSingle();
 
       if (existingFood) return existingFood as FoodItem;
 
-      // Si no existe, consultar Open Food Facts API
-      const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+      const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${trimmedBarcode}.json`);
       if (!response.ok) return null;
 
       const offData = await response.json();
@@ -416,10 +453,10 @@ export function useNutrition() {
 
       const product = offData.product;
       return {
-        id: `off_${barcode}`,
+        id: `off_${trimmedBarcode}`,
         name: product.product_name || 'Alimento desconocido',
         brand: product.brands || null,
-        barcode,
+        barcode: trimmedBarcode,
         calories_per_100g: product.nutriments?.['energy-kcal_100g'] || 0,
         protein_g: product.nutriments?.['proteins_100g'] || 0,
         carbs_g: product.nutriments?.['carbohydrates_100g'] || 0,
@@ -427,10 +464,10 @@ export function useNutrition() {
         fiber_g: product.nutriments?.['fiber_100g'] || 0,
       };
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useNutrition.searchByBarcode" });
-      return null;
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useNutrition.searchByBarcode' });
+      throw err;
     }
-  }, [userId]);
+  }, []);
 
   // ─── Log comida ──────────────────────────────────────────
   const { mutate: logMeal, isPending: isLogging } = useMutation({
@@ -448,6 +485,7 @@ export function useNutrition() {
         fiber_g:   Math.round(input.fiber_g   * 10) / 10,
         amount_g:  input.amount_g,
         logged_at: new Date().toISOString(),
+        source:    input.source ?? 'manual',
       }).select('id').single();
       if (error) throw error;
       return data.id;

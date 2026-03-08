@@ -110,6 +110,7 @@ export default function WorkoutSessionScreen() {
               router.replace({
                 pathname: '/modules/workout/summary',
                 params: {
+                  sessionId: summary.sessionId,
                   duration: summary.durationMin,
                   volume: summary.totalVolume,
                   sets: summary.setsCount,

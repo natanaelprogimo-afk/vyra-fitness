@@ -76,7 +76,8 @@
           "expo-av",
           "@nozbe/simdjson",
           "react-native-sqlite-storage",
-          "react-native-unity-ads"
+          "react-native-unity-ads",
+          "@bittingz/expo-widgets"
         ]
       }
     }

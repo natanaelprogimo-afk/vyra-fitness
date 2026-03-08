@@ -38,7 +38,7 @@ export const useAI = (options?: UseAIOptions) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [dailyMessagesLeft, setDailyMessagesLeft] = useState<number>(5);
 
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
   const countUserMessages = useCallback((messages: unknown): number => {
     if (!Array.isArray(messages)) return 0;

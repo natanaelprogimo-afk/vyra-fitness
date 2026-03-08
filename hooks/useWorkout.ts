@@ -3,6 +3,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
+import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
+import { useModuleRewards } from '@/hooks/useModuleRewards';
 
 export interface Exercise {
   id: string;
@@ -149,6 +151,7 @@ function buildCycleLoadProfile(phase: string | null) {
 export function useWorkout() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
+  const { reward } = useModuleRewards();
 
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -269,13 +272,13 @@ export function useWorkout() {
           .limit(3),
         profile?.female_health_enabled
           ? supabase
-              .from('female_cycle_logs')
-              .select('phase_override')
+              .from('female_health_logs')
+              .select('*')
               .eq('user_id', userId)
-              .order('period_start', { ascending: false })
+              .order('logged_at', { ascending: false })
               .limit(1)
               .maybeSingle()
-          : Promise.resolve({ data: null as { phase_override: string | null } | null }),
+          : Promise.resolve({ data: null as Record<string, unknown> | null }),
       ]);
 
       const sleepRows = sleepRes.data ?? [];
@@ -297,10 +300,13 @@ export function useWorkout() {
       const stressAvg = stressRows.length
         ? stressRows.reduce((sum, row) => sum + Number(row.stress ?? 0), 0) / stressRows.length
         : null;
+      const resolvedFemalePhase = await resolveFemalePhaseFromRecord(
+        femaleRes.data as Record<string, unknown> | null | undefined,
+      );
 
       setAvgSleepHoursLast3(sleepAvg !== null ? Math.round(sleepAvg * 10) / 10 : null);
       setAvgStressLast3(stressAvg !== null ? Math.round(stressAvg * 10) / 10 : null);
-      setCyclePhase(typeof femaleRes.data?.phase_override === 'string' ? femaleRes.data.phase_override : null);
+      setCyclePhase(resolvedFemalePhase);
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useWorkout.fetchRecoverySignals' });
     }
@@ -439,7 +445,12 @@ export function useWorkout() {
       };
 
       setActiveSession(null);
-      await fetchHistory();
+      await Promise.all([
+        fetchHistory(),
+        fetchRecoverySignals(),
+        reward('workout_completed'),
+        ...prs.map(() => reward('pr_achieved')),
+      ]);
       return summary;
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), { action: "useWorkout.finishSession" });
@@ -447,7 +458,7 @@ export function useWorkout() {
     } finally {
       setSaving(false);
     }
-  }, [activeSession, exercises, userId, fetchHistory]);
+  }, [activeSession, exercises, userId, fetchHistory, fetchRecoverySignals, reward]);
 
   const cancelSession = useCallback(async () => {
     if (!activeSession?.session_id) {

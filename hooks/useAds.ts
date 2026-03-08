@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { usePathname } from 'expo-router';
+import { useAuthStore } from '@/stores/authStore';
 import { usePremiumStore } from '@/stores/premiumStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useAdsStore } from '@/stores/adsStore';
+import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
 import {
   initUnityAds as unityInit,
@@ -33,30 +35,39 @@ function toIsoDay(date: Date): string {
   return date.toISOString().split('T')[0] ?? '';
 }
 
+function emptyContextViews(): Record<AdContext, number> {
+  return {
+    quick_log_coins: 0,
+    post_workout_2x_xp: 0,
+    streak_rescue: 0,
+    store_discount: 0,
+  };
+}
+
 export function useAds() {
   const { isPremium } = usePremiumStore();
+  const userId = useAuthStore((state) => state.profile?.id ?? null);
   const pathname = usePathname();
   const { achievementModal } = useUIStore();
   const {
     rewardedLoaded,
     interstitialLoaded,
     isInitialized,
+    adsDate,
+    adsShownToday,
+    contextViews,
+    lastInterstitialAt,
+    lastAchievementAt,
     setRewardedLoaded,
     setInterstitialLoaded,
     setInitialized,
+    syncDay,
+    markRewardedShown,
+    markInterstitialShown,
+    markAchievementSeen,
   } = useAdsStore();
 
   const [showing, setShowing] = useState(false);
-  const [contextViews, setContextViews] = useState<Record<AdContext, number>>({
-    quick_log_coins: 0,
-    post_workout_2x_xp: 0,
-    streak_rescue: 0,
-    store_discount: 0,
-  });
-  const [lastInterstitialAt, setLastInterstitialAt] = useState<number>(0);
-  const [adsDate, setAdsDate] = useState<string>(toIsoDay(new Date()));
-  const [adsShownToday, setAdsShownToday] = useState<number>(0);
-  const [lastAchievementAt, setLastAchievementAt] = useState<number>(0);
 
   const loadPlacements = useCallback(async () => {
     const [rewardedOk, interstitialOk] = await Promise.all([
@@ -84,27 +95,14 @@ export function useAds() {
 
   useEffect(() => {
     if (achievementModal.visible) {
-      setLastAchievementAt(Date.now());
+      markAchievementSeen();
     }
-  }, [achievementModal.visible]);
+  }, [achievementModal.visible, markAchievementSeen]);
 
   useEffect(() => {
+    syncDay();
     void initUnityAds();
-  }, [initUnityAds]);
-
-  const resetIfNewDay = useCallback(() => {
-    const today = toIsoDay(new Date());
-    if (today !== adsDate) {
-      setAdsDate(today);
-      setAdsShownToday(0);
-      setContextViews({
-        quick_log_coins: 0,
-        post_workout_2x_xp: 0,
-        streak_rescue: 0,
-        store_discount: 0,
-      });
-    }
-  }, [adsDate]);
+  }, [initUnityAds, syncDay]);
 
   const isWorkoutActive = useMemo(
     () => pathname.includes('/modules/workout/session') || pathname.includes('/modules/workout/active'),
@@ -127,47 +125,78 @@ export function useAds() {
     [lastAchievementAt],
   );
 
+  const currentDate = toIsoDay(new Date());
+  const effectiveAdsShownToday = adsDate === currentDate ? adsShownToday : 0;
+  const effectiveContextViews = adsDate === currentDate ? contextViews : emptyContextViews();
+
+  const trackAdInteraction = useCallback(async (
+    adType: 'rewarded' | 'interstitial',
+    context: string,
+    coinsEarned = 0,
+  ) => {
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('ad_interactions')
+      .insert({
+        user_id: userId,
+        ad_type: adType,
+        coins_earned: coinsEarned,
+        context,
+        viewed_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      captureError(new Error(error.message), {
+        action: 'useAds.trackAdInteraction',
+        adType,
+        context,
+      });
+    }
+  }, [userId]);
+
   const canShowRewarded = useCallback((context: AdContext) => {
-    resetIfNewDay();
+    const allowOnSummary =
+      context === 'post_workout_2x_xp' &&
+      pathname.includes('/modules/workout/summary');
+
     if (isPremium) return false;
     if (!isInitialized || !rewardedLoaded) return false;
-    if (isProhibitedScreen) return false;
+    if (isProhibitedScreen && !allowOnSummary) return false;
     if (inAchievementGrace()) return false;
-    if (adsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
-    return contextViews[context] < DAILY_LIMITS[context];
+    if (effectiveAdsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
+    return effectiveContextViews[context] < DAILY_LIMITS[context];
   }, [
-    adsShownToday,
-    contextViews,
+    effectiveAdsShownToday,
+    effectiveContextViews,
     inAchievementGrace,
     isInitialized,
     isPremium,
+    pathname,
     isProhibitedScreen,
-    resetIfNewDay,
     rewardedLoaded,
   ]);
 
   const canShowInterstitial = useCallback(() => {
-    resetIfNewDay();
     if (isPremium) return false;
     if (!isInitialized || !interstitialLoaded) return false;
     if (isProhibitedScreen) return false;
     if (inAchievementGrace()) return false;
-    if (adsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
+    if (effectiveAdsShownToday >= GLOBAL_DAILY_AD_CAP) return false;
     return Date.now() - lastInterstitialAt >= INTERSTITIAL_MIN_INTERVAL_MS;
   }, [
-    adsShownToday,
+    effectiveAdsShownToday,
     inAchievementGrace,
     interstitialLoaded,
     isInitialized,
     isPremium,
     isProhibitedScreen,
     lastInterstitialAt,
-    resetIfNewDay,
   ]);
 
   const showRewardedAd = useCallback(async (
     context: AdContext,
-    onReward?: (coinsEarned: number) => void,
+    onReward?: (coinsEarned: number) => void | Promise<void>,
   ) => {
     if (!canShowRewarded(context)) return false;
 
@@ -176,10 +205,19 @@ export function useAds() {
       const result = await unityShowRewarded();
 
       if (result === 'completed') {
-        setContextViews((prev) => ({ ...prev, [context]: prev[context] + 1 }));
-        setAdsShownToday((prev) => prev + 1);
         const coins = context === 'quick_log_coins' ? 15 : 10;
-        onReward?.(coins);
+        markRewardedShown(context);
+
+        try {
+          await Promise.resolve(onReward?.(coins));
+        } catch (rewardError) {
+          captureError(rewardError instanceof Error ? rewardError : new Error(String(rewardError)), {
+            action: 'useAds.rewardCallback',
+            context,
+          });
+        }
+
+        void trackAdInteraction('rewarded', context, coins);
         void preloadRewarded().then(setRewardedLoaded);
         return true;
       }
@@ -195,7 +233,7 @@ export function useAds() {
     } finally {
       setShowing(false);
     }
-  }, [canShowRewarded, setRewardedLoaded]);
+  }, [canShowRewarded, markRewardedShown, setRewardedLoaded, trackAdInteraction]);
 
   const showInterstitial = useCallback(async () => {
     if (!canShowInterstitial()) return false;
@@ -205,8 +243,8 @@ export function useAds() {
       const result = await unityShowInterstitial();
 
       if (result === 'completed') {
-        setLastInterstitialAt(Date.now());
-        setAdsShownToday((prev) => prev + 1);
+        markInterstitialShown();
+        void trackAdInteraction('interstitial', pathname);
         void preloadInterstitial().then(setInterstitialLoaded);
         return true;
       }
@@ -221,7 +259,7 @@ export function useAds() {
     } finally {
       setShowing(false);
     }
-  }, [canShowInterstitial, setInterstitialLoaded]);
+  }, [canShowInterstitial, markInterstitialShown, pathname, setInterstitialLoaded, trackAdInteraction]);
 
   return {
     rewardedReady: rewardedLoaded,
@@ -235,7 +273,7 @@ export function useAds() {
     showRewardedAd,
     showRewarded: showRewardedAd,
     showInterstitial,
-    adsShownToday,
+    adsShownToday: effectiveAdsShownToday,
   };
 }
 

@@ -14,7 +14,7 @@ interface RewardedAdButtonProps {
   context:  AdContext;
   label?:   string;
   coins?:   number;
-  onReward: (coins: number) => void;
+  onReward: (coins: number) => void | Promise<void>;
   compact?: boolean;
 }
 

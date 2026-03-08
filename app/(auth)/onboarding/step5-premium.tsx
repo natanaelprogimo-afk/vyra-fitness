@@ -10,13 +10,11 @@ import type { OnboardingData, PrimaryGoal, Gender, ActivityLevel } from '@/types
 
 const FEATURES = [
   { emoji: 'Coach', label: 'Coach IA con memoria real de tus datos' },
-  { emoji: 'Foto', label: 'Log de comida por foto con IA' },
-  { emoji: 'Voz', label: 'Log de comida por voz' },
-  { emoji: 'Historial', label: 'Historial ilimitado de todos los modulos' },
-  { emoji: 'Insights', label: 'Correlaciones sueno/peso/nutricion' },
-  { emoji: 'Sin ads', label: 'Sin anuncios' },
-  { emoji: 'GPS', label: 'Mapas GPS para cardio' },
+  { emoji: 'Insights', label: 'Correlaciones premium entre modulos' },
   { emoji: 'Barcode', label: 'Escaner de codigos de barra ilimitado' },
+  { emoji: 'Sin ads', label: 'Sin anuncios de Unity Ads' },
+  { emoji: 'Sync', label: 'Estado Premium sincronizado en tu cuenta' },
+  { emoji: 'PayPal', label: 'Checkout seguro con PayPal' },
 ];
 
 export default function Step5Premium() {

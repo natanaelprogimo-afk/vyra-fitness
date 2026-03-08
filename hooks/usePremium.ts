@@ -18,6 +18,7 @@ function sleep(ms: number) {
 
 type PremiumStateSnapshot = {
   isActive: boolean;
+  isPremium: boolean;
   plan: string | null;
   expiresAt: string | null;
   trialEndsAt: string | null;
@@ -36,24 +37,26 @@ export function usePremium() {
   const [confirming, setConfirming] = useState(false);
   const [status, setStatus] = useState<PremiumStateSnapshot | null>(null);
 
-  const applySubscriptionStatus = useCallback(async (data: PremiumStateSnapshot | null) => {
+  const applySubscriptionStatus = useCallback((data: PremiumStateSnapshot | null) => {
     if (!data) return;
 
     setStatus(data);
-    setIsPremium(data.isActive);
-
-    if ((profile?.is_premium ?? false) !== data.isActive) {
-      await updateProfile({ is_premium: data.isActive });
-    }
-  }, [profile?.is_premium, setIsPremium, updateProfile]);
+    setIsPremium(data.isPremium);
+    updateProfile({
+      is_premium: data.isPremium,
+      premium_expires_at: data.expiresAt,
+      paypal_subscription_id: data.subscriptionId ?? null,
+    });
+  }, [setIsPremium, updateProfile]);
 
   const checkStatus = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getSubscriptionStatus();
       if (data) {
-        await applySubscriptionStatus({
+        applySubscriptionStatus({
           isActive: data.isActive,
+          isPremium: data.isPremium,
           plan: data.plan,
           expiresAt: data.expiresAt,
           trialEndsAt: data.trialEndsAt,
@@ -96,8 +99,9 @@ export function usePremium() {
         const data = await confirmSubscription(subscriptionId);
 
         if (data) {
-          await applySubscriptionStatus({
+          applySubscriptionStatus({
             isActive: data.isActive,
+            isPremium: data.isPremium,
             plan: data.plan,
             expiresAt: data.expiresAt,
             trialEndsAt: data.trialEndsAt,
@@ -120,8 +124,9 @@ export function usePremium() {
 
       const finalStatus = await getSubscriptionStatus();
       if (finalStatus) {
-        await applySubscriptionStatus({
+        applySubscriptionStatus({
           isActive: finalStatus.isActive,
+          isPremium: finalStatus.isPremium,
           plan: finalStatus.plan,
           expiresAt: finalStatus.expiresAt,
           trialEndsAt: finalStatus.trialEndsAt,
@@ -189,8 +194,15 @@ export function usePremium() {
         },
         (payload) => {
           const nextPremium = Boolean((payload.new as any)?.is_premium);
+          const nextExpiresAt =
+            typeof (payload.new as any)?.premium_expires_at === 'string'
+              ? (payload.new as any).premium_expires_at
+              : null;
           setIsPremium(nextPremium);
-          void updateProfile({ is_premium: nextPremium });
+          updateProfile({
+            is_premium: nextPremium,
+            premium_expires_at: nextExpiresAt,
+          });
         },
       )
       .subscribe();

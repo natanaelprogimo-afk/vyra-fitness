@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import Animated, {
   withDelay,
   withSpring,
   withTiming,
-  Easing,
 } from 'react-native-reanimated';
 import LottieView from 'lottie-react-native';
 import * as Haptics from 'expo-haptics';
@@ -21,23 +20,41 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import { RewardedAdButton } from '@/components/ui/RewardedAdButton';
 import { Colors } from '@/constants/colors';
 import { Spacing, Radius, FontFamily } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
+import { captureError } from '@/lib/sentry';
+
+const BASE_WORKOUT_XP = 50;
+const PR_XP_BONUS = 100;
 
 export default function WorkoutSummaryScreen() {
   const params = useLocalSearchParams<{
-    duration: string;
-    volume: string;
-    sets: string;
-    prs: string;
-    name: string;
+    sessionId?: string;
+    duration?: string;
+    volume?: string;
+    sets?: string;
+    prs?: string;
+    name?: string;
   }>();
 
-  const duration = parseInt(params.duration ?? '0');
-  const volume = parseInt(params.volume ?? '0');
-  const sets = parseInt(params.sets ?? '0');
-  const prs = parseInt(params.prs ?? '0');
+  const userId = useAuthStore((state) => state.profile?.id ?? null);
+  const updateProfile = useAuthStore((state) => state.updateProfile);
+  const showToast = useUIStore((state) => state.showToast);
+
+  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
+  const duration = parseInt(params.duration ?? '0', 10) || 0;
+  const volume = parseInt(params.volume ?? '0', 10) || 0;
+  const sets = parseInt(params.sets ?? '0', 10) || 0;
+  const prs = parseInt(params.prs ?? '0', 10) || 0;
   const name = params.name ?? 'Entreno';
 
-  // Animaciones de entrada
+  const rewardXp = useMemo(() => BASE_WORKOUT_XP + (prs * PR_XP_BONUS), [prs]);
+  const rewardContext = sessionId ? `post_workout_2x_xp:${sessionId}` : null;
+
+  const [claimingXp, setClaimingXp] = useState(false);
+  const [xpBoostClaimed, setXpBoostClaimed] = useState(false);
+
   const titleScale = useSharedValue(0);
   const statsOpacity = useSharedValue(0);
   const badgeScale = useSharedValue(0);
@@ -54,22 +71,92 @@ export default function WorkoutSummaryScreen() {
   }));
 
   useEffect(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     titleScale.value = withSpring(1, { damping: 8, stiffness: 100 });
     statsOpacity.value = withDelay(300, withTiming(1, { duration: 600 }));
 
     if (prs > 0) {
-      badgeScale.value = withDelay(
-        600,
-        withSpring(1.0, { damping: 6, stiffness: 90 }),
-      );
+      badgeScale.value = withDelay(600, withSpring(1, { damping: 6, stiffness: 90 }));
     }
-  }, []);
+  }, [badgeScale, prs, statsOpacity, titleScale]);
+
+  useEffect(() => {
+    if (!userId || !rewardContext) return;
+
+    let mounted = true;
+
+    void supabase
+      .from('ad_interactions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('ad_type', 'rewarded')
+      .eq('context', rewardContext)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          captureError(new Error(error.message), {
+            action: 'WorkoutSummaryScreen.checkXpBoost',
+            rewardContext,
+          });
+          return;
+        }
+        setXpBoostClaimed(Boolean(data?.id));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [rewardContext, userId]);
+
+  const handleXpBoostReward = useCallback(async () => {
+    if (!userId || !sessionId || rewardXp <= 0 || claimingXp) return;
+
+    setClaimingXp(true);
+    try {
+      const { data, error } = await supabase.rpc('claim_rewarded_workout_bonus', {
+        p_user_id: userId,
+        p_session_id: sessionId,
+        p_bonus_xp: rewardXp,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const payload = Array.isArray(data) ? data[0] : data;
+      if (!payload || payload.success !== true) {
+        if (payload?.already_claimed) {
+          setXpBoostClaimed(true);
+          showToast('El bonus de XP de este entreno ya fue reclamado.', 'info');
+          return;
+        }
+        throw new Error(payload?.error ?? 'No se pudo aplicar el bonus de XP.');
+      }
+
+      setXpBoostClaimed(true);
+      const nextProfilePatch: { xp?: number; level?: number } = {};
+      if (typeof payload.new_xp === 'number') {
+        nextProfilePatch.xp = payload.new_xp;
+      }
+      if (typeof payload.new_level === 'number') {
+        nextProfilePatch.level = payload.new_level;
+      }
+      updateProfile(nextProfilePatch);
+      showToast(`XP duplicado: +${rewardXp} XP`, 'success');
+    } catch (error) {
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        action: 'WorkoutSummaryScreen.handleXpBoostReward',
+        sessionId,
+      });
+      showToast('No pudimos aplicar el bonus de XP.', 'error');
+    } finally {
+      setClaimingXp(false);
+    }
+  }, [claimingXp, rewardXp, sessionId, showToast, updateProfile, userId]);
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      {/* Confetti fullscreen */}
       <LottieView
         source={require('@/assets/lottie/confetti.json')}
         autoPlay
@@ -82,55 +169,58 @@ export default function WorkoutSummaryScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Emoji + título */}
         <Animated.View style={[styles.titleSection, titleStyle]}>
-          <Text style={styles.emoji}>🎉</Text>
-          <Text style={styles.title}>¡Entreno completado!</Text>
+          <Text style={styles.emoji}>DONE</Text>
+          <Text style={styles.title}>Entreno completado</Text>
           <Text style={styles.sessionName}>{name}</Text>
         </Animated.View>
 
-        {/* PR badge */}
         {prs > 0 && (
           <Animated.View style={[styles.prBanner, badgeStyle]}>
             <Text style={styles.prBannerText}>
-              🏆 {prs} nuevo{prs > 1 ? 's' : ''} récord{prs > 1 ? 's' : ''} personal{prs > 1 ? 'es' : ''}
+              {prs} nuevo{prs > 1 ? 's' : ''} record{prs > 1 ? 's' : ''} personal{prs > 1 ? 'es' : ''}
             </Text>
           </Animated.View>
         )}
 
-        {/* Stats */}
         <Animated.View style={[styles.statsGrid, statsStyle]}>
-          <StatCard icon="⏱" label="Duración" value={`${duration} min`} />
+          <StatCard icon="TIME" label="Duracion" value={`${duration} min`} />
+          <StatCard icon="VOL" label="Volumen total" value={`${volume.toLocaleString()} kg`} />
+          <StatCard icon="SETS" label="Sets completados" value={`${sets}`} />
           <StatCard
-            icon="🏋️"
-            label="Volumen total"
-            value={`${volume.toLocaleString()} kg`}
-          />
-          <StatCard icon="✅" label="Sets completados" value={`${sets}`} />
-          <StatCard
-            icon="🏆"
-            label="Récords"
-            value={prs > 0 ? `${prs} PR` : '—'}
+            icon="PR"
+            label="Records"
+            value={prs > 0 ? `${prs} PR` : '-'}
             highlight={prs > 0}
           />
         </Animated.View>
 
-        {/* Monedas ganadas */}
-        <View style={styles.coinsCard}>
-          <Text style={styles.coinsText}>+25 🪙 por completar el entreno</Text>
+        <View style={styles.rewardsCard}>
+          <Text style={styles.rewardLine}>+25 coins por completar el entreno</Text>
+          <Text style={styles.rewardLine}>+{BASE_WORKOUT_XP} XP por completar el entreno</Text>
           {prs > 0 && (
-            <Text style={styles.coinsText}>+{prs * 50} 🪙 por récords personales</Text>
+            <>
+              <Text style={styles.rewardLine}>+{prs * 50} coins por records personales</Text>
+              <Text style={styles.rewardLine}>+{prs * PR_XP_BONUS} XP por records personales</Text>
+            </>
           )}
         </View>
 
-        <RewardedAdButton
-          context="post_workout_2x_xp"
-          label="Ver anuncio para x2 XP"
-          coins={0}
-          onReward={() => {}}
-        />
+        {sessionId && rewardXp > 0 && !xpBoostClaimed ? (
+          <RewardedAdButton
+            context="post_workout_2x_xp"
+            label={claimingXp ? 'Aplicando bonus...' : `Ver anuncio para duplicar XP (+${rewardXp} XP)`}
+            coins={0}
+            onReward={handleXpBoostReward}
+          />
+        ) : null}
 
-        {/* Botones */}
+        {xpBoostClaimed ? (
+          <View style={styles.xpClaimedCard}>
+            <Text style={styles.xpClaimedText}>Bonus de XP reclamado para este entreno.</Text>
+          </View>
+        ) : null}
+
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.homeBtn}
@@ -185,7 +275,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing[2],
   },
-  emoji: { fontSize: 64 },
+  emoji: {
+    fontSize: 16,
+    letterSpacing: 2,
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.bold,
+  },
   title: {
     fontFamily: FontFamily.bold,
     fontSize: 30,
@@ -210,6 +305,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     fontSize: 18,
     color: Colors.coins,
+    textAlign: 'center',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -231,7 +327,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.coins,
   },
-  statIcon: { fontSize: 28 },
+  statIcon: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.bold,
+  },
   statValue: {
     fontFamily: FontFamily.bold,
     fontSize: 22,
@@ -246,7 +346,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
-  coinsCard: {
+  rewardsCard: {
     backgroundColor: `${Colors.coins}15`,
     borderRadius: Radius.xl,
     padding: Spacing[4],
@@ -255,10 +355,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${Colors.coins}40`,
   },
-  coinsText: {
+  rewardLine: {
     fontFamily: FontFamily.bold,
     fontSize: 16,
     color: Colors.coins,
+  },
+  xpClaimedCard: {
+    width: '100%',
+    backgroundColor: `${Colors.success}15`,
+    borderRadius: Radius.xl,
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    borderWidth: 1,
+    borderColor: `${Colors.success}40`,
+  },
+  xpClaimedText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 14,
+    color: Colors.success,
     textAlign: 'center',
   },
   actions: {
@@ -272,9 +386,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   homeBtnText: {
+    color: Colors.white,
     fontFamily: FontFamily.bold,
-    fontSize: 17,
-    color: '#fff',
+    fontSize: 16,
   },
   historyBtn: {
     backgroundColor: Colors.bgSurface,
@@ -285,8 +399,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   historyBtnText: {
+    color: Colors.textPrimary,
     fontFamily: FontFamily.bold,
-    fontSize: 17,
-    color: Colors.textSecondary,
+    fontSize: 16,
   },
 });

@@ -1,8 +1,3 @@
-// ============================================================
-// VYRA FITNESS — PremiumLock
-// Overlay para features Premium. Muestra el paywall al tocar.
-// ============================================================
-
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
@@ -13,30 +8,29 @@ import { trackPaywallViewed } from '@/lib/analytics';
 import type { PaywallTrigger } from '@/types/navigation';
 
 interface PremiumLockProps {
-  feature:     string;             // Nombre legible de la feature
-  trigger?:    PaywallTrigger;
-  children?:   React.ReactNode;   // Contenido a bloquear (se muestra difuminado)
-  style?:      ViewStyle;
-  compact?:    boolean;            // Versión inline pequeña
+  feature: string;
+  trigger?: PaywallTrigger;
+  children?: React.ReactNode;
+  style?: ViewStyle;
+  compact?: boolean;
+}
+
+function hasPremiumAccess(profile: ReturnType<typeof useAuthStore.getState>['profile']) {
+  if (!profile?.is_premium) return false;
+  if (!profile.premium_expires_at) return true;
+  return new Date(profile.premium_expires_at) > new Date();
 }
 
 export default function PremiumLock({
   feature,
-  trigger  = 'feature_lock',
+  trigger = 'feature_lock',
   children,
   style,
-  compact  = false,
+  compact = false,
 }: PremiumLockProps) {
-  const profile = useAuthStore((s) => s.profile);
-  const isPremium = (() => {
-    const p = profile;
-    if (!p) return false;
-    if (!p.is_premium) return false;
-    if (!p.premium_expires_at) return true;
-    return new Date(p.premium_expires_at) > new Date();
-  })();
+  const profile = useAuthStore((state) => state.profile);
+  const isPremium = hasPremiumAccess(profile);
 
-  // Si es Premium, renderizar directamente
   if (isPremium) return <>{children}</>;
 
   const handlePress = () => {
@@ -47,7 +41,7 @@ export default function PremiumLock({
   if (compact) {
     return (
       <Pressable onPress={handlePress} style={[styles.compact, style]}>
-        <Text style={styles.compactIcon}>💎</Text>
+        <Text style={styles.compactIcon}>PRO</Text>
         <Text style={styles.compactText}>Premium</Text>
       </Pressable>
     );
@@ -55,37 +49,27 @@ export default function PremiumLock({
 
   return (
     <View style={[styles.wrapper, style]}>
-      {/* Contenido difuminado detrás */}
-      {children && (
+      {children ? (
         <View style={styles.blurred} pointerEvents="none">
           {children}
         </View>
-      )}
+      ) : null}
 
-      {/* Overlay */}
       <Pressable onPress={handlePress} style={styles.overlay}>
         <View style={styles.lockCard}>
-          <Text style={styles.lockIcon}>💎</Text>
+          <Text style={styles.lockIcon}>PRO</Text>
           <Text style={styles.lockTitle}>Feature Premium</Text>
           <Text style={styles.lockFeature}>{feature}</Text>
-          <Text style={styles.lockCta}>Probalo 7 días gratis →</Text>
+          <Text style={styles.lockCta}>{'Activa Premium con PayPal ->'}</Text>
         </View>
       </Pressable>
     </View>
   );
 }
 
-// ─── Hook helper para verificar premium rápido ───────────────
-
 export function usePremiumGate(trigger: PaywallTrigger = 'feature_lock') {
-  const profile = useAuthStore((s) => s.profile);
-  const isPremium = (() => {
-    const p = profile;
-    if (!p) return false;
-    if (!p.is_premium) return false;
-    if (!p.premium_expires_at) return true;
-    return new Date(p.premium_expires_at) > new Date();
-  })();
+  const profile = useAuthStore((state) => state.profile);
+  const isPremium = hasPremiumAccess(profile);
 
   const requirePremium = (onAllowed: () => void) => {
     if (isPremium) {
@@ -110,61 +94,64 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    alignItems:     'center',
+    alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(15,10,30,0.7)',
-    borderRadius:   Radius.xl,
+    borderRadius: Radius.xl,
     ...(Platform.OS === 'web' ? { backdropFilter: 'blur(8px)' } : {}),
   },
   lockCard: {
-    alignItems:      'center',
+    alignItems: 'center',
     backgroundColor: Colors.bgElevated,
-    borderRadius:    Radius.xl,
-    padding:         Spacing[5],
-    borderWidth:     1,
-    borderColor:     Colors.coins + '44',
-    minWidth:        200,
+    borderRadius: Radius.xl,
+    padding: Spacing[5],
+    borderWidth: 1,
+    borderColor: `${Colors.coins}44`,
+    minWidth: 200,
   },
   lockIcon: {
-    fontSize:     40,
+    fontSize: 28,
     marginBottom: Spacing[2],
+    color: Colors.coins,
+    fontFamily: FontFamily.bold,
   },
   lockTitle: {
-    fontFamily:   FontFamily.semibold,
-    fontSize:     FontSize.xs,
-    color:        Colors.premium,
-    letterSpacing:1,
-    textTransform:'uppercase',
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.premium,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
     marginBottom: Spacing[1],
   },
   lockFeature: {
-    fontFamily:   FontFamily.bold,
-    fontSize:     FontSize.base,
-    color:        Colors.textPrimary,
-    textAlign:    'center',
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    textAlign: 'center',
     marginBottom: Spacing[4],
   },
   lockCta: {
-    fontFamily:   FontFamily.semibold,
-    fontSize:     FontSize.sm,
-    color:        Colors.coins,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.coins,
   },
-  // Compact
   compact: {
-    flexDirection:   'row',
-    alignItems:      'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.premiumBg,
-    borderRadius:    Radius.full,
+    borderRadius: Radius.full,
     paddingVertical: Spacing[1],
     paddingHorizontal: Spacing[2.5],
-    gap:             Spacing[1],
+    gap: Spacing[1],
   },
   compactIcon: {
-    fontSize: 12,
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.premium,
   },
   compactText: {
     fontFamily: FontFamily.semibold,
-    fontSize:   10,
-    color:      Colors.premium,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
   },
 });

@@ -82,8 +82,8 @@
                                  },
                  "extra":  {
                                "legalUrls":  {
-                                                 "privacyPolicy":  "https://raw.githubusercontent.com/\u003cusuario\u003e/\u003crepo\u003e/\u003cbranch\u003e/legal/PRIVACY_POLICY.md",
-                                                 "termsOfService":  "https://raw.githubusercontent.com/\u003cusuario\u003e/\u003crepo\u003e/\u003cbranch\u003e/legal/TERMS_OF_SERVICE.md"
+                                                 "privacyPolicy":  "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/PRIVACY_POLICY.md",
+                                                 "termsOfService":  "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/TERMS_OF_SERVICE.md"
                                              },
                                "apis":  {
                                             "supabase":  "https://fkwisfxwztlkrlcvuwdv.supabase.co",

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
+import * as Linking from 'expo-linking';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,36 +25,21 @@ import { createSubscription, PlanType } from '@/services/backend/paypal';
 import { usePremium } from '@/hooks/usePremium';
 
 const FEATURES_FREE = [
-  '5 módulos de salud básicos',
-  'Log manual de comidas',
-  '7 días de historial',
-  'Coach IA - 10 mensajes/día',
-  'Barcode - 5 scans/día',
-  'Anuncios Unity Ads',
+  'Coach IA con limite diario',
+  'Seguimiento de salud y habitos',
+  'Historial y exportacion JSON',
+  'Barcode hasta 5 scans por dia',
+  'Anuncios de Unity Ads',
 ];
 
 const FEATURES_PREMIUM = [
-  'Todos los módulos sin límite',
-  'Coach IA ilimitado con memoria',
-  'Foto IA y log por voz',
-  'Historial ilimitado + exportar CSV',
+  'Coach IA sin limite diario',
+  'Correlaciones e insights avanzados',
   'Barcode scanner ilimitado',
-  'Proyección de peso con IA',
-  'Correlaciones avanzadas',
-  'Sin anuncios',
-  'Plan semanal personalizado',
+  'Sin anuncios de Unity Ads',
 ];
 
-type Step = 'plans' | 'webview' | 'success' | 'pending';
-
-function getQueryParam(url: string, key: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.searchParams.get(key);
-  } catch {
-    return null;
-  }
-}
+type Step = 'plans' | 'success' | 'pending';
 
 export default function PaywallScreen() {
   const params = useLocalSearchParams<{
@@ -62,20 +47,24 @@ export default function PaywallScreen() {
     subscription_id?: string;
     plan?: string;
   }>();
+  const incomingPlan = params.plan === 'yearly' ? 'yearly' : 'monthly';
 
   const { checkStatus, confirmSubscriptionFlow, confirming } = usePremium();
 
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('monthly');
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>(incomingPlan);
   const [step, setStep] = useState<Step>('plans');
-  const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [handledExternalStatus, setHandledExternalStatus] = useState<string | null>(null);
 
-  const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
-
   const monthlyScale = useSharedValue(selectedPlan === 'monthly' ? 1.02 : 1);
   const yearlyScale = useSharedValue(selectedPlan === 'yearly' ? 1.02 : 1);
+
+  useEffect(() => {
+    if (params.plan === 'monthly' || params.plan === 'yearly') {
+      setSelectedPlan(params.plan);
+    }
+  }, [params.plan]);
 
   useEffect(() => {
     const externalStatus =
@@ -91,6 +80,8 @@ export default function PaywallScreen() {
       setSubscriptionId(params.subscription_id);
     }
 
+    void checkStatus();
+
     if (externalStatus === 'active') {
       setStep('success');
       return;
@@ -103,9 +94,9 @@ export default function PaywallScreen() {
 
     if (externalStatus === 'cancelled') {
       setStep('plans');
-      Alert.alert('Pago cancelado', 'Podés volver a intentarlo cuando quieras. No se realizó ningún cargo.');
+      Alert.alert('Pago cancelado', 'No se realizo ningun cargo. Podes volver a intentarlo cuando quieras.');
     }
-  }, [handledExternalStatus, params.subscription_id, params.subscription_status]);
+  }, [checkStatus, handledExternalStatus, params.subscription_id, params.subscription_status]);
 
   const selectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -124,158 +115,57 @@ export default function PaywallScreen() {
       const result = await createSubscription(selectedPlan);
       if (!result?.approvalUrl || !result.subscriptionId) {
         Alert.alert(
-          'Error al iniciar',
-          'Hubo un problema con PayPal. No se te cobró nada. Verificá la configuración e intentá de nuevo.',
+          'No pudimos iniciar PayPal',
+          'La suscripcion no se creo. Verifica la configuracion y vuelve a intentar.',
         );
         return;
       }
 
       setSubscriptionId(result.subscriptionId);
-      setApprovalUrl(result.approvalUrl);
-      setStep('webview');
+      setStep('pending');
+      await Linking.openURL(result.approvalUrl);
     } catch {
-      Alert.alert('Error', 'Hubo un problema con el pago. No se te cobró nada. Intentá de nuevo.');
+      setStep('plans');
+      Alert.alert('Error', 'Hubo un problema al abrir PayPal. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
   }, [selectedPlan]);
 
-  const handleSubscriptionNavigation = useCallback(async (url: string) => {
-    if (!url) return;
-
-    const cancelled =
-      url.includes(`${BACKEND_URL}/paypal/cancel`) ||
-      getQueryParam(url, 'subscription_status') === 'cancelled';
-
-    if (cancelled) {
-      setStep('plans');
-      setApprovalUrl(null);
-      Alert.alert('Pago cancelado', 'Podés volver a intentarlo cuando quieras. No se realizó ningún cargo.');
-      return;
-    }
-
-    const isReturnUrl =
-      url.includes(`${BACKEND_URL}/paypal/return`) ||
-      getQueryParam(url, 'subscription_status') === 'active' ||
-      getQueryParam(url, 'subscription_status') === 'pending';
-
-    if (!isReturnUrl) return;
-
-    const nextSubscriptionId =
-      getQueryParam(url, 'subscription_id') ??
-      getQueryParam(url, 'subscriptionId') ??
-      getQueryParam(url, 'subscription_id'.toLowerCase()) ??
-      subscriptionId;
-
-    if (!nextSubscriptionId) {
-      await checkStatus();
-      setStep('pending');
-      return;
-    }
-
-    setSubscriptionId(nextSubscriptionId);
-    const outcome = await confirmSubscriptionFlow(nextSubscriptionId);
-
-    if (outcome === 'active') {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setApprovalUrl(null);
-      setStep('success');
-      return;
-    }
-
-    if (outcome === 'pending') {
-      setApprovalUrl(null);
-      setStep('pending');
-      return;
-    }
-
-    setApprovalUrl(null);
-    setStep('plans');
-    Alert.alert(
-      'Suscripción pendiente',
-      'PayPal todavía no confirmó la activación. Revisá de nuevo en unos segundos o volvé a intentar.',
-    );
-  }, [BACKEND_URL, checkStatus, confirmSubscriptionFlow, subscriptionId]);
-
-  const shouldInterceptUrl = useCallback((url: string) => {
-    if (!url) return false;
-
-    return (
-      url.includes(`${BACKEND_URL}/paypal/return`) ||
-      url.includes(`${BACKEND_URL}/paypal/cancel`) ||
-      url.includes('subscription_status=active') ||
-      url.includes('subscription_status=pending') ||
-      url.includes('subscription_status=cancelled')
-    );
-  }, [BACKEND_URL]);
-
-  const handleShouldStartLoad = useCallback((request: { url: string }) => {
-    if (!request?.url) return true;
-
-    if (shouldInterceptUrl(request.url)) {
-      void handleSubscriptionNavigation(request.url);
-      return false;
-    }
-
-    return true;
-  }, [handleSubscriptionNavigation, shouldInterceptUrl]);
-
   const handlePendingRefresh = useCallback(async () => {
     if (!subscriptionId) {
       await checkStatus();
+      Alert.alert('Pendiente', 'Volve a abrir la pantalla cuando PayPal confirme la activacion.');
       return;
     }
 
     const outcome = await confirmSubscriptionFlow(subscriptionId);
     if (outcome === 'active') {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStep('success');
       return;
     }
 
-    if (outcome === 'failed') {
-      Alert.alert('Todavía pendiente', 'PayPal todavía no confirmó la activación. Probá nuevamente en unos segundos.');
+    if (outcome === 'pending') {
+      Alert.alert('Todavia pendiente', 'PayPal aun no confirmo la activacion. Probalo otra vez en unos segundos.');
+      return;
     }
-  }, [checkStatus, confirmSubscriptionFlow, subscriptionId]);
 
-  if (step === 'webview' && approvalUrl) {
-    return (
-      <SafeScreen padHorizontal={false} padBottom={false}>
-        <Header
-          title="Pago seguro"
-          showBack
-          onBack={() => setStep('plans')}
-          color={Colors.brand}
-        />
-        <WebView
-          source={{ uri: approvalUrl }}
-          onShouldStartLoadWithRequest={handleShouldStartLoad}
-          onNavigationStateChange={(navState) => {
-            if (shouldInterceptUrl(navState.url)) {
-              void handleSubscriptionNavigation(navState.url);
-            }
-          }}
-          startInLoadingState
-          style={{ flex: 1 }}
-        />
-      </SafeScreen>
-    );
-  }
+    setStep('plans');
+    Alert.alert('No confirmada', 'No pudimos confirmar la suscripcion todavia. Volve a intentar.');
+  }, [checkStatus, confirmSubscriptionFlow, subscriptionId]);
 
   if (step === 'success') {
     return (
       <SafeScreen padHorizontal={false} padBottom>
-        <View style={styles.successContainer}>
-          <Text style={styles.successEmoji}>Premium</Text>
-          <Text style={styles.successTitle}>Tu suscripción Premium ya está activa</Text>
-          <Text style={styles.successSubtitle}>
-            Ya podés usar todas las funciones Premium sin límites. El estado quedó confirmado contra PayPal.
+        <Header title="Premium activo" showBack color={Colors.premium} />
+        <View style={styles.centerState}>
+          <Text style={styles.stateEmoji}>PRO</Text>
+          <Text style={styles.stateTitle}>Tu cuenta ya es Premium</Text>
+          <Text style={styles.stateBody}>
+            Se activaron los beneficios reales de Premium: sin anuncios, coach sin limite y barcode ilimitado.
           </Text>
-          <Button
-            label="Empezar a explorar"
-            onPress={() => router.replace('/(tabs)' as any)}
-            color={Colors.premium}
-            style={styles.successBtn}
-          />
+          <Button label="Ir al inicio" onPress={() => router.replace('/(tabs)' as any)} color={Colors.premium} />
         </View>
       </SafeScreen>
     );
@@ -284,22 +174,25 @@ export default function PaywallScreen() {
   if (step === 'pending') {
     return (
       <SafeScreen padHorizontal={false} padBottom>
-        <View style={styles.successContainer}>
-          <Text style={styles.successEmoji}>PayPal</Text>
-          <Text style={styles.successTitle}>Estamos confirmando tu pago</Text>
-          <Text style={styles.successSubtitle}>
-            PayPal todavía no terminó de confirmar la activación. Esto suele resolverse en segundos.
+        <Header title="Esperando confirmacion" showBack color={Colors.premium} />
+        <View style={styles.centerState}>
+          <Text style={styles.stateEmoji}>PP</Text>
+          <Text style={styles.stateTitle}>PayPal esta validando tu suscripcion</Text>
+          <Text style={styles.stateBody}>
+            Cuando PayPal complete la activacion, Vyra actualiza tu cuenta automaticamente.
           </Text>
           <Button
-            label={confirming ? 'Verificando...' : 'Verificar ahora'}
+            label={confirming ? 'Revisando...' : 'Actualizar estado'}
             onPress={handlePendingRefresh}
-            disabled={confirming}
+            loading={confirming}
             color={Colors.premium}
-            style={styles.successBtn}
           />
-          <TouchableOpacity onPress={() => router.back()} style={styles.skipBtn}>
-            <Text style={styles.skipText}>Volver</Text>
-          </TouchableOpacity>
+          <Button
+            label="Volver a planes"
+            onPress={() => setStep('plans')}
+            variant="secondary"
+            color={Colors.premium}
+          />
         </View>
       </SafeScreen>
     );
@@ -307,105 +200,80 @@ export default function PaywallScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="" showBack color={Colors.brand} />
+      <Header title="Vyra Premium" showBack color={Colors.premium} />
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <Text style={styles.heroEmoji}>Premium</Text>
-          <Text style={styles.heroTitle}>Vyra Premium</Text>
-          <Text style={styles.heroSubtitle}>
-            Pago seguro con PayPal. Cancelás cuando quieras desde la app.
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Card style={styles.heroCard}>
+          <Text style={styles.heroEyebrow}>Premium con cobro inmediato</Text>
+          <Text style={styles.heroTitle}>Activa Premium desde PayPal</Text>
+          <Text style={styles.heroBody}>
+            Sin prueba gratis. Confirmas en PayPal y Vyra habilita los beneficios en tu cuenta.
           </Text>
-        </View>
-
-        <Card style={styles.compareCard}>
-          <View style={styles.compareRow}>
-            <View style={styles.compareCol}>
-              <Text style={styles.compareColTitle}>Free</Text>
-              {FEATURES_FREE.map((feature, index) => (
-                <Text key={index} style={styles.compareFeatureFree}>· {feature}</Text>
-              ))}
-            </View>
-            <View style={styles.compareDivider} />
-            <View style={styles.compareCol}>
-              <Text style={[styles.compareColTitle, { color: Colors.premium }]}>Premium</Text>
-              {FEATURES_PREMIUM.map((feature, index) => (
-                <Text key={index} style={styles.compareFeaturePremium}>- {feature}</Text>
-              ))}
-            </View>
-          </View>
         </Card>
 
-        <Text style={styles.planSectionTitle}>Elegí tu plan</Text>
+        <View style={styles.compareGrid}>
+          <Card style={styles.compareCard}>
+            <Text style={styles.compareTitle}>Plan Free</Text>
+            {FEATURES_FREE.map((feature) => (
+              <Text key={feature} style={styles.compareItem}>- {feature}</Text>
+            ))}
+          </Card>
+
+          <Card style={[styles.compareCard, styles.compareCardPremium]}>
+            <Text style={styles.compareTitle}>Plan Premium</Text>
+            {FEATURES_PREMIUM.map((feature) => (
+              <Text key={feature} style={styles.compareItem}>- {feature}</Text>
+            ))}
+          </Card>
+        </View>
+
+        <Text style={styles.sectionTitle}>Elige tu plan</Text>
 
         <Animated.View style={monthlyStyle}>
           <TouchableOpacity
-            style={[
-              styles.planCard,
-              selectedPlan === 'monthly' && styles.planCardSelected,
-            ]}
+            activeOpacity={0.9}
+            style={[styles.planCard, selectedPlan === 'monthly' && styles.planCardActive]}
             onPress={() => selectPlan('monthly')}
-            activeOpacity={0.85}
           >
-            <View style={styles.planRow}>
-              <View style={styles.planLeft}>
-                <Text style={styles.planName}>Mensual</Text>
-                <Text style={styles.planDesc}>Flexibilidad total</Text>
-              </View>
-              <View style={styles.planRight}>
-                <Text style={styles.planPrice}>$12.99</Text>
-                <Text style={styles.planPeriod}>/mes</Text>
-              </View>
-              <View style={[styles.planRadio, selectedPlan === 'monthly' && styles.planRadioSelected]} />
+            <View>
+              <Text style={styles.planLabel}>Mensual</Text>
+              <Text style={styles.planPrice}>$12.99 / mes</Text>
+              <Text style={styles.planNote}>Sin permanencia. Cancelas la renovacion cuando quieras.</Text>
             </View>
+            <View style={[styles.radio, selectedPlan === 'monthly' && styles.radioActive]} />
           </TouchableOpacity>
         </Animated.View>
 
         <Animated.View style={yearlyStyle}>
           <TouchableOpacity
-            style={[
-              styles.planCard,
-              selectedPlan === 'yearly' && styles.planCardSelected,
-            ]}
+            activeOpacity={0.9}
+            style={[styles.planCard, selectedPlan === 'yearly' && styles.planCardActive]}
             onPress={() => selectPlan('yearly')}
-            activeOpacity={0.85}
           >
-            <View style={styles.savingsBadge}>
-              <Text style={styles.savingsBadgeText}>AHORRÁS 36%</Text>
+            <View style={styles.planBadge}>
+              <Text style={styles.planBadgeText}>Mejor valor</Text>
             </View>
-            <View style={styles.planRow}>
-              <View style={styles.planLeft}>
-                <Text style={styles.planName}>Anual</Text>
-                <Text style={styles.planDesc}>~$8.33/mes efectivo</Text>
-              </View>
-              <View style={styles.planRight}>
-                <Text style={styles.planPrice}>$99.99</Text>
-                <Text style={styles.planPeriod}>/año</Text>
-              </View>
-              <View style={[styles.planRadio, selectedPlan === 'yearly' && styles.planRadioSelected]} />
+            <View>
+              <Text style={styles.planLabel}>Anual</Text>
+              <Text style={styles.planPrice}>$99.99 / ano</Text>
+              <Text style={styles.planNote}>Equivale a $8.33 por mes.</Text>
             </View>
+            <View style={[styles.radio, selectedPlan === 'yearly' && styles.radioActive]} />
           </TouchableOpacity>
         </Animated.View>
 
         <Button
-          label={loading ? 'Iniciando...' : 'Suscribirme con PayPal'}
+          label={loading ? 'Abriendo PayPal...' : 'Continuar con PayPal'}
           onPress={handleStartSubscription}
-          disabled={loading}
+          loading={loading}
           color={Colors.premium}
-          size="large"
-          style={styles.ctaBtn}
+          style={styles.cta}
         />
 
-        <Text style={styles.ctaDisclaimer}>
-          El cobro se procesa al confirmar en PayPal. Podés cancelar desde la app y mantener acceso hasta el fin del período ya pagado.
+        <Text style={styles.disclaimer}>
+          Al continuar se abrira PayPal en tu navegador para confirmar el plan. La renovacion se puede cancelar
+          despues desde Vyra o desde PayPal.
         </Text>
-
-        <TouchableOpacity onPress={() => router.back()} style={styles.skipBtn}>
-          <Text style={styles.skipText}>Continuar con Free</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeScreen>
   );
@@ -414,171 +282,151 @@ export default function PaywallScreen() {
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[4],
     paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
-  hero: {
-    alignItems: 'center',
-    paddingTop: Spacing[4],
-    paddingBottom: Spacing[2],
+  heroCard: {
     gap: Spacing[2],
+    borderWidth: 1,
+    borderColor: `${Colors.premium}55`,
+    backgroundColor: `${Colors.premium}12`,
   },
-  heroEmoji: { fontSize: 44, fontFamily: FontFamily.bold, color: Colors.premium },
+  heroEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 12,
+    color: Colors.premium,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
   heroTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 30,
+    fontSize: 24,
     color: Colors.textPrimary,
-    textAlign: 'center',
   },
-  heroSubtitle: {
+  heroBody: {
     fontFamily: FontFamily.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.textSecondary,
-    textAlign: 'center',
-    maxWidth: 320,
+    lineHeight: 22,
   },
-  compareCard: { padding: Spacing[4] },
-  compareRow: { flexDirection: 'row', gap: Spacing[3] },
-  compareCol: { flex: 1, gap: Spacing[2] },
-  compareColTitle: {
+  compareGrid: {
+    gap: Spacing[3],
+  },
+  compareCard: {
+    gap: Spacing[2],
+  },
+  compareCardPremium: {
+    borderWidth: 1,
+    borderColor: `${Colors.premium}55`,
+  },
+  compareTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 16,
     color: Colors.textPrimary,
-    marginBottom: Spacing[1],
   },
-  compareFeatureFree: {
+  compareItem: {
     fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  compareFeaturePremium: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
+    fontSize: 14,
     color: Colors.textSecondary,
-    lineHeight: 18,
   },
-  compareDivider: {
-    width: 1,
-    backgroundColor: Colors.border,
-    marginVertical: Spacing[1],
-  },
-  planSectionTitle: {
+  sectionTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 18,
+    fontSize: 16,
     color: Colors.textPrimary,
   },
   planCard: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.xl,
-    padding: Spacing[4],
-    borderWidth: 2,
-    borderColor: Colors.border,
     position: 'relative',
-    overflow: 'visible',
-  },
-  planCardSelected: {
-    borderColor: Colors.premium,
-    backgroundColor: `${Colors.premium}10`,
-  },
-  planRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing[3],
+    justifyContent: 'space-between',
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgSurface,
+    padding: Spacing[4],
+    marginBottom: Spacing[3],
   },
-  planLeft: { flex: 1, gap: 4 },
-  planName: {
+  planCardActive: {
+    borderColor: Colors.premium,
+    backgroundColor: `${Colors.premium}12`,
+  },
+  planBadge: {
+    position: 'absolute',
+    top: -10,
+    left: Spacing[4],
+    backgroundColor: Colors.premium,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 2,
+  },
+  planBadgeText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 11,
+    color: Colors.bgPrimary,
+  },
+  planLabel: {
     fontFamily: FontFamily.bold,
     fontSize: 18,
     color: Colors.textPrimary,
   },
-  planDesc: {
+  planPrice: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: Colors.premium,
+    marginTop: 2,
+  },
+  planNote: {
     fontFamily: FontFamily.regular,
     fontSize: 13,
     color: Colors.textSecondary,
+    marginTop: Spacing[1],
+    maxWidth: '88%',
   },
-  planRight: {
-    alignItems: 'flex-end',
-    gap: 2,
-  },
-  planPrice: {
-    fontFamily: FontFamily.bold,
-    fontSize: 26,
-    color: Colors.premium,
-  },
-  planPeriod: {
-    fontFamily: FontFamily.regular,
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  planRadio: {
+  radio: {
     width: 22,
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: Colors.textMuted,
+    borderColor: Colors.border,
   },
-  planRadioSelected: {
+  radioActive: {
     borderColor: Colors.premium,
     backgroundColor: Colors.premium,
   },
-  savingsBadge: {
-    position: 'absolute',
-    top: -12,
-    right: Spacing[4],
-    backgroundColor: Colors.premium,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: 3,
-    zIndex: 1,
+  cta: {
+    marginTop: Spacing[2],
   },
-  savingsBadgeText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 11,
-    color: '#fff',
-    letterSpacing: 0.5,
-  },
-  ctaBtn: { marginTop: Spacing[2] },
-  ctaDisclaimer: {
+  disclaimer: {
     fontFamily: FontFamily.regular,
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textMuted,
+    lineHeight: 20,
     textAlign: 'center',
-    lineHeight: 18,
   },
-  skipBtn: {
-    alignItems: 'center',
-    paddingVertical: Spacing[2],
-  },
-  skipText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 15,
-    color: Colors.textSecondary,
-  },
-  successContainer: {
+  centerState: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing[8],
-    gap: Spacing[5],
+    paddingHorizontal: Spacing[6],
+    gap: Spacing[3],
   },
-  successEmoji: {
+  stateEmoji: {
     fontFamily: FontFamily.bold,
     fontSize: 40,
     color: Colors.premium,
+    textAlign: 'center',
   },
-  successTitle: {
+  stateTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 28,
+    fontSize: 24,
     color: Colors.textPrimary,
     textAlign: 'center',
   },
-  successSubtitle: {
+  stateBody: {
     fontFamily: FontFamily.regular,
-    fontSize: 16,
+    fontSize: 15,
+    lineHeight: 22,
     color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 24,
   },
-  successBtn: { width: '100%' },
 });

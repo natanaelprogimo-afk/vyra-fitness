@@ -1,10 +1,8 @@
-// ============================================================
-// VYRA FITNESS — Nutrición: Escaneo de código de barras
-// Integración con BarcodeScannerModal y useBarcodeScan
-// ============================================================
-
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import * as Haptics from 'expo-haptics';
+
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
@@ -12,9 +10,7 @@ import Card from '@/components/ui/Card';
 import BarcodeScannerModal from '@/components/ui/BarcodeScannerModal';
 import { useNutrition, MEAL_TYPES, type MealType } from '@/hooks/useNutrition';
 import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
-import { useState } from 'react';
-import * as Haptics from 'expo-haptics';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 export default function BarcodeNutritionScreen() {
   const params = useLocalSearchParams<{ mealType?: string }>();
@@ -22,43 +18,47 @@ export default function BarcodeNutritionScreen() {
   const config = MEAL_TYPES[mealType];
   const router = useRouter();
 
-  const { searchFoods, logMeal, isLogging } = useNutrition();
+  const { searchByBarcode, logMeal, isLogging } = useNutrition();
 
   const [showScanner, setShowScanner] = useState(true);
   const [foundFood, setFoundFood] = useState<any | null>(null);
   const [amount, setAmount] = useState('100');
 
-  // Callback cuando se escanea un código
-  const handleBarcodeScanned = async (barcode: string, type: string) => {
+  const handleBarcodeScanned = async (barcode: string) => {
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Buscar el código en Open Food Facts
-      const foods = await searchFoods(barcode);
-      
-      if (foods && foods.length > 0) {
-        setFoundFood(foods[0]);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const food = await searchByBarcode(barcode);
+
+      if (food) {
+        setFoundFood(food);
         setShowScanner(false);
-      } else {
-        Alert.alert(
-          'Producto no encontrado',
-          `El código ${barcode} no se encontró en nuestra base de datos.`,
-          [
-            { text: 'Reintentar', onPress: () => setShowScanner(true) },
-            { text: 'Cancelar', style: 'cancel' }
-          ]
-        );
+        return;
       }
-    } catch (error) {
+
       Alert.alert(
-        'Error',
-        'No pudimos procesar el código. Intenta de nuevo.',
-        [{ text: 'Reintentar', onPress: () => setShowScanner(true) }]
+        'Producto no encontrado',
+        `El código ${barcode} no se encontró en nuestra base de datos.`,
+        [
+          { text: 'Reintentar', onPress: () => setShowScanner(true) },
+          { text: 'Cancelar', style: 'cancel' },
+        ],
+      );
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'No pudimos procesar el código. Intenta de nuevo.';
+
+      Alert.alert(
+        message.toLowerCase().includes('limite') || message.toLowerCase().includes('límite')
+          ? 'Límite alcanzado'
+          : 'Error',
+        message,
+        [{ text: 'Reintentar', onPress: () => setShowScanner(true) }],
       );
     }
   };
 
-  // Agregar el alimento al log
   const handleAddFood = () => {
     if (!foundFood) return;
 
@@ -75,6 +75,7 @@ export default function BarcodeNutritionScreen() {
       carbs_g: foundFood.carbs_g * factor,
       fat_g: foundFood.fat_g * factor,
       fiber_g: foundFood.fiber_g * factor,
+      source: 'barcode',
     });
 
     router.back();
@@ -108,9 +109,9 @@ export default function BarcodeNutritionScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.foodInfo}>
                 <Text style={styles.foodName}>{foundFood.name}</Text>
-                {foundFood.brand && (
+                {foundFood.brand ? (
                   <Text style={styles.foodBrand}>{foundFood.brand}</Text>
-                )}
+                ) : null}
               </View>
               <View style={styles.caloriesBadge}>
                 <Text style={styles.caloriesValue}>
@@ -120,7 +121,6 @@ export default function BarcodeNutritionScreen() {
               </View>
             </View>
 
-            {/* Cantidad */}
             <View style={styles.amountSection}>
               <Text style={styles.label}>Cantidad</Text>
               <View style={styles.amountInput}>
@@ -129,7 +129,6 @@ export default function BarcodeNutritionScreen() {
               </View>
             </View>
 
-            {/* Macros por cantidad */}
             <View style={styles.macrosGrid}>
               <MacroIndicator
                 label="Kcal"
@@ -156,7 +155,6 @@ export default function BarcodeNutritionScreen() {
               />
             </View>
 
-            {/* Acciones */}
             <View style={styles.actions}>
               <Button
                 onPress={handleAddFood}
@@ -260,41 +258,40 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.sm,
-    color: Colors.textMuted,
+    color: Colors.textSecondary,
     marginBottom: Spacing[2],
   },
   amountInput: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.lg,
+    gap: Spacing[2],
     paddingHorizontal: Spacing[4],
     paddingVertical: Spacing[3],
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bgSurface,
   },
   amountValue: {
     fontFamily: FontFamily.bold,
-    fontSize: FontSize.xl,
+    fontSize: 28,
     color: Colors.textPrimary,
   },
   amountUnit: {
-    fontFamily: FontFamily.regular,
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
-    color: Colors.textMuted,
-    marginLeft: Spacing[2],
+    color: Colors.textSecondary,
   },
   macrosGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing[4],
-    paddingHorizontal: Spacing[3],
+    flexWrap: 'wrap',
+    gap: Spacing[3],
     marginBottom: Spacing[6],
   },
   macroItem: {
-    flex: 1,
-    alignItems: 'center',
+    flexBasis: '47%',
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing[3],
+    paddingHorizontal: Spacing[3],
   },
   macroValue: {
     fontFamily: FontFamily.bold,
@@ -310,6 +307,6 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   confirmBtn: {
-    marginBottom: Spacing[2],
+    marginTop: Spacing[1],
   },
 });

@@ -82,7 +82,6 @@ export default function DeleteAccountScreen() {
             'Historial de entrenamientos y PRs',
             'Monedas VyraCoin, XP, badges y rachas',
             'Conversaciones con el Coach IA',
-            'Fotos de progreso',
             'Datos de ciclo menstrual (si aplica)',
             'Tu cuenta de acceso a Vyra',
           ].map((item, i) => (

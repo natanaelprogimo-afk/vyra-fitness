@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -11,35 +11,48 @@ import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
 import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
+import { FontFamily, Spacing } from '@/constants/theme';
 import { usePremium } from '@/hooks/usePremium';
+
+const ACTIVE_BENEFITS = [
+  'Coach IA sin limite diario',
+  'Correlaciones premium en progreso, sueno y bienestar',
+  'Barcode scanner ilimitado',
+  'Sin anuncios de Unity Ads',
+];
 
 export default function ManageSubscriptionScreen() {
   const { status, loading, cancelling, handleCancel, trialDaysLeft, isInTrial } = usePremium();
 
+  const nextBillingLabel =
+    status?.status === 'cancelled' ? 'Acceso hasta' : isInTrial ? 'Trial vence' : 'Proxima renovacion';
+
+  const nextBillingDate = isInTrial ? status?.trialEndsAt ?? null : status?.expiresAt ?? null;
+
   const onCancelPress = () => {
+    const message = isInTrial
+      ? `Todavia tenes ${trialDaysLeft} dias de trial heredado. Si cancelas ahora, el acceso termina al finalizar ese periodo.`
+      : 'Se detendra la renovacion automatica y conservaras Premium hasta el fin del periodo ya pago.';
+
     Alert.alert(
-      'Cancelar suscripción',
-      isInTrial
-        ? `Todavía tenés ${trialDaysLeft} días de trial heredado. Si cancelás ahora perderás el acceso al terminar ese período. ¿Querés cancelar?`
-        : '¿Estás seguro? Se detendrá la renovación y conservarás Premium hasta el fin del período actual.',
+      'Cancelar suscripcion',
+      message,
       [
         { text: 'Mantener Premium', style: 'cancel' },
         {
-          text: 'Sí, cancelar',
+          text: 'Si, cancelar',
           style: 'destructive',
           onPress: async () => {
             const success = await handleCancel();
             if (success) {
               Alert.alert(
-                'Suscripción cancelada',
-                'La renovación quedó cancelada. Seguís teniendo acceso Premium hasta el fin del período actual.',
+                'Suscripcion cancelada',
+                'La renovacion quedo cancelada. Tu acceso Premium sigue activo hasta el fin del periodo actual.',
               );
               router.back();
             } else {
-              Alert.alert('Error', 'No pudimos cancelar. Intentá de nuevo o contactá a soporte.');
+              Alert.alert('Error', 'No pudimos cancelar la suscripcion. Intenta de nuevo.');
             }
           },
         },
@@ -49,86 +62,73 @@ export default function ManageSubscriptionScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Mi suscripción" showBack color={Colors.premium} />
+      <Header title="Mi suscripcion" showBack color={Colors.premium} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Estado actual */}
         <Card style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            <Text style={styles.statusEmoji}>💎</Text>
+            <Text style={styles.statusEmoji}>PRO</Text>
             <View>
               <Text style={styles.statusTitle}>Vyra Premium</Text>
               <Text style={[
                 styles.statusBadge,
                 { color: status?.isActive ? Colors.success : Colors.error },
               ]}>
-                {status?.isActive ? '● Activa' : '● Inactiva'}
+                {status?.isActive ? 'Activa' : 'Inactiva'}
               </Text>
             </View>
           </View>
 
           <View style={styles.statusDetails}>
-            <StatusRow label="Plan" value={
-              status?.plan === 'monthly' ? 'Mensual — $12.99/mes'
-              : status?.plan === 'yearly' ? 'Anual — $99.99/año'
-              : '—'
-            } />
-            {isInTrial && (
+            <StatusRow
+              label="Plan"
+              value={
+                status?.plan === 'monthly'
+                  ? 'Mensual - $12.99/mes'
+                  : status?.plan === 'yearly'
+                    ? 'Anual - $99.99/ano'
+                    : '-'
+              }
+            />
+
+            {nextBillingDate ? (
               <StatusRow
-                label="Trial gratuito"
-                value={`${trialDaysLeft} días restantes`}
-                valueColor={Colors.success}
-              />
-            )}
-            {isInTrial && status?.trialEndsAt && (
-              <StatusRow
-                label="Trial vence"
-                value={new Date(status.trialEndsAt).toLocaleDateString('es-AR', {
-                  day: '2-digit', month: 'long', year: 'numeric',
+                label={nextBillingLabel}
+                value={new Date(nextBillingDate).toLocaleDateString('es-AR', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
                 })}
               />
-            )}
-            {!isInTrial && status?.expiresAt && (
-              <StatusRow
-                label="Próxima renovación"
-                value={new Date(status.expiresAt).toLocaleDateString('es-AR', {
-                  day: '2-digit', month: 'long', year: 'numeric',
-                })}
-              />
-            )}
+            ) : null}
+
+            <StatusRow
+              label="Estado local"
+              value={status?.status ? status.status : '-'}
+              valueColor={status?.isActive ? Colors.success : Colors.textPrimary}
+            />
           </View>
         </Card>
 
-        {/* Features activas */}
         <Card>
-          <Text style={styles.sectionTitle}>Features activas</Text>
-          {[
-            '🤖 Coach IA ilimitado con memoria',
-            '📸 Análisis de fotos con IA',
-            '🎙️ Log de comida por voz',
-            '📊 Historial ilimitado',
-            '🔍 Barcode scanner ilimitado',
-            '📈 Proyección de peso con IA',
-            '🚫 Sin anuncios',
-          ].map((feature, i) => (
-            <Text key={i} style={styles.feature}>{feature}</Text>
+          <Text style={styles.sectionTitle}>Beneficios activos</Text>
+          {ACTIVE_BENEFITS.map((feature) => (
+            <Text key={feature} style={styles.feature}>- {feature}</Text>
           ))}
         </Card>
 
-        {/* Cancelar */}
         <TouchableOpacity
           style={styles.cancelBtn}
           onPress={onCancelPress}
-          disabled={cancelling || loading}
+          disabled={cancelling || loading || !status?.isActive}
         >
           <Text style={styles.cancelBtnText}>
-            {cancelling ? 'Cancelando...' : 'Cancelar suscripción'}
+            {cancelling ? 'Cancelando...' : 'Cancelar suscripcion'}
           </Text>
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          Al cancelar detenés la renovación en PayPal, pero mantenés acceso hasta el fin del período ya pagado.
-          Tus datos se conservan al volver al plan Free.
+          La cancelacion detiene la siguiente renovacion en PayPal. No elimina el acceso ya pagado ni tus datos.
         </Text>
       </ScrollView>
     </SafeScreen>
@@ -167,7 +167,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing[4],
   },
-  statusEmoji: { fontSize: 48 },
+  statusEmoji: {
+    fontFamily: FontFamily.bold,
+    fontSize: 40,
+    color: Colors.premium,
+  },
   statusTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 22,
@@ -198,6 +202,8 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     fontSize: 14,
     color: Colors.textPrimary,
+    maxWidth: '55%',
+    textAlign: 'right',
   },
   sectionTitle: {
     fontFamily: FontFamily.bold,
@@ -218,18 +224,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing[4],
     borderWidth: 1,
     borderColor: Colors.error,
-    borderRadius: Radius.xl,
+    borderRadius: 16,
   },
   cancelBtnText: {
     fontFamily: FontFamily.bold,
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.error,
   },
   disclaimer: {
     fontFamily: FontFamily.regular,
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 20,
     color: Colors.textMuted,
     textAlign: 'center',
-    lineHeight: 18,
   },
 });

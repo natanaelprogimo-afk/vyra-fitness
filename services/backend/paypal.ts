@@ -91,7 +91,12 @@ function normalizeSubscriptionStatus(raw: any): SubscriptionStatus | null {
         : null;
 
   const isInTrial = status === 'trial';
-  const isActive = isPremium && (status === 'active' || isInTrial);
+  const hasFutureExpiry =
+    typeof expiresAt === 'string' &&
+    !Number.isNaN(new Date(expiresAt).getTime()) &&
+    new Date(expiresAt).getTime() > Date.now();
+  const blocksAccess = status === 'expired' || status === 'suspended';
+  const isActive = isPremium && !blocksAccess && (status !== 'pending' || hasFutureExpiry);
 
   return {
     isActive,

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as StoreReview from 'expo-store-review';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -64,6 +65,19 @@ export default function ProfileScreen() {
   const settings = useSettingsStore();
 
   const badgeProgress = getProgress();
+
+  const handleStoreReview = async () => {
+    const available = await StoreReview.isAvailableAsync();
+    if (available) {
+      await StoreReview.requestReview();
+      return;
+    }
+
+    Alert.alert(
+      'Valoracion no disponible',
+      'La valoracion desde este dispositivo no esta disponible todavia. Podras hacerlo cuando la app este publicada en tu tienda.',
+    );
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -280,7 +294,7 @@ export default function ProfileScreen() {
           <ProfileRow
             emoji="⭐"
             label="Valorar en la tienda"
-            onPress={() => {}} // Aptoide deep link pendiente
+            onPress={() => { void handleStoreReview(); }}
           />
           <ProfileRow
             emoji="💬"

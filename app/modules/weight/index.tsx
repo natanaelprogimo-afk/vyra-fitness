@@ -244,13 +244,13 @@ export default function WeightScreen() {
 
         {/* Fotos progreso */}
         <Card style={styles.photosCard}>
-          <Text style={styles.sectionTitle}>Fotos de progreso</Text>
+          <Text style={styles.sectionTitle}>Estado de fotos</Text>
           <TouchableOpacity
             onPress={() => router.push('/modules/weight/photos' as any)}
             style={styles.photosBtn}
           >
             <Text style={styles.photosBtnIcon}>📸</Text>
-            <Text style={styles.photosBtnText}>Ver mis fotos de progreso</Text>
+            <Text style={styles.photosBtnText}>Ver estado de esta funcion</Text>
             <Text style={styles.photosBtnArrow}>→</Text>
           </TouchableOpacity>
         </Card>
