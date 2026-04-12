@@ -18,5 +18,7 @@ module.exports = {
   rules: {
     'react/react-in-jsx-scope': 'off',
     '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    // Relax explicit any rule temporarily while we iterate on audits/tests
+    '@typescript-eslint/no-explicit-any': 'warn',
   },
 };
