@@ -133,6 +133,14 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
             <Text style={styles.fabIcon}>＋</Text>
           </View>
         </Pressable>
+        <Pressable
+          accessible
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('coach')}
+          style={[styles.coachBubble, { bottom: insets.bottom + 12 }]}
+        >
+          <Text style={styles.coachIcon}>🤖</Text>
+        </Pressable>
     </View>
   );
 }
@@ -211,5 +219,20 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: FontSize.xl,
     fontFamily: FontFamily.semibold,
+  },
+  coachBubble: {
+    position: 'absolute',
+    right: Spacing[4],
+    width: 48,
+    height: 48,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  coachIcon: {
+    fontSize: 20,
+    color: Colors.white,
   },
 });
