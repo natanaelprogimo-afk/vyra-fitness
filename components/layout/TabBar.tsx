@@ -123,6 +123,16 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
           );
         })}
       </View>
+        <Pressable
+          accessible
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('log')}
+          style={[styles.fab, { bottom: insets.bottom + 12 }]}
+        >
+          <View style={styles.fabInner}>
+            <Text style={styles.fabIcon}>＋</Text>
+          </View>
+        </Pressable>
     </View>
   );
 }
@@ -174,6 +184,32 @@ const styles = StyleSheet.create({
     marginTop:  2,
   },
   labelActive: {
+    fontFamily: FontFamily.semibold,
+  },
+  fab: {
+    position: 'absolute',
+    left: '50%',
+    transform: [{ translateX: -36 }],
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabInner: {
+    width: 60,
+    height: 60,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.brand,
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+  },
+  fabIcon: {
+    color: Colors.white,
+    fontSize: FontSize.xl,
     fontFamily: FontFamily.semibold,
   },
 });
