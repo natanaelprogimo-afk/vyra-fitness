@@ -56,6 +56,49 @@ function MomentumSparkline({ values }: { values: number[] }) {
   );
 }
 
+function FeaturedModule({ goal }: { goal?: string }) {
+  if (!goal) return null;
+
+  const openWorkout = () => router.push('/modules/workout' as any);
+  const openNutrition = () => router.push('/modules/nutrition/log' as any);
+  const openMental = () => router.push('/modules/mental/checkin' as any);
+
+  if (goal === 'gain_muscle' || goal === 'performance') {
+    return (
+      <View style={styles.featureCard}>
+        <Text style={styles.featureTitle}>Entrenamiento recomendado</Text>
+        <TouchableOpacity style={styles.featureBtn} onPress={openWorkout}>
+          <Text style={styles.featureBtnText}>Iniciar entrenamiento</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (goal === 'lose_fat') {
+    return (
+      <View style={styles.featureCard}>
+        <Text style={styles.featureTitle}>Prioriza tu nutrición hoy</Text>
+        <TouchableOpacity style={styles.featureBtn} onPress={openNutrition}>
+          <Text style={styles.featureBtnText}>Registrar comida</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (goal === 'mental') {
+    return (
+      <View style={styles.featureCard}>
+        <Text style={styles.featureTitle}>Chequeo mental</Text>
+        <TouchableOpacity style={styles.featureBtn} onPress={openMental}>
+          <Text style={styles.featureBtnText}>Hacer check-in</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return null;
+}
+
 export default function HomeScreen() {
   const { profile } = useAuthStore();
   const { currentPhase, phaseGuidance, strictSensitiveMode: strictFemaleMode } = useFemaleHealth();
@@ -269,6 +312,7 @@ export default function HomeScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tus modulos</Text>
+          <FeaturedModule goal={profile?.goal} />
           <ModuleGrid activeModules={activeModules} />
         </View>
 
@@ -445,5 +489,29 @@ const styles = StyleSheet.create({
   },
   bottomPad: {
     height: 100,
+  },
+  featureCard: {
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing[4],
+    marginBottom: Spacing[2],
+  },
+  featureTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 15,
+    color: Colors.textPrimary,
+  },
+  featureBtn: {
+    marginTop: Spacing[2],
+    backgroundColor: Colors.brand,
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.lg,
+    alignItems: 'center',
+  },
+  featureBtnText: {
+    fontFamily: FontFamily.semibold,
+    color: '#fff',
   },
 });
