@@ -150,16 +150,17 @@ export function RestTimerModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
     alignItems: 'center',
   },
   container: {
     backgroundColor: Colors.bgSurface,
-    borderRadius: Radius['2xl'],
+    borderTopLeftRadius: Radius['2xl'],
+    borderTopRightRadius: Radius['2xl'],
     padding: Spacing[6],
     alignItems: 'center',
-    width: '85%',
+    width: '100%',
     gap: Spacing[5],
   },
   title: {
