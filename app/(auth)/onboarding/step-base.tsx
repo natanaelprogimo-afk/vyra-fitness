@@ -177,8 +177,8 @@ export default function StepBaseScreen() {
       gender,
       activity_level: activityLevel,
     };
-    await saveOnboardingProgress(Routes.auth.onboarding.modules, nextDraft);
-    router.push(Routes.auth.onboarding.modules as any);
+    await saveOnboardingProgress(Routes.auth.onboarding.finish, nextDraft);
+    router.push(Routes.auth.onboarding.finish as any);
   };
 
   return (
