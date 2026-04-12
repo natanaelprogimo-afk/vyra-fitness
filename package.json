@@ -7,7 +7,11 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "node scripts/fix-gradle.js"
+    "postinstall": "node scripts/fix-gradle.js",
+    "typecheck": "npx tsc -p tsconfig.typecheck.json --noEmit",
+    "lint": "echo \"No linter configured\" && exit 0",
+    "test": "node scripts/run_tests_placeholder.js",
+    "ci": "npm ci && npm run typecheck && npm run test"
   },
   "dependencies": {
     "@bittingz/expo-widgets": "^3.0.2",
