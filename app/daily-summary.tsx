@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 
 
 
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Modal } from 'react-native';
 
 
 
@@ -1094,7 +1094,8 @@ export default function DailySummaryScreen() {
 
 
 
-    <SafeScreen padHorizontal={false} padBottom>
+    <Modal visible transparent animationType="slide">
+      <SafeScreen padHorizontal={false} padBottom>
 
 
 
@@ -2126,7 +2127,8 @@ export default function DailySummaryScreen() {
 
 
 
-    </SafeScreen>
+      </SafeScreen>
+    </Modal>
 
 
 
