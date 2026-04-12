@@ -2,7 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-type AdsContext = 'quick_log_coins' | 'post_workout_2x_xp' | 'streak_rescue' | 'store_discount';
+export type AdsContext =
+  | 'quick_log_coins'
+  | 'post_workout_2x_xp'
+  | 'streak_rescue'
+  | 'store_discount'
+  | 'store_coin_grind'
+  | 'advanced_analysis_unlock'
+  | 'coach_messages_bonus'
+  | 'water_goal_reward'
+  | 'steps_goal_reward'
+  | 'fasting_complete_reward';
 type ContextViews = Record<AdsContext, number>;
 
 function toIsoDay(date = new Date()): string {
@@ -15,6 +25,12 @@ function emptyContextViews(): ContextViews {
     post_workout_2x_xp: 0,
     streak_rescue: 0,
     store_discount: 0,
+    store_coin_grind: 0,
+    advanced_analysis_unlock: 0,
+    coach_messages_bonus: 0,
+    water_goal_reward: 0,
+    steps_goal_reward: 0,
+    fasting_complete_reward: 0,
   };
 }
 
@@ -28,6 +44,8 @@ interface AdsState {
   adsShownToday: number;
   contextViews: ContextViews;
   lastInterstitialAt: number;
+  interstitialActionCount: number;
+  lastAdAt: number;
   lastAchievementAt: number;
   setRewardedLoaded: (loaded: boolean) => void;
   setInterstitialLoaded: (loaded: boolean) => void;
@@ -37,6 +55,7 @@ interface AdsState {
   syncDay: (date?: string) => void;
   markRewardedShown: (context: AdsContext, at?: number) => void;
   markInterstitialShown: (at?: number) => void;
+  markInterstitialAction: (at?: number) => void;
   markAchievementSeen: (at?: number) => void;
 }
 
@@ -52,6 +71,8 @@ export const useAdsStore = create<AdsState>()(
       adsShownToday: 0,
       contextViews: emptyContextViews(),
       lastInterstitialAt: 0,
+      interstitialActionCount: 0,
+      lastAdAt: 0,
       lastAchievementAt: 0,
 
       setRewardedLoaded: (rewardedLoaded) => set({ rewardedLoaded }),
@@ -66,6 +87,7 @@ export const useAdsStore = create<AdsState>()(
           adsDate: date,
           adsShownToday: 0,
           contextViews: emptyContextViews(),
+          interstitialActionCount: 0,
         });
       },
 
@@ -88,6 +110,7 @@ export const useAdsStore = create<AdsState>()(
               ...baseState.contextViews,
               [context]: (baseState.contextViews[context] ?? 0) + 1,
             },
+            lastAdAt: at,
           };
         }),
 
@@ -101,6 +124,7 @@ export const useAdsStore = create<AdsState>()(
                 adsDate: currentDate,
                 adsShownToday: 0,
                 contextViews: emptyContextViews(),
+                interstitialActionCount: 0,
               };
 
           return {
@@ -108,6 +132,29 @@ export const useAdsStore = create<AdsState>()(
             adsShownToday: baseState.adsShownToday + 1,
             contextViews: baseState.contextViews,
             lastInterstitialAt: at,
+            lastAdAt: at,
+            interstitialActionCount: 0,
+          };
+        }),
+
+      markInterstitialAction: (at = Date.now()) =>
+        set((state) => {
+          const currentDate = toIsoDay(new Date(at));
+          const baseState = state.adsDate === currentDate
+            ? state
+            : {
+                ...state,
+                adsDate: currentDate,
+                adsShownToday: 0,
+                contextViews: emptyContextViews(),
+                interstitialActionCount: 0,
+              };
+
+          return {
+            adsDate: baseState.adsDate,
+            adsShownToday: baseState.adsShownToday,
+            contextViews: baseState.contextViews,
+            interstitialActionCount: Math.min(3, baseState.interstitialActionCount + 1),
           };
         }),
 
@@ -121,6 +168,8 @@ export const useAdsStore = create<AdsState>()(
         adsShownToday: state.adsShownToday,
         contextViews: state.contextViews,
         lastInterstitialAt: state.lastInterstitialAt,
+        interstitialActionCount: state.interstitialActionCount,
+        lastAdAt: state.lastAdAt,
         lastAchievementAt: state.lastAchievementAt,
       }),
     },

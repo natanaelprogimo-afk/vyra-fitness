@@ -17,6 +17,7 @@ import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing } from '@/constants/theme';
 
 interface HeaderProps {
+  eyebrow?:    string;
   title?:      string;
   subtitle?:   string;
   showBack?:   boolean;
@@ -29,6 +30,7 @@ interface HeaderProps {
 }
 
 export default function Header({
+  eyebrow,
   title,
   subtitle,
   showBack    = true,
@@ -64,6 +66,9 @@ export default function Header({
 
       {/* Center — Title */}
       <View style={[styles.titleContainer, titleAlign === 'center' && styles.titleCenter]}>
+        {eyebrow && (
+          <Text style={[styles.eyebrow, color ? { color } : {}]} numberOfLines={1}>{eyebrow}</Text>
+        )}
         {title && (
           <Text
             style={[styles.title, color ? { color } : {}]}
@@ -134,6 +139,14 @@ const styles = StyleSheet.create({
     fontSize:   FontSize.sm,
     color:      Colors.textSecondary,
     marginTop:  1,
+  },
+  eyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
   },
 });
 

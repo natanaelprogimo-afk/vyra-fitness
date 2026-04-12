@@ -16,6 +16,13 @@ import { todayISO, daysAgoISO } from '@/utils/dates';
 import { calculateMacros } from '@/utils/calculations';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
+import { Colors } from '@/constants/colors';
+import {
+  getNutritionMode,
+  getNutritionModeOption,
+  withNutritionMode,
+  type NutritionMode,
+} from '@/lib/nutrition-mode';
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
@@ -36,6 +43,7 @@ export interface MealEntry {
   carbs_g:    number;
   fat_g:      number;
   fiber_g:    number;
+  sodium_mg?: number | null;
   amount_g:   number;
   logged_at:  string;
   source?:    MealSource;
@@ -100,10 +108,17 @@ function average(values: number[]): number | null {
 export function useNutrition() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore(s => s.profile);
+  const updateProfile = useAuthStore(s => s.updateProfile);
   const showToast   = useUIStore(s => s.showToast);
   const isOnline    = useUIStore(s => s.isOnline);
   const userId      = profile?.id ?? '';
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isSavingNutritionMode, setIsSavingNutritionMode] = useState(false);
+  const [isSavingCompetitionCheckin, setIsSavingCompetitionCheckin] = useState(false);
+  const coachMemory =
+    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
+      ? (profile.coach_memory_json as Record<string, unknown>)
+      : {};
 
   const calorieGoal = profile?.calorie_goal ?? 2000;
   const macroGoals  = calculateMacros(calorieGoal, (profile?.goal as any) ?? 'health');
@@ -134,8 +149,9 @@ export function useNutrition() {
       carbs:    acc.carbs    + m.carbs_g,
       fat:      acc.fat      + m.fat_g,
       fiber:    acc.fiber    + m.fiber_g,
+      sodium:   acc.sodium   + Number(m.sodium_mg ?? 0),
     }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sodium: 0 }
   );
 
   const caloriePct = Math.min(100, (totals.calories / calorieGoal) * 100);
@@ -399,6 +415,231 @@ export function useNutrition() {
     return null;
   })();
 
+  const { data: activitySnapshot = { stepCalories: 0, workoutCalories: 0 } } = useQuery({
+    queryKey: ['nutrition_activity_snapshot', userId, todayISO()],
+    queryFn: async () => {
+      if (!userId || !isOnline) return { stepCalories: 0, workoutCalories: 0 };
+      const today = todayISO();
+      const [stepsRes, workoutRes] = await Promise.all([
+        supabase
+          .from('step_logs')
+          .select('calories')
+          .eq('user_id', userId)
+          .eq('logged_date', today),
+        supabase
+          .from('workout_sessions')
+          .select('estimated_calories, started_at')
+          .eq('user_id', userId)
+          .gte('started_at', `${today}T00:00:00`)
+          .lte('started_at', `${today}T23:59:59`),
+      ]);
+
+      const stepCalories = (stepsRes.data ?? []).reduce((sum, row) => sum + Number(row.calories ?? 0), 0);
+      const workoutCalories = (workoutRes.data ?? []).reduce(
+        (sum, row) => sum + Number((row as any).estimated_calories ?? 0),
+        0,
+      );
+
+      return { stepCalories, workoutCalories };
+    },
+    enabled: !!userId,
+    staleTime: 60 * 1000,
+  });
+
+  const { data: trackedWeightLogs = 0 } = useQuery({
+    queryKey: ['nutrition_weight_logs_count', userId],
+    queryFn: async () => {
+      if (!userId || !isOnline) return 0;
+      const from = `${daysAgoISO(29)}T00:00:00`;
+      const { count } = await supabase
+        .from('weight_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('logged_at', from);
+      return count ?? 0;
+    },
+    enabled: !!userId,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const activityCalories = Math.max(
+    0,
+    Math.round(Number(activitySnapshot.stepCalories ?? 0) + Number(activitySnapshot.workoutCalories ?? 0)),
+  );
+  const nutritionMode = getNutritionMode(profile);
+  const nutritionModeOption = getNutritionModeOption(nutritionMode);
+  const proteinBoost =
+    nutritionMode === 'competition'
+      ? 20
+      : nutritionMode === 'athlete'
+        ? Math.max(10, Math.round(activityCalories / 150))
+        : Math.round(activityCalories / 250);
+  const calorieBudget = Math.max(
+    calorieGoal,
+    Math.round(
+      calorieGoal +
+        (nutritionMode === 'competition'
+          ? activityCalories * 0.45
+          : nutritionMode === 'athlete'
+            ? activityCalories * 0.35
+            : activityCalories * 0.2),
+    ),
+  );
+  const displayMacroGoals = {
+    protein: Math.round(
+      (macroGoals.protein ?? 0) +
+        proteinBoost +
+        (nutritionMode === 'competition' ? 15 : nutritionMode === 'awareness' ? -5 : 0),
+    ),
+    carbs: Math.max(
+      60,
+      Math.round(
+        (macroGoals.carbs ?? 0) +
+          (nutritionMode === 'athlete'
+            ? activityCalories / 12
+            : nutritionMode === 'competition'
+              ? activityCalories / 10
+              : nutritionMode === 'simple'
+                ? activityCalories / 18
+                : activityCalories / 20),
+      ),
+    ),
+    fat: Math.max(35, Math.round((macroGoals.fat ?? 0) + (nutritionMode === 'awareness' ? 4 : 0))),
+  };
+
+  const fastingIntegration = (() => {
+    const activeFast =
+      typeof coachMemory.fasting_active === 'boolean'
+        ? Boolean(coachMemory.fasting_active)
+        : false;
+    if (!activeFast && !profile?.fasting_protocol) return null;
+
+    const protocolLabel =
+      typeof coachMemory.fasting_protocol_label === 'string'
+        ? (coachMemory.fasting_protocol_label as string)
+        : profile?.fasting_protocol ?? 'protocolo activo';
+    const blocked = activeFast;
+
+    return {
+      active: activeFast,
+      blocked,
+      message: blocked
+        ? `Ayuno activo: mantén el plan simple hasta romper ${protocolLabel}.`
+        : `Ayuno configurado: ${protocolLabel}. Ajusta la primera comida según hambre y horario real.`,
+      steps: blocked
+        ? [
+            'Prioriza agua, cafe o infusiones sin calorías.',
+            'Rompe el ayuno solo si el contexto del día lo justifica.',
+            'Cuando abras la ventana, empieza con proteína y comida simple.',
+          ]
+        : ['Proteína primero.', 'Carbos alrededor del esfuerzo.', 'Cierra el día sin improvisar.'],
+    };
+  })();
+
+  const adaptivePlan = {
+    message:
+      nutritionMode === 'competition'
+        ? 'VYRA está priorizando precisión y consistencia para que el peso diario tenga contexto real.'
+        : nutritionMode === 'athlete'
+          ? 'VYRA está ajustando el presupuesto del día con más foco en rendimiento y recuperación.'
+          : nutritionMode === 'awareness'
+            ? 'VYRA está simplificando el día para que comer bien sea sostenible y rápido.'
+            : 'VYRA usa tu actividad y la consistencia reciente para que el plan no se quede estático.',
+    recommendedCalories: calorieBudget,
+    trackedMealDays: weeklyData.length,
+    trackedWeightLogs,
+  };
+
+  const simpleTargets = {
+    calories: calorieBudget,
+    protein: displayMacroGoals.protein,
+    carbs: displayMacroGoals.carbs,
+    fat: displayMacroGoals.fat,
+  };
+
+  const nutritionStreakDays = (() => {
+    if (!weeklyData.length) return 0;
+    const dayMap = new Map(weeklyData.map((row) => [row.date, Number(row.calories ?? 0)]));
+    let streak = 0;
+    for (let offset = 0; offset < 30; offset += 1) {
+      const date = new Date();
+      date.setDate(date.getDate() - offset);
+      const key = date.toISOString().split('T')[0] ?? '';
+      if ((dayMap.get(key) ?? 0) > 0) {
+        streak += 1;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  })();
+
+  const competitionCheckin =
+    coachMemory.nutrition_competition_checkin && typeof coachMemory.nutrition_competition_checkin === 'object'
+      ? (coachMemory.nutrition_competition_checkin as {
+          sodium_mg: number;
+          water_ml: number;
+          fiber_g: number;
+          carbs_g: number | null;
+          weight_kg: number | null;
+          notes: string | null;
+          date?: string;
+        })
+      : null;
+
+  const mealLoggingBlockReason = fastingIntegration?.blocked
+    ? 'Hay un ayuno activo. Si vas a registrar comida, primero termina o actualiza la ventana.'
+    : '';
+  const isMealLoggingBlocked = Boolean(fastingIntegration?.blocked);
+
+  const recipeTemplates = [
+    {
+      id: 'protein-breakfast',
+      meal_type: 'breakfast' as MealType,
+      title: 'Desayuno limpio',
+      subtitle: 'Proteína alta y salida simple.',
+      food_name: 'Yogur griego + fruta + whey',
+      rationale: 'Rápido, alto en proteína y fácil de repetir incluso en días ocupados.',
+      calories: 420,
+      protein_g: 38,
+      carbs_g: 36,
+      fat_g: 11,
+      fiber_g: 6,
+      accent: Colors.nutrition,
+      tags: ['rápido', 'proteína', 'repetible'],
+    },
+    {
+      id: 'simple-lunch',
+      meal_type: 'lunch' as MealType,
+      title: 'Almuerzo base',
+      subtitle: 'Proteína, carbos y cero ruido.',
+      food_name: 'Pollo + arroz + verduras',
+      rationale: 'La receta base para cumplir calorías sin improvisar demasiado.',
+      calories: 620,
+      protein_g: 45,
+      carbs_g: 68,
+      fat_g: 15,
+      fiber_g: 7,
+      accent: Colors.coach,
+      tags: ['base', 'volumen', 'fácil'],
+    },
+    {
+      id: 'easy-dinner',
+      meal_type: 'dinner' as MealType,
+      title: 'Cena estable',
+      subtitle: 'Ligera pero suficiente.',
+      food_name: 'Tortilla + ensalada + papa',
+      rationale: 'Ayuda a cerrar el día con proteína y saciedad sin caer pesada.',
+      calories: 510,
+      protein_g: 30,
+      carbs_g: 42,
+      fat_g: 19,
+      fiber_g: 8,
+      accent: Colors.sleep,
+      tags: ['cierre', 'ligera', 'saciedad'],
+    },
+  ];
+
   // ─── Buscar por código de barras (Open Food Facts API) ────
   const searchByBarcode = useCallback(async (barcode: string): Promise<FoodItem | null> => {
     const trimmedBarcode = barcode.trim();
@@ -470,7 +711,7 @@ export function useNutrition() {
   }, []);
 
   // ─── Log comida ──────────────────────────────────────────
-  const { mutate: logMeal, isPending: isLogging } = useMutation({
+  const { mutate: logMeal, mutateAsync: logMealAsync, isPending: isLogging } = useMutation({
     mutationFn: async (input: LogMealInput) => {
       if (!userId) throw new Error('No user');
       const { data, error } = await supabase.from('meals').insert({
@@ -548,14 +789,117 @@ export function useNutrition() {
     };
   }, [profile?.is_premium, userId]);
 
+  const logRecipeTemplateAsync = useCallback(async (recipe: {
+    meal_type: MealType;
+    food_name: string;
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g: number;
+  }) => {
+    if (isMealLoggingBlocked) {
+      throw new Error(mealLoggingBlockReason || 'Registro bloqueado temporalmente.');
+    }
+    return logMealAsync({
+      meal_type: recipe.meal_type,
+      food_name: recipe.food_name,
+      amount_g: 100,
+      calories: recipe.calories,
+      protein_g: recipe.protein_g,
+      carbs_g: recipe.carbs_g,
+      fat_g: recipe.fat_g,
+      fiber_g: recipe.fiber_g,
+      source: 'recipe',
+    });
+  }, [isMealLoggingBlocked, logMealAsync, mealLoggingBlockReason]);
+
+  const setNutritionMode = useCallback(async (mode: NutritionMode): Promise<boolean> => {
+    if (!userId || mode === nutritionMode) return true;
+    setIsSavingNutritionMode(true);
+    const nextMemory = withNutritionMode(coachMemory, mode);
+    const previousMemory = coachMemory;
+    updateProfile({ coach_memory_json: nextMemory });
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ coach_memory_json: nextMemory, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (error) throw error;
+      showToast(`Modo ${getNutritionModeOption(mode).shortTitle.toLowerCase()} activado.`, 'success');
+      return true;
+    } catch (err) {
+      updateProfile({ coach_memory_json: previousMemory });
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useNutrition.setNutritionMode' });
+      showToast('No pudimos actualizar el modo ahora mismo.', 'warning');
+      return false;
+    } finally {
+      setIsSavingNutritionMode(false);
+    }
+  }, [coachMemory, nutritionMode, showToast, updateProfile, userId]);
+
+  const saveCompetitionCheckin = useCallback(async (input: {
+    sodium_mg: number;
+    water_ml: number;
+    fiber_g: number;
+    carbs_g: number | null;
+    weight_kg: number | null;
+    notes: string | null;
+  }): Promise<boolean> => {
+    if (!userId) return false;
+    setIsSavingCompetitionCheckin(true);
+    const nextMemory = {
+      ...coachMemory,
+      nutrition_competition_checkin: {
+        ...input,
+        date: todayISO(),
+      },
+    };
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ coach_memory_json: nextMemory, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (error) throw error;
+      updateProfile({ coach_memory_json: nextMemory });
+      showToast('Check-in guardado.', 'success');
+      return true;
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useNutrition.saveCompetitionCheckin' });
+      showToast('No pudimos guardar el check-in.', 'error');
+      return false;
+    } finally {
+      setIsSavingCompetitionCheckin(false);
+    }
+  }, [coachMemory, showToast, updateProfile, userId]);
+
   return {
     todayMeals, mealsByType, hasEaten,
     totals, caloriePct, remaining,
     calorieGoal, macroGoals,
+    calorieBudget,
+    activityCalories,
+    proteinBoost,
     weeklyData,
     frequentMeals,
     nutritionSleepEnergyCorrelation,
     cycleNutritionGuidance,
+    nutritionMode,
+    nutritionModeOption,
+    displayMacroGoals,
+    fastingIntegration,
+    adaptivePlan,
+    simpleTargets,
+    recipeTemplates,
+    logRecipeTemplateAsync,
+    competitionCheckin,
+    saveCompetitionCheckin,
+    isSavingCompetitionCheckin,
+    nutritionStreakDays,
+    isMealLoggingBlocked,
+    mealLoggingBlockReason,
+    setNutritionMode,
+    isSavingNutritionMode,
     isLoading, isLogging,
     addMeal: (input: LogMealInput) => logMeal(input),
     logFrequentMeal: (meal: FrequentMeal) =>

@@ -1,132 +1,308 @@
 // ============================================================
-// VYRA FITNESS — Analytics (PostHog)
-// Wrapper tipado con todos los eventos de la app
+// VYRA FITNESS - Analytics (PostHog)
+// Wrapper tipado con inicializacion segura y sin ruido de storage legacy
 // ============================================================
 
-// ============================================================
-// VYRA FITNESS — Analytics (PostHog)
-// Wrapper tipado con todos los eventos de la app
-// ============================================================
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { RouteMeta } from '@/constants/routeMeta';
+import { getOnboardingStepMeta, type OnboardingStepMeta } from '@/constants/onboardingFlow';
 
-type PostHogClient = any;
+type PostHogClient = {
+  identify: (userId: string, props?: Record<string, unknown>) => void;
+  reset: () => void;
+  capture: (event: string, props?: Record<string, unknown>) => void;
+  flush: () => void;
+};
 
 const POSTHOG_KEY = process.env.EXPO_PUBLIC_POSTHOG_KEY ?? '';
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://app.posthog.com';
 
-let _client: PostHogClient | null = null;
+let client: PostHogClient | null = null;
+let clientPromise: Promise<PostHogClient | null> | null = null;
 
-export function getAnalytics(): PostHogClient | null {
-  if (_client) return _client;
+async function ensureAnalytics(): Promise<PostHogClient | null> {
+  if (client) return client;
+  if (clientPromise) return clientPromise;
   if (!POSTHOG_KEY) return null;
 
   try {
-    // Dynamically require the native PostHog client so the module is optional
-    // in non-native environments (web/tests).
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { PostHog } = require('posthog-react-native');
-    _client = new PostHog(POSTHOG_KEY, { apiHost: POSTHOG_HOST });
-    return _client;
-  } catch (err) {
-    // If the native module isn't available, gracefully disable analytics.
-    _client = null;
-    return null;
+
+    clientPromise = PostHog.initAsync(POSTHOG_KEY, {
+      apiHost: POSTHOG_HOST,
+      persistence: 'file',
+      customAsyncStorage: {
+        getItem: AsyncStorage.getItem,
+        setItem: AsyncStorage.setItem,
+      },
+    })
+      .then((instance: PostHogClient) => {
+        client = instance;
+        return instance;
+      })
+      .catch(() => {
+        client = null;
+        return null;
+      });
+
+    return clientPromise;
+  } catch {
+    client = null;
+    clientPromise = Promise.resolve(null);
+    return clientPromise;
   }
 }
 
-export function initAnalytics(): PostHogClient | null {
-  return getAnalytics();
+function dispatch(action: (analytics: PostHogClient) => void) {
+  const ready = client;
+  if (ready) {
+    action(ready);
+    return;
+  }
+
+  void ensureAnalytics().then((analytics) => {
+    if (analytics) action(analytics);
+  });
 }
 
-// ─── Identificación de usuario ───────────────────────────────
+export function getAnalytics(): PostHogClient | null {
+  return client;
+}
+
+export function initAnalytics(): Promise<PostHogClient | null> {
+  return ensureAnalytics();
+}
+
 export function identifyUser(userId: string, props?: Record<string, unknown>) {
-  getAnalytics()?.identify(userId, props);
+  dispatch((analytics) => analytics.identify(userId, props));
 }
 
 export function resetUser() {
-  getAnalytics()?.reset();
+  dispatch((analytics) => analytics.reset());
 }
 
-// ─── Eventos tipados ─────────────────────────────────────────
+type OnboardingStepInput = number | string | OnboardingStepMeta;
 
-// Onboarding
-export function trackOnboardingStep(step: number, dropped: boolean = false) {
-  getAnalytics()?.capture('onboarding_step_completed', {
-    step_number: step,
-    dropped_off:  dropped,
-  });
+function resolveOnboardingStep(input: OnboardingStepInput): OnboardingStepMeta | null {
+  if (typeof input === 'number') return null;
+  if (typeof input === 'string') return getOnboardingStepMeta(input);
+  return input;
+}
+
+export function trackOnboardingStepViewed(step: string | OnboardingStepMeta) {
+  const meta = resolveOnboardingStep(step);
+  if (!meta) return;
+
+  dispatch((analytics) =>
+    analytics.capture('onboarding_step_viewed', {
+      step_key: meta.stepKey,
+      step_title: meta.title,
+      step_number: meta.order,
+      step_total: meta.totalSteps,
+      block_key: meta.blockKey,
+      block_label: meta.blockLabel,
+      block_index: meta.blockIndex,
+      step_in_block: meta.stepInBlock,
+      steps_in_block: meta.stepsInBlock,
+      is_upsell: meta.isUpsell ?? false,
+      pathname: meta.pathname,
+    }),
+  );
+}
+
+export function trackOnboardingStep(step: OnboardingStepInput, dropped = false) {
+  const meta = resolveOnboardingStep(step);
+
+  dispatch((analytics) =>
+    analytics.capture('onboarding_step_completed', {
+      step_number: meta?.order ?? (typeof step === 'number' ? step : null),
+      step_total: meta?.totalSteps ?? null,
+      step_key: meta?.stepKey ?? null,
+      step_title: meta?.title ?? null,
+      block_key: meta?.blockKey ?? null,
+      block_label: meta?.blockLabel ?? null,
+      block_index: meta?.blockIndex ?? null,
+      step_in_block: meta?.stepInBlock ?? null,
+      steps_in_block: meta?.stepsInBlock ?? null,
+      is_upsell: meta?.isUpsell ?? false,
+      pathname: meta?.pathname ?? null,
+      dropped_off: dropped,
+    }),
+  );
 }
 
 export function trackOnboardingCompleted(plan: 'free' | 'premium' | 'trial') {
-  getAnalytics()?.capture('onboarding_completed', { plan_selected: plan });
+  dispatch((analytics) => analytics.capture('onboarding_completed', { plan_selected: plan }));
 }
 
-// Primera semana
 export function trackMissionCompleted(day: number, missionType: string) {
-  getAnalytics()?.capture('first_week_mission_completed', {
-    day_number:   day,
-    mission_type: missionType,
-  });
+  dispatch((analytics) =>
+    analytics.capture('first_week_mission_completed', {
+      day_number: day,
+      mission_type: missionType,
+    }),
+  );
 }
 
-// Módulos
 export function trackModuleOpened(module: string, source: 'home' | 'notification' | 'direct') {
-  getAnalytics()?.capture('module_opened', { module_name: module, source });
+  dispatch((analytics) => analytics.capture('module_opened', { module_name: module, source }));
+}
+
+export function trackScreenViewed(meta: RouteMeta) {
+  dispatch((analytics) =>
+    analytics.capture('screen_viewed', {
+      pathname: meta.pathname,
+      screen_key: meta.screenKey,
+      screen_title: meta.title,
+      surface: meta.surface,
+      module_name: meta.moduleId ?? null,
+      tab_key: meta.tabKey ?? null,
+      alias_of: meta.aliasOf ?? null,
+    }),
+  );
+}
+
+export function trackScreenStateViewed(
+  screenKey: string,
+  state: 'loading' | 'error' | 'empty' | 'ready',
+) {
+  dispatch((analytics) =>
+    analytics.capture('screen_state_viewed', {
+      screen_key: screenKey,
+      state,
+    }),
+  );
+}
+
+export function trackAuthIntentSaved(route: string, trigger: 'auth_guard' | 'paywall') {
+  dispatch((analytics) =>
+    analytics.capture('auth_intent_saved', {
+      route,
+      trigger,
+    }),
+  );
+}
+
+export function trackAuthIntentConsumed(route: string) {
+  dispatch((analytics) =>
+    analytics.capture('auth_intent_consumed', {
+      route,
+    }),
+  );
+}
+
+export function trackHomeViewed(props: {
+  daily_score: number | null;
+  top_priority: string | null;
+  attention_count: number;
+  streak_in_danger: boolean;
+  module_count: number;
+}) {
+  dispatch((analytics) => analytics.capture('home_viewed', props));
+}
+
+export function trackHomeActionTapped(
+  actionKey: string,
+  destination: string,
+  props?: Record<string, unknown>,
+) {
+  dispatch((analytics) =>
+    analytics.capture('home_action_tapped', {
+      action_key: actionKey,
+      destination,
+      ...props,
+    }),
+  );
 }
 
 export function trackLogCreated(module: string, source: string, ms?: number) {
-  getAnalytics()?.capture('log_created', { module, source, ms });
+  dispatch((analytics) => analytics.capture('log_created', { module, source, ms }));
+  dispatch((analytics) => analytics.capture('habit_logged', { module, source, ms }));
 }
 
-// Premium / PayPal
+export function trackHabitLogged(module: string, source: string, ms?: number) {
+  dispatch((analytics) => analytics.capture('habit_logged', { module, source, ms }));
+}
+
 export function trackPaywallViewed(trigger: string) {
-  getAnalytics()?.capture('premium_paywall_viewed', { trigger });
+  dispatch((analytics) => analytics.capture('premium_paywall_viewed', { trigger }));
+}
+
+export function trackPaywallConverted(plan: string) {
+  dispatch((analytics) => analytics.capture('paywall_converted', { plan }));
 }
 
 export function trackPaypalCheckoutStarted(plan: string) {
-  getAnalytics()?.capture('paypal_checkout_started', { plan_selected: plan });
+  dispatch((analytics) => analytics.capture('paypal_checkout_started', { plan_selected: plan }));
 }
 
 export function trackPaypalCheckoutCompleted(plan: string) {
-  getAnalytics()?.capture('paypal_checkout_completed', { plan });
+  dispatch((analytics) => analytics.capture('paypal_checkout_completed', { plan }));
 }
 
 export function trackSubscriptionCancelled(plan: string, tenureDays: number) {
-  getAnalytics()?.capture('premium_subscription_cancelled', {
-    plan, tenure_days: tenureDays,
-  });
+  dispatch((analytics) =>
+    analytics.capture('premium_subscription_cancelled', {
+      plan,
+      tenure_days: tenureDays,
+    }),
+  );
 }
 
-// Unity Ads
 export function trackAdRewarded(context: string, coinsEarned: number, adUnit: string) {
-  getAnalytics()?.capture('unity_ad_rewarded_completed', {
-    context, coins_earned: coinsEarned, ad_unit: adUnit,
-  });
+  dispatch((analytics) =>
+    analytics.capture('unity_ad_rewarded_completed', {
+      context,
+      coins_earned: coinsEarned,
+      ad_unit: adUnit,
+    }),
+  );
 }
 
-// Coach IA
+export function trackAdRewardedWatched(context: string, adUnit: string) {
+  dispatch((analytics) => analytics.capture('ad_rewarded_watched', { context, ad_unit: adUnit }));
+}
+
 export function trackCoachMessage(isPremium: boolean, countToday: number) {
-  getAnalytics()?.capture('coach_message_sent', {
-    is_premium:          isPremium,
-    message_count_today: countToday,
-  });
+  dispatch((analytics) =>
+    analytics.capture('coach_message_sent', {
+      is_premium: isPremium,
+      message_count_today: countToday,
+    }),
+  );
 }
 
-// Gamificación
 export function trackStreakMilestone(days: number) {
-  getAnalytics()?.capture('streak_milestone_reached', { streak_days: days });
+  dispatch((analytics) => analytics.capture('streak_milestone_reached', { streak_days: days }));
+}
+
+export function trackStreakBroken(days: number) {
+  dispatch((analytics) => analytics.capture('streak_broken', { streak_days: days }));
 }
 
 export function trackBadgeUnlocked(badgeId: string, rarity: string) {
-  getAnalytics()?.capture('badge_unlocked', { badge_id: badgeId, rarity });
+  dispatch((analytics) => analytics.capture('badge_unlocked', { badge_id: badgeId, rarity }));
+}
+
+export function trackLevelUp(level: number) {
+  dispatch((analytics) => analytics.capture('level_up', { level }));
+}
+
+export function trackStepsGoalReached(goal: number, steps: number) {
+  dispatch((analytics) => analytics.capture('steps_goal_reached', { goal, steps }));
 }
 
 export function trackStorePurchase(itemId: string, tier: string, coinsSpent: number) {
-  getAnalytics()?.capture('store_purchase_completed', {
-    item_id: itemId, tier, coins_spent: coinsSpent,
-  });
+  dispatch((analytics) =>
+    analytics.capture('store_purchase_completed', {
+      item_id: itemId,
+      tier,
+      coins_spent: coinsSpent,
+    }),
+  );
 }
 
-// Flush manual (llamar al cerrar la app)
 export function flushAnalytics() {
-  getAnalytics()?.flush();
+  dispatch((analytics) => analytics.flush());
 }

@@ -29,41 +29,23 @@ export interface FastingPhase {
 }
 
 export const FASTING_PHASES: FastingPhase[] = [
-  { id: 'digestion',      hours: 0,  emoji: '\u{1F37D}\uFE0F', label: 'Post-comida',    description: 'Digiriendo. Insulina elevada.',                 color: '#FF6B6B' },
-  { id: 'glycolysis',     hours: 4,  emoji: '\u23F3', label: 'Ayuno activo',    description: 'Glucogeno empezando a consumirse.',             color: '#FFB347' },
-  { id: 'early_ketosis',  hours: 12, emoji: '\u{1F525}', label: 'Cetosis inicial', description: 'El cuerpo empieza a quemar grasa.',             color: '#FFD700' },
-  { id: 'autophagy',      hours: 16, emoji: '\u267B\uFE0F', label: 'Autofagia',      description: 'Reciclaje celular activo. Beneficios maximos.', color: '#7BC67E' },
-  { id: 'active_ketosis', hours: 18, emoji: '\u{1F9EC}', label: 'Ayuno profundo', description: 'Uso de grasa mas estable y adaptacion alta.',   color: '#4FC3F7' },
-  { id: 'ampk_mtor',      hours: 24, emoji: '\u26A1', label: 'Ayuno extendido', description: 'Ventana avanzada. No conviene forzarla siempre.', color: '#CE93D8' },
+  { id: 'fed',       hours: 0,   emoji: '🍽️', label: 'Post-comida',        description: 'Digiriendo. Insulina elevada.',                     color: '#FF6B6B' },
+  { id: 'fasting',   hours: 4,   emoji: '⏳', label: 'Ayuno activo',        description: 'Glucógeno empezando a consumirse.',                 color: '#FFB347' },
+  { id: 'ketosis',   hours: 12,  emoji: '🔥', label: 'Cetosis inicial',      description: 'El cuerpo empieza a quemar grasa.',                 color: '#FFD700' },
+  { id: 'autophagy', hours: 16,  emoji: '♻️', label: 'Autofagia',           description: 'Reciclaje celular activo. Beneficios máximos.',      color: '#7BC67E' },
+  { id: 'deep',      hours: 18,  emoji: '🧬', label: 'Ayuno profundo',      description: 'HGH aumentando. Regeneración celular intensa.',      color: '#4FC3F7' },
+  { id: 'extended',  hours: 24,  emoji: '⚡', label: 'Ayuno extendido',     description: 'Modo de supervivencia. Supervivencia celular máxima.',color: '#CE93D8' },
 ];
 
 export const PROTOCOLS: Record<string, { label: string; targetHours: number; windowHours: number; description: string }> = {
   '12:12': { label: '12:12', targetHours: 12, windowHours: 12, description: 'Entrada suave para dias de baja recuperacion' },
   '14:10': { label: '14:10', targetHours: 14, windowHours: 10, description: 'Paso intermedio para sostener adherencia' },
-  '16:8':  { label: '16:8',  targetHours: 16, windowHours: 8,  description: '16h ayuno, 8h para comer - el mas popular' },
+  '16:8':  { label: '16:8',  targetHours: 16, windowHours: 8,  description: '16h ayuno, 8h para comer — el más popular' },
   '18:6':  { label: '18:6',  targetHours: 18, windowHours: 6,  description: '18h ayuno, 6h ventana' },
   '20:4':  { label: '20:4',  targetHours: 20, windowHours: 4,  description: 'Warrior Diet' },
-  OMAD:    { label: 'OMAD',  targetHours: 23, windowHours: 1,  description: 'Una comida al dia' },
-  '24h':   { label: '24h',   targetHours: 24, windowHours: 0,  description: 'Ayuno de 24 horas' },
-  '5:2':   { label: '5:2',   targetHours: 24, windowHours: 0,  description: '5 dias normal + 2 dias con restriccion' },
-  custom:  { label: 'Custom',targetHours: 16, windowHours: 8,  description: 'Personalizado' },
+  '23:1':  { label: '23:1',  targetHours: 23, windowHours: 1,  description: 'OMAD — una comida al día' },
+  'custom':{ label: 'Custom',targetHours: 16, windowHours: 8,  description: 'Personalizado' },
 };
-
-function normalizeFastingProtocol(value: string | null | undefined): string {
-  const normalized = (value ?? '').trim();
-  if (!normalized) return '16:8';
-
-  const aliases: Record<string, string> = {
-    '16_8': '16:8',
-    '18_6': '18:6',
-    '20_4': '20:4',
-    '5_2': '5:2',
-    omad: 'OMAD',
-    '23:1': 'OMAD',
-  };
-
-  return aliases[normalized] ?? normalized;
-}
 
 export const FASTING_TIMER_TASK = 'FASTING_TIMER_TASK';
 
@@ -184,7 +166,7 @@ function computeFastingWeightCorrelation(
 }
 
 function protocolTargetHours(protocol: string): number {
-  return PROTOCOLS[normalizeFastingProtocol(protocol)]?.targetHours ?? 16;
+  return PROTOCOLS[protocol]?.targetHours ?? 16;
 }
 
 function computeProtocolSuggestion(
@@ -317,7 +299,7 @@ export function useFasting() {
         .is('end_time', null)
         .order('start_time', { ascending: false })
         .limit(1)
-        .maybeSingle();
+        .single();
       return data;
     },
     enabled:   !!userId,
@@ -389,7 +371,7 @@ export function useFasting() {
     staleTime: 30 * 60 * 1000,
   });
 
-  const protocol = normalizeFastingProtocol(activeFast?.protocol ?? profile?.fasting_protocol ?? '16:8');
+  const protocol = activeFast?.protocol ?? profile?.fasting_protocol ?? '16:8';
   const targetHours = PROTOCOLS[protocol]?.targetHours ?? 16;
 
   // ─── Calcular elapsed al montar ──────────────────────────
@@ -398,7 +380,6 @@ export function useFasting() {
     const startMs = new Date(activeFast.start_time).getTime();
     const nowSec  = Math.floor((Date.now() - startMs) / 1000);
     setElapsedSeconds(Math.max(0, nowSec));
-    updatePhase(Math.max(0, nowSec));
   }, [activeFast?.start_time]);
 
   // ─── Timer ───────────────────────────────────────────────
@@ -438,7 +419,7 @@ export function useFasting() {
     setNextPhase(next);
 
     // Notificación de nueva fase
-    if (!phaseNotifiedRef.current.has(phase.id) && hours >= phase.hours && phase.hours > 0) {
+    if (!phaseNotifiedRef.current.has(phase.id) && hours >= phase.hours && phase.id !== 'fed') {
       phaseNotifiedRef.current.add(phase.id);
       showToast(`${phase.emoji} ${phase.label}`, 'info');
     }
@@ -468,11 +449,11 @@ export function useFasting() {
         .from('fasting_logs')
         .insert({
           user_id:    userId,
-          protocol:   normalizeFastingProtocol(proto),
+          protocol:   proto,
           start_time: new Date().toISOString(),
           completed:  false,
           abandoned:  false,
-          phases_timestamps_json: {},
+          phases_timestamps_json: JSON.stringify({}),
         })
         .select('id')
         .single();
@@ -499,7 +480,7 @@ export function useFasting() {
         .update({
           end_time:    new Date().toISOString(),
           completed:   true,
-          total_hours: Math.round(elapsedHours * 100) / 100,
+          total_hours: elapsedHours,
           max_phase_reached: currentPhase.id,
         })
         .eq('id', activeFast.id);
@@ -509,31 +490,7 @@ export function useFasting() {
       // Recompensas según duración
       const coinsEarned = isComplete ? 20 : 10;
       const xpEarned    = isComplete ? 200 : 100;
-      // Client-side guard: avoid redundant coin RPCs when already awarded today.
-      async function hasTodayFastingCoins(): Promise<boolean> {
-        try {
-          if (!userId) return false;
-          const today = todayISO();
-          const { data, error } = await supabase
-            .from('coin_transactions')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('type', 'fasting_complete')
-            .gt('amount', 0)
-            .gte('created_at', `${today}T00:00:00Z`)
-            .limit(1);
-          if (error) return false;
-          return (data?.length ?? 0) > 0;
-        } catch {
-          return false;
-        }
-      }
-
-      const alreadyGotCoins = await hasTodayFastingCoins();
-      if (!alreadyGotCoins && coinsEarned > 0) {
-        await addCoins(userId, coinsEarned, 'fasting_complete', `Ayuno completado: ${elapsedHours.toFixed(1)}h`);
-      }
-
+      await addCoins(userId, coinsEarned, 'fasting_complete', `Ayuno completado: ${elapsedHours.toFixed(1)}h`);
       await addXP(userId, xpEarned);
 
       queryClient.invalidateQueries({ queryKey: ['fasting_active'] });
@@ -628,6 +585,29 @@ export function useFasting() {
   const longestFast     = completedFasts.length
     ? Math.max(...completedFasts.map(h => h.total_hours ?? 0))
     : 0;
+  const fastingStreakDays = (() => {
+    if (!history || !history.length) return 0;
+    let streak = 0;
+    let prevDay: string | null = null;
+    for (const item of history) {
+      if (!item.completed) continue;
+      const day = isoDay(item.end_time ?? item.start_time ?? '');
+      if (!day) continue;
+      if (streak === 0) {
+        streak = 1;
+        prevDay = day;
+      } else {
+        const expected = addDays(prevDay!, -1);
+        if (day === expected) {
+          streak += 1;
+          prevDay = day;
+        } else {
+          break;
+        }
+      }
+    }
+    return streak;
+  })();
   const fastingWeightCorrelation = computeFastingWeightCorrelation(history as any, weightForCorrelation as any);
   const protocolSuggestion = computeProtocolSuggestion(history as any, protocol, (femaleCyclePhase as FemaleCyclePhase | null) ?? null);
   const dailyAdaptiveSuggestion: DailyAdaptiveSuggestion = (() => {
@@ -718,8 +698,11 @@ export function useFasting() {
     completedFasts: completedFasts.length,
     avgHours,
     longestFast,
+    fastingStreakDays,
     fastingWeightCorrelation,
     protocolSuggestion,
+    breakPlan: null,
+    refuelPlan: null,
     dailyAdaptiveSuggestion,
     cycleAwareNotice,
     getCurrentPhase: () => currentPhase,

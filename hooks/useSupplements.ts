@@ -274,6 +274,36 @@ export function useSupplements() {
     [userId],
   );
 
+  // Adherencia agregada por dia para la ultima semana (compat)
+  const getWeeklyHistory = useCallback(async (): Promise<Array<{ date: string; completed: boolean }>> => {
+    if (!userId) return [];
+    try {
+      const days = 7;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const keys: string[] = [];
+      for (let i = days - 1; i >= 0; i -= 1) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        keys.push(d.toISOString().split('T')[0]);
+      }
+
+      const { data, error } = await supabase
+        .from('supplement_logs')
+        .select('date')
+        .eq('user_id', userId)
+        .in('date', keys);
+
+      if (error) throw error;
+
+      const present = new Set((data ?? []).map((r: any) => r.date));
+      return keys.map((k) => ({ date: k, completed: present.has(k) }));
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useSupplements.getWeeklyHistory' });
+      return [];
+    }
+  }, [userId]);
+
   const isTakenToday = useCallback(
     (supplementId: string) =>
       todayLogs.some((l) => l.supplement_id === supplementId),
@@ -295,6 +325,7 @@ export function useSupplements() {
     saving,
     dailyAdherenceStreak,
     interactionWarnings,
+    getWeeklyHistory,
     getActive: () => supplements.filter((s) => s.active),
     logTaken: markTaken,
     markTaken,

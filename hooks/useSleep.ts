@@ -195,10 +195,53 @@ export function useSleep() {
           message: 'Sueno estable. Manten una carga moderada y consistente hoy.',
         };
 
+  // Backwards compatibility: expose a simple action plan for consumers expecting
+  // `{ title, focus }` (used by intelligence/why-vyra and similar views).
+  const sleepActionPlan = physicalDayState
+    ? {
+        title: physicalDayState.message,
+        focus:
+          physicalDayState.workoutRecommendation === 'recovery'
+            ? 'Recuperación'
+            : physicalDayState.workoutRecommendation === 'moderate'
+              ? 'Carga moderada'
+              : 'Entrenamiento intenso',
+      }
+    : null;
+
   const compensationHours = Math.min(9.5, goalHours + Math.min(2, sleepDebt));
   const sleepDebtMessage = sleepDebt > 0.5
     ? `Deuda acumulada: ${sleepDebt.toFixed(1)}h. Objetivo de compensacion: una noche de ~${compensationHours.toFixed(1)}h.`
     : null;
+
+  // Consecutive nights meeting goal (streak) — computed from the most recent history entries
+  const sleepStreakDays = (() => {
+    if (!history || !history.length) return 0;
+    let streak = 0;
+    let prevDay: string | null = null;
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const entry = history[i];
+      const day = entry.end_time ? entry.end_time.split('T')[0] : null;
+      if (!day) continue;
+      const meets = (entry.duration_min / 60) >= goalHours;
+      if (!meets) break;
+      if (streak === 0) {
+        streak = 1;
+        prevDay = day;
+      } else {
+        const prevDate = new Date(`${prevDay}T00:00:00`);
+        prevDate.setDate(prevDate.getDate() - 1);
+        const expected = prevDate.toISOString().split('T')[0];
+        if (day === expected) {
+          streak += 1;
+          prevDay = day;
+        } else {
+          break;
+        }
+      }
+    }
+    return streak;
+  })();
 
   // ─── Guardar sueño ───────────────────────────────────────
   const { mutate: logSleep, isPending: isLogging } = useMutation({
@@ -297,5 +340,7 @@ export function useSleep() {
     getWeeklyAverage: () => avgHours,
     getOptimalAlarmTimes,
     refetch,
+    sleepActionPlan,
+    sleepStreakDays,
   };
 }

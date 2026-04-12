@@ -10,17 +10,26 @@ import {
 interface UnityAdBannerProps {
   style?: StyleProp<ViewStyle>;
   size?: 'standard' | 'leaderboard';
+  surface?: string;
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 export function UnityAdBanner({
   style,
   size = 'standard',
+  surface,
+  onVisibilityChange,
 }: UnityAdBannerProps) {
   const { isPremium } = usePremiumStore();
   const [ready, setReady] = useState(false);
   const placementId = getUnityBannerPlacement();
 
   useEffect(() => {
+    // Inform parent about visibility changes
+    if (typeof onVisibilityChange === 'function') {
+      onVisibilityChange(Platform.OS === 'android' && !isPremium && Boolean(placementId) && ready);
+    }
+
     let mounted = true;
 
     if (Platform.OS !== 'android' || isPremium || !placementId) {

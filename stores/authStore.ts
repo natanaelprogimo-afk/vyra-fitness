@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 import type { UserProfile } from '@/types/user';
+import { supabase } from '@/lib/supabase';
 
 const GOAL_VALUES = new Set([
   'lose_fat',
@@ -67,7 +68,10 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
     avatar_url: typeof raw.avatar_url === 'string' ? raw.avatar_url : null,
     height_cm: typeof raw.height_cm === 'number' ? raw.height_cm : null,
     weight_start_kg: typeof raw.weight_start_kg === 'number' ? raw.weight_start_kg : null,
+    weight_current_kg: typeof raw.weight_current_kg === 'number' ? raw.weight_current_kg : null,
     weight_goal_kg: typeof raw.weight_goal_kg === 'number' ? raw.weight_goal_kg : null,
+    body_fat_current_pct:
+      typeof raw.body_fat_current_pct === 'number' ? raw.body_fat_current_pct : null,
     gender,
     biological_sex: normalizeGender(raw.biological_sex ?? gender),
     dob,
@@ -77,6 +81,10 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
     activity_level: Number(raw.activity_level ?? 3) as UserProfile['activity_level'],
     calorie_goal: calorieGoal,
     tdee: Number(raw.tdee ?? calorieGoal),
+    fasting_protocol:
+      typeof raw.fasting_protocol === 'string' && raw.fasting_protocol.trim().length > 0
+        ? raw.fasting_protocol
+        : null,
     water_goal_ml: typeof raw.water_goal_ml === 'number' ? raw.water_goal_ml : 2000,
     step_goal: typeof raw.step_goal === 'number' ? raw.step_goal : 10000,
     sleep_goal_hours: typeof raw.sleep_goal_hours === 'number' ? raw.sleep_goal_hours : 8,
@@ -84,6 +92,10 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
     sleep_time_minutes: typeof raw.sleep_time_minutes === 'number' ? raw.sleep_time_minutes : 1380,
     paypal_subscription_id:
       typeof raw.paypal_subscription_id === 'string' ? raw.paypal_subscription_id : null,
+    referral_code: typeof raw.referral_code === 'string' ? raw.referral_code : null,
+    founding_member: Boolean(raw.founding_member),
+    founding_member_rank:
+      typeof raw.founding_member_rank === 'number' ? raw.founding_member_rank : null,
     coins: Number(raw.coins ?? 0),
     xp: Number(raw.xp ?? 0),
     level: Math.max(1, Number(raw.level ?? 1)),
@@ -93,6 +105,10 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
     longest_streak: Number(raw.longest_streak ?? bestStreak),
     push_token: pushToken,
     female_health_enabled: Boolean(raw.female_health_enabled),
+    female_cycle_length:
+      typeof raw.female_cycle_length === 'number' ? raw.female_cycle_length : null,
+    female_last_period_date:
+      typeof raw.female_last_period_date === 'string' ? raw.female_last_period_date : null,
     coach_name_preference:
       typeof raw.coach_name_preference === 'string' ? raw.coach_name_preference : null,
     coach_memory_json: coachMemory,
@@ -112,6 +128,7 @@ interface AuthState {
   profile:        UserProfile | null;
   isLoading:      boolean;
   isInitialized:  boolean;
+  hasResolvedProfile: boolean;
 
   // Acciones
   setSession:    (session: Session | null) => void;
@@ -120,6 +137,7 @@ interface AuthState {
   updateProfile: (partial: Partial<UserProfile>) => void;
   setLoading:    (loading: boolean) => void;
   setInitialized:(initialized: boolean) => void;
+  setHasResolvedProfile: (resolved: boolean) => void;
   reset:         () => void;
   signOut:       () => Promise<void>;
   logout:        () => Promise<void>;
@@ -136,6 +154,7 @@ const initialState = {
   profile:       null,
   isLoading:     true,
   isInitialized: false,
+  hasResolvedProfile: false,
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -157,14 +176,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setInitialized: (isInitialized) => set({ isInitialized }),
 
+  setHasResolvedProfile: (hasResolvedProfile) => set({ hasResolvedProfile }),
+
   reset: () => set({ ...initialState, isLoading: false, isInitialized: true }),
 
   signOut: async () => {
-    set({ ...initialState, isLoading: false, isInitialized: true });
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } finally {
+      set({ ...initialState, isLoading: false, isInitialized: true, hasResolvedProfile: true });
+    }
   },
 
   logout: async () => {
-    set({ ...initialState, isLoading: false, isInitialized: true });
+    await get().signOut();
   },
 
   // Computed: retorna función para que siempre lea el estado actual

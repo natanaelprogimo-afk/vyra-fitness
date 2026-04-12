@@ -81,11 +81,15 @@ export function useDashboard() {
   // ─── Mental check-in done hoy ───────────────────────────
   const mentalDoneToday = !!todayData?.mental;
 
+  // Compatibility: expose recentScores (last few entries) for callers expecting it
+  const recentScores = (weekScores ?? []).slice(-3);
+
   return {
     profile,
     dailyScore,
     todayData,
     weekScores: weekScores ?? [],
+    recentScores,
     mentalDoneToday,
     isLoading: scoreLoading || todayLoading,
   };

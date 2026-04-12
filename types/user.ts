@@ -54,7 +54,9 @@ export interface UserProfile {
   // Datos corporales
   height_cm: number | null;
   weight_start_kg: number | null;
+  weight_current_kg: number | null;
   weight_goal_kg: number | null;
+  body_fat_current_pct?: number | null;
   gender: BiologicalSex;
   dob: string | null;
   biological_sex?: BiologicalSex; // alias legacy
@@ -84,6 +86,9 @@ export interface UserProfile {
   is_premium: boolean;
   premium_expires_at: string | null;
   paypal_subscription_id?: string | null;
+  referral_code?: string | null;
+  founding_member?: boolean;
+  founding_member_rank?: number | null;
 
   // Gamificación
   coins: number;
@@ -99,6 +104,8 @@ export interface UserProfile {
 
   // Features opcionales
   female_health_enabled: boolean;
+  female_cycle_length?: number | null;
+  female_last_period_date?: string | null;
   coach_name_preference: string | null;
   coach_memory_json?: Record<string, unknown> | null;
   onboarding_completed: boolean;

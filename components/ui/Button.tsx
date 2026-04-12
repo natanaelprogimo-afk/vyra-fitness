@@ -12,6 +12,7 @@ import {
   StyleSheet,
   type ViewStyle,
   type TextStyle,
+  type PressableProps,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -23,9 +24,9 @@ import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'premium' | 'coin';
-export type ButtonSize    = 'sm' | 'md' | 'lg' | 'small' | 'large';
+export type ButtonSize    = 'sm' | 'md' | 'lg' | 'small' | 'large' | 'utility' | 'primary';
 
-interface ButtonProps {
+interface ButtonProps extends Omit<PressableProps, 'onPress' | 'style'> {
   onPress:     () => void;
   children?:   React.ReactNode;
   label?:      string;  // Deprecated: use children instead
@@ -59,6 +60,7 @@ export default function Button({
   textStyle,
   haptic = 'light',
   color,
+  ...rest
 }: ButtonProps) {
   const scale = useSharedValue(1);
   const displayContent = children ?? label;
@@ -97,6 +99,7 @@ export default function Button({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled || loading}
+      {...rest}
       style={[
         styles.base,
         ss.container,
@@ -165,6 +168,15 @@ const sizeStyles: Record<ButtonSize, { container: ViewStyle; text: TextStyle }> 
   large: {
     container: { height: 60, paddingHorizontal: Spacing[8] },
     text:      { fontSize: FontSize.lg },
+  },
+  // Legacy aliases kept for compatibility with older call sites
+  utility: {
+    container: { height: 40, paddingHorizontal: Spacing[4] },
+    text:      { fontSize: FontSize.sm },
+  },
+  primary: {
+    container: { height: 52, paddingHorizontal: Spacing[6] },
+    text:      { fontSize: FontSize.base },
   },
 };
 

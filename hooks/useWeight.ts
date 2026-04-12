@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
@@ -346,12 +346,27 @@ export function useWeight() {
     fetchLogs();
   }, [fetchLogs]);
 
+  const logStreakDays = useMemo(() => {
+    const dates = new Set(logs.map((l) => new Date(l.logged_at).toISOString().split('T')[0]));
+    let count = 0;
+    const today = new Date();
+    for (let i = 0; i < 365; i += 1) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      if (dates.has(key)) count += 1;
+      else break;
+    }
+    return count;
+  }, [logs]);
+
   return {
     logs,
     stats,
     loading,
     saving,
     logWeight,
+    logStreakDays,
     getBMI: () => stats.bmi,
     isNewHistoricalMinimum: () => stats.isNewMin,
     getHistory: () => logs,

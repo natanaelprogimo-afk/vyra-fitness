@@ -14,6 +14,28 @@ export interface Toast {
   duration:number;             // ms
 }
 
+export interface WorkoutSummarySnapshot {
+  sessionId: string;
+  name: string;
+  durationMin: number;
+  totalVolume: number;
+  setsCount: number;
+  estimatedCalories: number;
+  endedAt: string;
+  prs: Array<{
+    exercise_name: string;
+    weight_kg: number;
+    reps: number;
+  }>;
+  musclesWorked: string[];
+  plannedExercises: Array<{
+    exercise_id: string;
+    exercise_name: string;
+    targetSets: number;
+    targetReps: number;
+  }>;
+}
+
 interface UIState {
   // Toasts
   toasts:           Toast[];
@@ -45,9 +67,17 @@ interface UIState {
   isWorkoutActive:   boolean;
   setWorkoutActive:  (active: boolean) => void;
 
+  // Resumen de workout (post sesión)
+  lastWorkoutSummary: WorkoutSummarySnapshot | null;
+  setLastWorkoutSummary: (summary: WorkoutSummarySnapshot | null) => void;
+
   // Ayuno activo visible (para modo no-molestar de ads)
   isFastingScreenActive: boolean;
   setFastingScreenActive:(active: boolean) => void;
+
+  // Notificaciones: forzar replanificacion (ej. agua)
+  notificationsRefreshKey: number;
+  bumpNotificationsRefresh: () => void;
 }
 
 let toastIdCounter = 0;
@@ -102,4 +132,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   setWorkoutActive:   (isWorkoutActive) => set({ isWorkoutActive }),
   isFastingScreenActive: false,
   setFastingScreenActive:(isFastingScreenActive) => set({ isFastingScreenActive }),
+
+  lastWorkoutSummary: null,
+  setLastWorkoutSummary: (summary) => set({ lastWorkoutSummary: summary }),
+
+  notificationsRefreshKey: 0,
+  bumpNotificationsRefresh: () =>
+    set((state) => ({ notificationsRefreshKey: state.notificationsRefreshKey + 1 })),
 }));

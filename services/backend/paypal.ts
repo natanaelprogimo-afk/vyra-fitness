@@ -308,3 +308,36 @@ export async function cancelSubscription(subscriptionId?: string | null): Promis
     return false;
   }
 }
+
+export async function getPayPalHealth(): Promise<{ trialDays?: number | null } | null> {
+  try {
+    const headers = await getAuthHeaders();
+    const primary = await requestJson('/paypal/health', { method: 'GET', headers });
+
+    if (primary.ok && primary.data && typeof primary.data === 'object') {
+      const raw = primary.data;
+      const trialDays = typeof raw.trialDays === 'number'
+        ? raw.trialDays
+        : typeof raw.trial_days === 'number'
+          ? raw.trial_days
+          : null;
+
+      return { trialDays };
+    }
+
+    // Fallback: infer trial window from subscription status when health endpoint is missing
+    const status = await getSubscriptionStatus();
+    if (status?.isInTrial && typeof status.trialEndsAt === 'string') {
+      const t = new Date(status.trialEndsAt).getTime();
+      if (!Number.isNaN(t)) {
+        const days = Math.max(0, Math.ceil((t - Date.now()) / (1000 * 60 * 60 * 24)));
+        return { trialDays: days };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[paypal.getPayPalHealth.exception]', err);
+    return null;
+  }
+}

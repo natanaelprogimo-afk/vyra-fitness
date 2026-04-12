@@ -12,6 +12,8 @@ import Button from './Button';
 interface EmptyStateProps {
   emoji?:      string;
   icon?:       string;
+  eyebrow?:    string;
+  tone?:       'neutral' | 'brand' | 'premium' | 'warning' | 'success';
   title:       string;
   description?: string;
   subtitle?:   string;
@@ -26,6 +28,8 @@ interface EmptyStateProps {
 export default function EmptyState({
   emoji,
   icon,
+  eyebrow,
+  tone,
   title,
   subtitle,
   description,
@@ -44,6 +48,7 @@ export default function EmptyState({
   return (
     <View style={[styles.container, compact && styles.compact, style]}>
       {displayEmoji && <Text style={[styles.emoji, compact && styles.emojiCompact]}>{displayEmoji}</Text>}
+      {eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
       <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
       {displayText && (
         <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
@@ -82,6 +87,14 @@ const styles = StyleSheet.create({
   emojiCompact: {
     fontSize:     40,
     marginBottom: Spacing[3],
+  },
+  eyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   title: {
     fontFamily: FontFamily.bold,

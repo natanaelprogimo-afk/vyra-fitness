@@ -1,0 +1,179 @@
+{
+  "expo": {
+    "name": "Vyra Fitness",
+    "slug": "vyra-fitness",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "vyrafitness",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0B1726"
+      },
+      "package": "com.vyrafitness.app",
+      "versionCode": 2,
+      "permissions": [
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.health.READ_STEPS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Vyra necesita tu ubicacion para registrar rutas de caminata.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vyra necesita tu ubicacion para registrar rutas incluso en segundo plano.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      "react-native-health-connect",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Vyra necesita la camara para escanear codigos de barras y analizar fotos de comidas."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Vyra necesita acceso a tus fotos para analizar comidas desde la galeria."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#0B1726"
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/withAndroidKotlinJvmTarget",
+      [
+        "@bittingz/expo-widgets",
+        {
+          "android": {
+            "src": "./widgets/android",
+            "distPlaceholder": "com.vyrafitness.app",
+            "widgets": [
+              {
+                "name": "VyraCompactWidgetProvider",
+                "resourceName": "@xml/vyra_widget_compact_info"
+              },
+              {
+                "name": "VyraExpandedWidgetProvider",
+                "resourceName": "@xml/vyra_widget_expanded_info"
+              },
+              {
+                "name": "VyraKoraWidgetProvider",
+                "resourceName": "@xml/vyra_widget_kora_info"
+              },
+              {
+                "name": "VyraStepsWidgetProvider",
+                "resourceName": "@xml/vyra_widget_steps_info"
+              },
+              {
+                "name": "VyraWaterWidgetProvider",
+                "resourceName": "@xml/vyra_widget_water_info"
+              },
+              {
+                "name": "VyraScoreWidgetProvider",
+                "resourceName": "@xml/vyra_widget_score_info"
+              },
+              {
+                "name": "VyraStreakWidgetProvider",
+                "resourceName": "@xml/vyra_widget_streak_info"
+              },
+              {
+                "name": "VyraWorkoutWidgetProvider",
+                "resourceName": "@xml/vyra_widget_workout_info"
+              },
+              {
+                "name": "VyraSleepWidgetProvider",
+                "resourceName": "@xml/vyra_widget_sleep_info"
+              },
+              {
+                "name": "VyraNutritionWidgetProvider",
+                "resourceName": "@xml/vyra_widget_nutrition_info"
+              },
+              {
+                "name": "VyraFastingWidgetProvider",
+                "resourceName": "@xml/vyra_widget_fasting_info"
+              },
+              {
+                "name": "VyraRecoveryWidgetProvider",
+                "resourceName": "@xml/vyra_widget_recovery_info"
+              },
+              {
+                "name": "VyraWeightWidgetProvider",
+                "resourceName": "@xml/vyra_widget_weight_info"
+              },
+              {
+                "name": "VyraFemaleWidgetProvider",
+                "resourceName": "@xml/vyra_widget_female_info"
+              }
+            ]
+          }
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "vyra-fitness",
+          "project": "vyra-fitness-android",
+          "uploadSourceMaps": false
+        }
+      ],
+      "expo-sharing"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "legalUrls": {
+        "privacyPolicy": "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/PRIVACY_POLICY.md",
+        "termsOfService": "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/TERMS_OF_SERVICE.md"
+      },
+      "koraAssetsBaseUrl": "",
+      "sleepSoundsBaseUrl": "",
+      "exerciseMediaBaseUrl": "https://fkwisfxwztlkrlcvuwdv.supabase.co/storage/v1/object/public/exercise-media",
+      "apis": {
+        "supabase": "https://fkwisfxwztlkrlcvuwdv.supabase.co",
+        "backend": "https://vyra-backend-5fd9.onrender.com"
+      },
+      "eas": {
+        "projectId": "d417aa09-2b05-455a-8d68-fb88c2317451"
+      }
+    }
+  }
+}

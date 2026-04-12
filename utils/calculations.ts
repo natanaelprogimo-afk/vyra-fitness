@@ -337,3 +337,18 @@ export function xpToNextLevel(totalXp: number): number {
 export function xpProgressPct(totalXp: number): number {
   return ((totalXp % XP_PER_LEVEL) / XP_PER_LEVEL) * 100;
 }
+
+// Backwards-compatible helper: returns progress info used by gamification
+export function getLevelProgress(totalXp: number) {
+  const level = calculateLevel(totalXp);
+  const xpIntoLevel = totalXp - (level - 1) * XP_PER_LEVEL;
+  const xpToNext = xpToNextLevel(totalXp);
+  const progressPct = Math.round(xpProgressPct(totalXp));
+  return {
+    level,
+    xpIntoLevel,
+    xpToNextLevel: xpToNext,
+    levelSpan: XP_PER_LEVEL,
+    progressPct,
+  };
+}

@@ -63,7 +63,8 @@ export function useAuth() {
   const register = useCallback(async (
     email:    string,
     password: string,
-    name:     string
+    name:     string,
+    _opts?:   any,
   ) => {
     setIsLoading(true);
     try {

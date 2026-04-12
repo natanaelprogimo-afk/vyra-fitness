@@ -208,3 +208,9 @@ export async function writeLocalAndSync<T extends { id: string }>(
 
   return localId;
 }
+
+// Backwards-compatible export: legacy callers import { database } from '@/database'
+// Provide a lazy wrapper so we don't initialize the DB at module-eval time.
+export const database: any = {
+  get: (tableName: string) => getDatabase().get(tableName as any),
+};

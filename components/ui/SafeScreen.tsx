@@ -22,10 +22,12 @@ interface SafeScreenProps {
   padHorizontal?: boolean;
   padTop?:        boolean;
   padBottom?:     boolean;
+  disableAtmosphere?: boolean;
   backgroundColor?:string;
   style?:         ViewStyle;
   contentStyle?:  ViewStyle;
   onScroll?:      () => void;
+  stickyHeaderIndices?: number[] | undefined;
 }
 
 export function SafeScreen({
@@ -34,10 +36,12 @@ export function SafeScreen({
   padHorizontal   = true,
   padTop          = true,
   padBottom       = true,
+  disableAtmosphere = false,
   backgroundColor = Colors.bgPrimary,
   style,
   contentStyle,
   onScroll,
+  stickyHeaderIndices,
 }: SafeScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -57,6 +61,7 @@ export function SafeScreen({
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       onScrollBeginDrag={onScroll}
+      stickyHeaderIndices={stickyHeaderIndices}
     >
       {children}
     </ScrollView>

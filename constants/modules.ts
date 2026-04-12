@@ -97,7 +97,7 @@ export const MODULES: ModuleDefinition[] = [
 ];
 
 // Type alias for easier imports
-export type ModuleId = 'water' | 'steps' | 'fasting' | 'sleep' | 'nutrition' | 'weight' | 'workout' | 'mental' | 'supplements' | 'female';
+export type ModuleId = 'water' | 'steps' | 'fasting' | 'sleep' | 'nutrition' | 'weight' | 'workout' | 'recovery' | 'mental' | 'supplements' | 'female';
 
 // Aliases for backward compatibility
 export const GridModules: ModuleId[] = MODULES.map(m => m.id as ModuleId);

@@ -1,133 +1,194 @@
 // ============================================================
-// VYRA FITNESS — Color System
-// Usar SIEMPRE estas constantes. Nunca hardcodear colores.
+// VYRA FITNESS - Design Tokens 2026
+// Paleta AMOLED oscura + acentos por modulo.
 // ============================================================
 
+const MODULE_RGB = {
+  workout: [139, 92, 255],
+  nutrition: [0, 214, 138],
+  water: [0, 153, 238],
+  sleep: [112, 117, 255],
+  steps: [232, 156, 0],
+  weight: [217, 62, 140],
+  fasting: [240, 90, 36],
+  recovery: [5, 150, 105],
+  mental: [179, 156, 255],
+  supplements: [240, 193, 75],
+  female: [224, 101, 163],
+  coach: [34, 167, 240],
+} as const;
+
+type ModuleRgbKey = keyof typeof MODULE_RGB;
+
+function rgbToString(rgb: readonly number[]) {
+  return rgb.join(',');
+}
+
+export function withOpacity(hex: string, opacity: number): string {
+  const safeOpacity = Math.max(0, Math.min(1, opacity));
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return hex;
+  const value = Number.parseInt(normalized, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r},${g},${b},${safeOpacity})`;
+}
+
 export const Colors = {
-  // ─── Backgrounds ─────────────────────────────────────────
-  bgPrimary:  '#0F0A1E',   // Fondo principal de pantallas
-  bgSurface:  '#1A1033',   // Cards, modales, bottom sheets
-  bgElevated: '#241648',   // Cards elevadas, dropdowns, tooltips
+  // Base
+  bgBase: '#070B14',
+  surface1: '#0F1726',
+  surface2: '#131E31',
+  surface3: '#18253B',
+  borderSubtle: '#24324A',
+  borderStrong: '#3F577A',
 
-  // ─── Text ────────────────────────────────────────────────
-  textPrimary:   '#FFFFFF',
-  textSecondary: '#A09CB8',
-  textMuted:     '#5C5478',
+  // Backwards-compatible aliases
+  bgPrimary: '#070B14',
+  bgPrimarySoft: '#0F1726',
+  bgSurface: '#0F1726',
+  bgElevated: '#131E31',
+  bgFloating: '#131E31',
+  border: '#24324A',
+  divider: '#24324A',
 
-  // ─── Brand ───────────────────────────────────────────────
-  brand:     '#7C3AED',
-  brandDark: '#5B21B6',
-  brandLight: '#9F67FF',
+  // Text
+  textPrimary: '#F6F9FF',
+  textSecondary: '#AAB8CF',
+  textMuted: '#7F8DA5',
+  textDisabled: '#5B6880',
 
-  // ─── Borders & Dividers ──────────────────────────────────
-  border:        'rgba(255,255,255,0.08)',
-  borderFocus:   'rgba(124,58,237,0.6)',
-  divider:       'rgba(255,255,255,0.05)',
+  // Brand
+  brand: '#7B6DFF',
+  brandDark: '#6556F2',
+  brandLight: '#AEA7FF',
+  borderFocus: 'rgba(123,109,255,0.35)',
 
-  // ─── Módulos de salud ────────────────────────────────────
-  water:     '#06B6D4',
-  waterDark: '#0891B2',
-  waterBg:   'rgba(6,182,212,0.12)',
+  // Overlays / glass
+  overlay: 'rgba(7,11,20,0.84)',
+  overlayLight: 'rgba(19,30,49,0.68)',
+  glass: 'rgba(15,23,38,0.78)',
+  glassLight: 'rgba(19,30,49,0.62)',
 
-  steps:     '#10B981',
-  stepsDark: '#059669',
-  stepsBg:   'rgba(16,185,129,0.12)',
+  // Modules
+  workout: '#8D7BFF',
+  workoutDark: '#6A58E8',
+  workoutBg: 'rgba(141,123,255,0.18)',
+  nutrition: '#00D68A',
+  nutritionDark: '#00B977',
+  nutritionBg: 'rgba(0,214,138,0.18)',
+  water: '#36B7FF',
+  waterDark: '#1496E7',
+  waterBg: 'rgba(54,183,255,0.18)',
+  sleep: '#8C92FF',
+  sleepDark: '#6A72ED',
+  sleepBg: 'rgba(140,146,255,0.18)',
+  steps: '#E89C00',
+  stepsDark: '#C88400',
+  stepsBg: 'rgba(232,156,0,0.18)',
+  weight: '#EC6AA9',
+  weightDark: '#CF4D8E',
+  weightBg: 'rgba(236,106,169,0.18)',
+  fasting: '#F05A24',
+  fastingDark: '#D94B18',
+  fastingBg: 'rgba(240,90,36,0.18)',
+  recovery: '#23C38A',
+  recoveryDark: '#13A26F',
+  recoveryBg: 'rgba(35,195,138,0.18)',
+  mental: '#C6B6FF',
+  mentalDark: '#AA95F7',
+  mentalBg: 'rgba(198,182,255,0.18)',
+  supplements: '#F0C14B',
+  supplementsDark: '#D4A731',
+  supplementsBg: 'rgba(240,193,75,0.18)',
+  female: '#F18FC0',
+  femaleDark: '#D86CA4',
+  femaleBg: 'rgba(241,143,192,0.18)',
+  coach: '#5ABEFF',
+  coachDark: '#2A9DE9',
+  coachBg: 'rgba(90,190,255,0.18)',
 
-  fasting:     '#F59E0B',
-  fastingDark: '#D97706',
-  fastingBg:   'rgba(245,158,11,0.12)',
+  // System
+  success: '#22C55E',
+  successBg: 'rgba(34,197,94,0.18)',
+  error: '#EF4444',
+  errorBg: 'rgba(239,68,68,0.18)',
+  warning: '#F59E0B',
+  warningBg: 'rgba(245,158,11,0.18)',
+  info: '#38BDF8',
+  infoBg: 'rgba(56,189,248,0.18)',
 
-  sleep:     '#6366F1',
-  sleepDark: '#4F46E5',
-  sleepBg:   'rgba(99,102,241,0.12)',
+  // Gamification / premium
+  coins: '#FFCE54',
+  coinsBg: 'rgba(255,206,84,0.18)',
+  premium: '#5ABEFF',
+  premiumBg: 'rgba(90,190,255,0.18)',
+  xp: '#B1A2FF',
 
-  nutrition:     '#EC4899',
-  nutritionDark: '#DB2777',
-  nutritionBg:   'rgba(236,72,153,0.12)',
+  // Rarity
+  rarityCommon: '#8892A3',
+  rarityRare: '#22A7F0',
+  rarityEpic: '#B39CFF',
+  rarityLegendary: '#F0C14B',
 
-  weight:     '#8B5CF6',
-  weightDark: '#7C3AED',
-  weightBg:   'rgba(139,92,246,0.12)',
-
-  workout:     '#EF4444',
-  workoutDark: '#DC2626',
-  workoutBg:   'rgba(239,68,68,0.12)',
-
-  mental:     '#818CF8',
-  mentalDark: '#6366F1',
-  mentalBg:   'rgba(129,140,248,0.12)',
-
-  female:     '#F472B6',
-  femaleDark: '#EC4899',
-  femaleBg:   'rgba(244,114,182,0.12)',
-
-  recovery:     '#34D399',
-  recoveryDark: '#10B981',
-  recoveryBg:   'rgba(52,211,153,0.12)',
-
-  supplements:     '#A78BFA',
-  supplementsDark: '#7C3AED',
-  supplementsBg:   'rgba(167,139,250,0.12)',
-
-  // ─── Sistema ─────────────────────────────────────────────
-  success:     '#10B981',
-  successBg:   'rgba(16,185,129,0.15)',
-  error:       '#EF4444',
-  errorBg:     'rgba(239,68,68,0.15)',
-  warning:     '#F59E0B',
-  warningBg:   'rgba(245,158,11,0.15)',
-  info:        '#06B6D4',
-  infoBg:      'rgba(6,182,212,0.15)',
-
-  // ─── Gamificación ────────────────────────────────────────
-  coins:      '#F59E0B',
-  coinsBg:    'rgba(245,158,11,0.15)',
-  premium:    '#D97706',
-  premiumBg:  'rgba(217,119,6,0.15)',
-  xp:         '#A78BFA',
-
-  // ─── Rareza de badges ────────────────────────────────────
-  rarityCommon:    '#9CA3AF',
-  rarityRare:      '#60A5FA',
-  rarityEpic:      '#A78BFA',
-  rarityLegendary: '#F59E0B',
-
-  // ─── Utilidades ──────────────────────────────────────────
+  // Utilities
   transparent: 'transparent',
-  overlay:     'rgba(0,0,0,0.6)',
-  overlayLight:'rgba(15,10,30,0.85)',
-  white:       '#FFFFFF',
-  black:       '#000000',
+  white: '#FFFFFF',
+  black: '#000000',
 
-  // ─── Gradientes (usar como arrays en LinearGradient) ─────
   gradients: {
-    brand:      ['#7C3AED', '#5B21B6'] as const,
-    brandLight: ['#9F67FF', '#7C3AED'] as const,
-    water:      ['#06B6D4', '#0891B2'] as const,
-    steps:      ['#10B981', '#059669'] as const,
-    fasting:    ['#F59E0B', '#D97706'] as const,
-    sleep:      ['#6366F1', '#4F46E5'] as const,
-    nutrition:  ['#EC4899', '#DB2777'] as const,
-    weight:     ['#8B5CF6', '#7C3AED'] as const,
-    workout:    ['#EF4444', '#DC2626'] as const,
-    mental:     ['#818CF8', '#6366F1'] as const,
-    female:     ['#F472B6', '#EC4899'] as const,
-    premium:    ['#F59E0B', '#D97706'] as const,
-    dark:       ['#1A1033', '#0F0A1E'] as const,
-    surface:    ['#241648', '#1A1033'] as const,
+    brand: ['#9487FF', '#6556F2'] as const,
+    brandLight: ['#C2BBFF', '#7B6DFF'] as const,
+    premium: ['#7B6DFF', '#5ABEFF'] as const,
+    water: ['#78D3FF', '#1496E7'] as const,
+    steps: ['#F4B942', '#E89C00'] as const,
+    fasting: ['#FF8A5C', '#F05A24'] as const,
+    sleep: ['#B8BCFF', '#6A72ED'] as const,
+    nutrition: ['#3DE0A3', '#00D68A'] as const,
+    weight: ['#F39BC2', '#CF4D8E'] as const,
+    workout: ['#B8AFFF', '#7B6DFF'] as const,
+    mental: ['#E1D7FF', '#AA95F7'] as const,
+    female: ['#F7B5D7', '#D86CA4'] as const,
+    coach: ['#8FD8FF', '#2A9DE9'] as const,
+    surface: ['#18253B', '#0F1726'] as const,
+    dark: ['#131E31', '#070B14'] as const,
   },
 } as const;
 
-// Tipo derivado para type safety
 export type ColorKey = keyof typeof Colors;
-export type ModuleColor = 'water' | 'steps' | 'fasting' | 'sleep' | 'nutrition' | 'weight' | 'workout' | 'mental' | 'female' | 'recovery' | 'supplements';
+export type ModuleColor =
+  | 'coach'
+  | 'female'
+  | 'fasting'
+  | 'mental'
+  | 'nutrition'
+  | 'recovery'
+  | 'sleep'
+  | 'steps'
+  | 'supplements'
+  | 'water'
+  | 'weight'
+  | 'workout';
 
-// Helper: obtener color de módulo por nombre
-export function getModuleColor(module: ModuleColor): string {
+export function getModuleColor(module: ModuleColor, focusMode = false): string {
+  if (focusMode) return Colors.brand;
   return Colors[module];
 }
 
-// Helper: obtener color de fondo de módulo
-export function getModuleBg(module: ModuleColor): string {
-  return Colors[`${module}Bg` as keyof typeof Colors] as string;
+export function getModuleRgb(module: ModuleColor, focusMode = false): readonly number[] {
+  if (focusMode) return MODULE_RGB.workout;
+  return MODULE_RGB[module as ModuleRgbKey] ?? MODULE_RGB.workout;
+}
+
+export function getModuleBg(module: ModuleColor, opacity = 0.18, focusMode = false): string {
+  return withOpacity(getModuleColor(module, focusMode), opacity);
+}
+
+export function getModuleGlow(module: ModuleColor, opacity = 0.35, focusMode = false): string {
+  return withOpacity(getModuleColor(module, focusMode), opacity);
+}
+
+export function getModuleRgbString(module: ModuleColor, focusMode = false): string {
+  return rgbToString(getModuleRgb(module, focusMode));
 }

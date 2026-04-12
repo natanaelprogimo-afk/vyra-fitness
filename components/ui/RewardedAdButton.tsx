@@ -16,6 +16,7 @@ interface RewardedAdButtonProps {
   coins?:   number;
   onReward: (coins: number) => void | Promise<void>;
   compact?: boolean;
+  hideWhenUnavailable?: boolean;
 }
 
 export function RewardedAdButton({
@@ -24,11 +25,14 @@ export function RewardedAdButton({
   coins = 15,
   onReward,
   compact = false,
+  hideWhenUnavailable = true,
 }: RewardedAdButtonProps) {
   const { canShowRewarded, showRewarded, showing, isPremium } = useAds();
 
   // No mostrar si es Premium o si no hay anuncio disponible
-  if (isPremium || !canShowRewarded(context)) return null;
+  if (isPremium) return null;
+  const available = canShowRewarded(context);
+  if (!available && hideWhenUnavailable) return null;
 
   const handlePress = async () => {
     await showRewarded(context, onReward);

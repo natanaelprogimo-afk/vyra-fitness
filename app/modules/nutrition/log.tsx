@@ -16,6 +16,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { useNutrition, MEAL_TYPES, type MealType, type FoodItem } from '@/hooks/useNutrition';
+import { NUTRITION_MODE_OPTIONS } from '@/lib/nutrition-mode';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 
@@ -26,7 +27,7 @@ export default function NutritionLogScreen() {
   const mealType  = params.mealType ?? 'snack';
   const config    = MEAL_TYPES[mealType];
 
-  const { logMeal, isLogging, searchFoods } = useNutrition();
+  const { logMeal, isLogging, searchFoods, nutritionMode, setNutritionMode, isSavingNutritionMode } = useNutrition();
 
   const [mode,        setMode]       = useState<LogMode>('search');
   const [query,       setQuery]      = useState('');
@@ -110,6 +111,22 @@ export default function NutritionLogScreen() {
         showBack
         color={Colors.nutrition}
       />
+
+      {/* Nutrition mode selector (inlined from nutrition/mode) */}
+      <View style={styles.nutriModeRow}>
+        {NUTRITION_MODE_OPTIONS.map((m) => {
+          const isActive = nutritionMode === m.id;
+          return (
+            <Pressable
+              key={m.id}
+              style={[styles.nutriModeBtn, isActive && styles.nutriModeBtnActive]}
+              onPress={() => void setNutritionMode(m.id)}
+            >
+              <Text style={[styles.nutriModeText, isActive && { color: Colors.nutrition }]}>{m.shortTitle}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       {/* Toggle mode */}
       <View style={styles.modeToggle}>
@@ -269,6 +286,10 @@ const styles = StyleSheet.create({
   modeBtn:        { flex: 1, paddingVertical: Spacing[2], alignItems: 'center', borderRadius: Radius.lg },
   modeBtnActive:  { backgroundColor: Colors.bgElevated },
   modeBtnText:    { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
+  nutriModeRow:   { flexDirection: 'row', gap: Spacing[2], marginHorizontal: Spacing[5], marginBottom: Spacing[3] },
+  nutriModeBtn:   { paddingVertical: Spacing[2], paddingHorizontal: Spacing[4], borderRadius: Radius.xl, backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border },
+  nutriModeBtnActive: { borderColor: Colors.nutrition, backgroundColor: Colors.bgElevated },
+  nutriModeText:  { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
   content:        { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
   searchInput: {
     backgroundColor:  Colors.bgSurface,

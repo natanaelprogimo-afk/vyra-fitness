@@ -9,6 +9,7 @@ import {
   View,
   StyleSheet,
   type ViewStyle,
+  type StyleProp,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -22,12 +23,13 @@ import { Radius, Spacing, Shadows } from '@/constants/theme';
 interface CardProps {
   children:        React.ReactNode;
   onPress?:        () => void;
-  style?:          ViewStyle | ViewStyle[];
+  style?:          StyleProp<ViewStyle>;
   elevated?:       boolean;        // usa bgElevated en vez de bgSurface
   noPad?:          boolean;
   borderColor?:    string;
   shadow?:         boolean;
   accentColor?:    string;         // barra de color izquierda
+  decorative?:     boolean;
   haptic?:         boolean;
 }
 
