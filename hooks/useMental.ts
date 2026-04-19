@@ -1,7 +1,7 @@
 // ============================================================
 // VYRA FITNESS — useMental Hook
 // Check-in diario (mood/energy/stress/motivation), historial
-// 30 días, tendencias, score semanal, coins por check-in
+// 30 días, tendencias y score semanal.
 // ============================================================
 
 import { useCallback } from 'react';
@@ -9,7 +9,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { addCoins, addXP } from '@/services/supabase/profiles';
 import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
@@ -105,7 +104,7 @@ export function useMental() {
 
   const todayDone  = !!todayEntry;
   const todayScore = todayEntry
-    ? calculateMentalScore(todayEntry.mood, todayEntry.energy, todayEntry.stress, todayEntry.motivation)
+    ?  calculateMentalScore(todayEntry.mood, todayEntry.energy, todayEntry.stress, todayEntry.motivation)
     : null;
 
   // ─── Historial 30 días ────────────────────────────────────
@@ -134,7 +133,7 @@ export function useMental() {
   const last7 = history.slice(-7);
 
   const weeklyAvgScore = last7.length
-    ? Math.round(last7.reduce((s, e) =>
+    ?  Math.round(last7.reduce((s, e) =>
         s + calculateMentalScore(e.mood, e.energy, e.stress, e.motivation), 0) / last7.length)
     : 0;
 
@@ -156,7 +155,7 @@ export function useMental() {
   // Tendencia de humor (últimos 7 días vs los 7 anteriores)
   const prev7 = history.slice(-14, -7);
   const moodTrend = last7.length && prev7.length
-    ? (last7.reduce((s, e) => s + e.mood, 0) / last7.length) -
+    ?  (last7.reduce((s, e) => s + e.mood, 0) / last7.length) -
       (prev7.reduce((s, e) => s + e.mood, 0) / prev7.length)
     : 0;
 
@@ -233,12 +232,8 @@ export function useMental() {
     },
 
     onSuccess: async ({ score }) => {
-      // Coins solo si es check-in nuevo (no edición)
       if (!todayDone) {
-        const coinsEarned = score >= 70 ? 5 : 2;
-        await addCoins(userId, coinsEarned, 'mental_checkin', `Check-in mental: ${score}/100`);
-        await addXP(userId, 30);
-        showToast(`Check-in guardado — ${score}/100 +${coinsEarned} 🪙`, 'success');
+        showToast(`Check-in guardado — ${score}/100`, 'success');
       } else {
         showToast('Check-in actualizado', 'success');
       }
@@ -275,7 +270,7 @@ export function useMental() {
   const insights: string[] = [];
   if (avgStress > 7)    insights.push('⚠️ Tu estrés promedio está elevado. Considerá técnicas de respiración o meditación.');
   if (avgEnergy < 5)    insights.push('😴 Energía baja en promedio. Revisá tu sueño y nutrición.');
-  if (moodTrend < -0.5) insights.push('📉 Tu humor bajó esta semana. ¿Hay algo que te esté pesando?');
+  if (moodTrend < -0.5) insights.push('📉 Tu humor bajó esta semana. ¿Hay algo que te esté pesando??');
   if (moodTrend > 0.5)  insights.push('📈 Tu humor mejoró esta semana. ¡Seguí así!');
   if (checkinStreak >= 7) insights.push('🔥 7 días consecutivos de check-in. ¡Racha perfecta!');
   if (avgMood >= 4)     insights.push('😊 Tu humor promedio es excelente esta semana.');

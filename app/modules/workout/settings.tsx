@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Header from '@/components/layout/Header';
 import WorkoutTabs from '@/components/workout/WorkoutTabs';
@@ -39,34 +39,45 @@ function ToggleRow({
 export default function WorkoutSettingsScreen() {
   const { settings, updateSettings } = useWorkout();
 
+  const restAlertOptions: Array<{
+    id: 'soft' | 'strong' | 'sound' | 'silent';
+    label: string;
+    hint: string;
+  }> = [
+    { id: 'soft', label: 'Suave', hint: 'Pulso corto y discreto.' },
+    { id: 'strong', label: 'Fuerte', hint: 'Vibracion mas marcada para no perder el cierre.' },
+    { id: 'sound', label: 'Intensa', hint: 'La alerta tactil mas fuerte disponible ahora.' },
+    { id: 'silent', label: 'Nada', hint: 'Sin vibracion al terminar el descanso.' },
+  ];
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
         eyebrow="Entreno"
         title="Ajustes"
-        subtitle="Descanso, háptica, foco de pantalla y pequeños defaults del módulo."
+        subtitle="Descanso, haptica, foco de pantalla y defaults del modulo."
         color={Colors.workout}
       />
       <WorkoutTabs active="settings" />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Card accentColor={Colors.workout} style={styles.sectionCard}>
-          <Text style={styles.sectionEyebrow}>Flujo de sesión</Text>
-          <Text style={styles.sectionTitle}>Lo que pasa mientras entrenás</Text>
+          <Text style={styles.sectionEyebrow}>Flujo de sesion</Text>
+          <Text style={styles.sectionTitle}>Lo que pasa mientras entrenas</Text>
           <ToggleRow
-            title="Descanso automático"
-            hint="Abre el temporizador apenas registrás una serie."
+            title="Descanso automatico"
+            hint="Abre el temporizador apenas registras una serie."
             value={settings.autoStartRest}
             onValueChange={(value) => updateSettings({ autoStartRest: value })}
           />
           <ToggleRow
             title="Mantener pantalla activa"
-            hint="Evita que el teléfono se bloquee en medio de la sesión."
+            hint="Evita que el telefono se bloquee en medio de la sesion."
             value={settings.keepScreenAwake}
             onValueChange={(value) => updateSettings({ keepScreenAwake: value })}
           />
           <ToggleRow
-            title="Háptica"
+            title="Haptica"
             hint="Da feedback suave al registrar serie, PR o fin de bloque."
             value={settings.hapticsEnabled}
             onValueChange={(value) => updateSettings({ hapticsEnabled: value })}
@@ -75,10 +86,10 @@ export default function WorkoutSettingsScreen() {
 
         <Card style={styles.sectionCard}>
           <Text style={styles.sectionEyebrow}>Ayuda visual</Text>
-          <Text style={styles.sectionTitle}>Cuánto te acompaña la UI</Text>
+          <Text style={styles.sectionTitle}>Cuanto te acompana la UI</Text>
           <ToggleRow
-            title="Mostrar tips técnicos"
-            hint="Deja visibles cues y errores comunes dentro de la sesión."
+            title="Mostrar tips tecnicos"
+            hint="Deja visibles cues y errores comunes dentro de la sesion."
             value={settings.showHints}
             onValueChange={(value) => updateSettings({ showHints: value })}
           />
@@ -86,7 +97,7 @@ export default function WorkoutSettingsScreen() {
 
         <Card style={styles.sectionCard}>
           <Text style={styles.sectionEyebrow}>Descanso por defecto</Text>
-          <Text style={styles.sectionTitle}>Presets rápidos</Text>
+          <Text style={styles.sectionTitle}>Presets rapidos</Text>
           <View style={styles.presetRow}>
             {settings.restPresets.map((preset) => (
               <Button
@@ -101,7 +112,28 @@ export default function WorkoutSettingsScreen() {
             ))}
           </View>
           <Text style={styles.sectionHint}>
-            El descanso por defecto se usa como base al crear rutinas y sesiones rápidas.
+            El descanso por defecto se usa como base al crear rutinas y sesiones rapidas.
+          </Text>
+        </Card>
+
+        <Card style={styles.sectionCard}>
+          <Text style={styles.sectionEyebrow}>Alerta de fin</Text>
+          <Text style={styles.sectionTitle}>Como te avisa el descanso</Text>
+          <View style={styles.presetRow}>
+            {restAlertOptions.map((option) => (
+              <Button
+                key={option.id}
+                onPress={() => updateSettings({ restAlertMode: option.id })}
+                variant={settings.restAlertMode === option.id ? 'primary' : 'secondary'}
+                color={Colors.workout}
+                style={styles.alertButton}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </View>
+          <Text style={styles.sectionHint}>
+            {restAlertOptions.find((option) => option.id === settings.restAlertMode)?.hint}
           </Text>
         </Card>
       </ScrollView>
@@ -169,5 +201,8 @@ const styles = StyleSheet.create({
   },
   presetButton: {
     minWidth: 72,
+  },
+  alertButton: {
+    minWidth: 92,
   },
 });

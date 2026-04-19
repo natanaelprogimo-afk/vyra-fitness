@@ -18,6 +18,7 @@ export type OnboardingDraft = Partial<OnboardingData> & {
   medical_disclaimer_accepted?: boolean;
 
   notifications_permission?: 'granted' | 'denied';
+  notifications_permission_state?: 'granted' | 'denied' | 'skipped';
 
   activity_permission?: 'granted' | 'denied';
 
@@ -26,6 +27,8 @@ export type OnboardingDraft = Partial<OnboardingData> & {
   health_connect_status?: string | null;
 
   referral_code?: string | null;
+  context_display_name?: string | null;
+  coach_display_name?: string | null;
 
 };
 

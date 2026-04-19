@@ -1,4 +1,4 @@
-﻿import { Colors } from '@/constants/colors';
+import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import type { SleepEntry } from '@/hooks/useSleep';
 
@@ -16,11 +16,11 @@ export const SLEEP_TABS: Array<{ key: SleepTabKey; label: string; route: string 
 ];
 
 export const SLEEP_QUALITY_OPTIONS = [
-  { value: 1, emoji: '😵', label: 'Pesada', short: 'Pesada', accent: '#FF8E8E' },
-  { value: 2, emoji: '😕', label: 'Cortada', short: 'Cortada', accent: '#FFB36B' },
-  { value: 3, emoji: '😐', label: 'Regular', short: 'Regular', accent: '#9AA0B8' },
-  { value: 4, emoji: '🙂', label: 'Buena', short: 'Buena', accent: '#8AA0FF' },
-  { value: 5, emoji: '😄', label: 'Profunda', short: 'Profunda', accent: '#A79BFF' },
+  { value: 1, emoji: ':-/', label: 'Descanse poco', short: 'Poco', accent: '#FF8E8E' },
+  { value: 2, emoji: ':-|', label: 'Fue cortado', short: 'Cortado', accent: '#FFB36B' },
+  { value: 3, emoji: ':-)', label: 'Mas o menos', short: 'Normal', accent: '#9AA0B8' },
+  { value: 4, emoji: ':)', label: 'Bastante bien', short: 'Bien', accent: '#8AA0FF' },
+  { value: 5, emoji: ':D', label: 'Descanse muy bien', short: 'Muy bien', accent: '#A79BFF' },
 ] as const;
 
 export type SleepQualityValue = (typeof SLEEP_QUALITY_OPTIONS)[number]['value'];
@@ -28,7 +28,7 @@ export type SleepQualityValue = (typeof SLEEP_QUALITY_OPTIONS)[number]['value'];
 export function getSleepQualityMeta(value?: number | null) {
   return SLEEP_QUALITY_OPTIONS.find((option) => option.value === value) ?? {
     value: 0,
-    emoji: '🌙',
+    emoji: '*',
     label: 'Sin elegir',
     short: 'Sin elegir',
     accent: Colors.textMuted,
@@ -36,7 +36,7 @@ export function getSleepQualityMeta(value?: number | null) {
 }
 
 export function formatSleepClock(value?: Date | string | null) {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = value instanceof Date ? value : new Date(value);
   return date.toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' });
 }
@@ -182,4 +182,4 @@ export function groupSleepHistoryByWeek(items: SleepEntry[]) {
   }
 
   return [...groups.values()];
-}
+}

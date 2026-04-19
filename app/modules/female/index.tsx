@@ -1,725 +1,554 @@
-// ============================================================
-// VYRA FITNESS — Módulo Salud Femenina: Pantalla Principal
-// Ciclo menstrual, fases, síntomas, predicciones
-// ============================================================
-
-import { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
-import SafeScreen from '@/components/ui/SafeScreen';
+import { useMemo, useState } from 'react';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
+import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
 import Button from '@/components/ui/Button';
-import ProgressCircle from '@/components/charts/ProgressCircle';
+import Card from '@/components/ui/Card';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useFemaleHealth } from '@/hooks/useFemaleHealth';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
+import { useWorkout } from '@/hooks/useWorkout';
+import { useSettingsStore } from '@/stores/settingsStore';
 
-const PHASE_EMOJIS: Record<string, string> = {
-  menstrual: '🔴',
-  follicular: '🌱',
-  ovulation: '🌕',
-  luteal: '🌙',
+const SYMPTOMS = ['colicos', 'hinchazon', 'fatiga', 'migrana', 'cambios de humor', 'energia alta'] as const;
+const MOODS = ['1', '2', '3', '4', '5'] as const;
+
+type PhaseTone = {
+  title: string;
+  description: string;
+  color: string;
 };
 
-const PHASE_COLORS: Record<string, string> = {
-  menstrual: '#FF6B6B',
-  follicular: '#4ECDC4',
-  ovulation: '#FFD43B',
-  luteal: '#A78BFA',
-};
+function getPhaseTone(phase: string): PhaseTone {
+  switch (phase) {
+    case 'menstrual':
+      return {
+        title: 'Fase menstrual',
+        description: 'Buen momento para bajar exigencia, sumar recuperacion y escuchar energia real.',
+        color: '#F87171',
+      };
+    case 'ovulation':
+      return {
+        title: 'Fase ovulatoria',
+        description: 'Energia alta. Buen momento para entrenar fuerte o subir intensidad.',
+        color: Colors.female,
+      };
+    case 'luteal':
+      return {
+        title: 'Fase lutea',
+        description: 'Conviene consistencia, carga moderada y margen extra de recuperacion.',
+        color: '#A855F7',
+      };
+    default:
+      return {
+        title: 'Fase folicular',
+        description: 'Suele haber buena tolerancia al progreso y a sesiones con mas empuje.',
+        color: '#D8B4FE',
+      };
+  }
+}
 
-const PHASE_NAMES: Record<string, string> = {
-  menstrual: 'Menstruación',
-  follicular: 'Folicular',
-  ovulation: 'Ovulación',
-  luteal: 'Lútea',
-};
+function getPhaseForDay(dayIndex: number, cycleLength: number) {
+  const normalized = cycleLength > 0 ? dayIndex % cycleLength : dayIndex;
+  if (normalized < 5) return '#F87171';
+  if (normalized < 13) return '#D8B4FE';
+  if (normalized < 16) return Colors.female;
+  return '#A855F7';
+}
 
-const SYMPTOMS = [
-  'cólicos', 'hinchazón', 'fatiga', 'migrañas', 'sensibilidad mamaria',
-  'cambios de humor', 'acné', 'flujo vaginal', 'libido baja', 'energía alta',
-];
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
 
 export default function FemaleHealthScreen() {
+  const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.female));
+  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
   const {
-    cycleLength, nextPeriodDate, currentPhase, daysInPhase,
-    lastPeriodDate, isLogging, log, updateSymptoms,
-    history, isInCycle, phaseGuidance, imminentPhaseNotice, cycleIrregularity,
-    strictSensitiveMode, saveCycleSetup, isSavingSetup,
+    cycleLength,
+    currentPhase,
+    daysInPhase,
+    nextPeriodDate,
+    phaseGuidance,
+    imminentPhaseNotice,
+    isInCycle,
+    strictSensitiveMode,
+    saveCycleSetup,
+    isSavingSetup,
+    log,
+    isLogging,
   } = useFemaleHealth();
+  const { activeSession } = useWorkout();
 
-  const [showLogForm, setShowLogForm]       = useState(false);
+  const [showSensitive, setShowSensitive] = useState(!strictSensitiveMode);
+  const [setupCycle, setSetupCycle] = useState(cycleLength || 28);
+  const [logOpen, setLogOpen] = useState(false);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
-  const [symptomSeverity, setSymptomSeverity] = useState<Record<string, number>>({});
-  const [notes, setNotes]                   = useState('');
-  const [setupCycleLength, setSetupCycleLength] = useState(cycleLength || 28);
+  const [selectedMood, setSelectedMood] = useState<string>('3');
+  const [notes, setNotes] = useState('');
 
-  const phaseEmoji = PHASE_EMOJIS[currentPhase] || '❓';
-  const phaseColor = PHASE_COLORS[currentPhase] || Colors.textSecondary;
-  const phaseName = PHASE_NAMES[currentPhase] || 'Desconocido';
+  const phaseTone = getPhaseTone(currentPhase);
+  const todayIndex = Math.max(0, Math.min(cycleLength - 1, daysInPhase));
+  const cycleDays = Array.from({ length: Math.max(28, Math.min(32, cycleLength || 28)) }, (_, index) => index);
+  const ovulationDate = useMemo(() => {
+    const diff = daysInPhase <= 14 ? 14 - daysInPhase : cycleLength - daysInPhase + 14;
+    return addDays(new Date(), diff);
+  }, [cycleLength, daysInPhase]);
 
-  const cycleProgress = ((daysInPhase + 1) / cycleLength) * 100;
-
-  const currentDaySymptoms = history.length > 0 ? history[0].symptoms : [];
-
-  const handleLogPeriod = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    log(currentPhase, selectedSymptoms, notes.trim() || undefined, symptomSeverity);
-    setSelectedSymptoms([]);
-    setSymptomSeverity({});
-    setNotes('');
-    setShowLogForm(false);
-  };
-
-  const handleSetupCycle = () => {
-    const today = new Date().toISOString().split('T')[0] ?? '';
-    void saveCycleSetup(today, setupCycleLength);
-  };
+  if (!hasSeenIntro) {
+    return (
+      <SafeScreen padHorizontal={false} padBottom>
+        <Header title="Ciclo" showBack />
+        <ModuleIntroScreen
+          accentColor={Colors.female}
+          icon="🌸"
+          title="Seguimiento femenino"
+          body="Registra la fase, como te sientes y deja que VYRA conecte ciclo, entreno y energia."
+          ctaLabel="Entrar al modulo"
+          onContinue={() => markModuleIntroSeen('female')}
+        />
+      </SafeScreen>
+    );
+  }
 
   const toggleSymptom = (symptom: string) => {
-    setSelectedSymptoms((prev) => {
-      if (prev.includes(symptom)) {
-        setSymptomSeverity((current) => {
-          const next = { ...current };
-          delete next[symptom];
-          return next;
-        });
-        return prev.filter((s) => s !== symptom);
-      }
-
-      setSymptomSeverity((current) => ({
-        ...current,
-        [symptom]: current[symptom] ?? 3,
-      }));
-      return [...prev, symptom];
-    });
-  };
-
-  const adjustSymptomSeverity = (symptom: string, delta: number) => {
-    setSymptomSeverity((current) => {
-      const prev = current[symptom] ?? 3;
-      const nextValue = Math.max(1, Math.min(5, prev + delta));
-      return {
-        ...current,
-        [symptom]: nextValue,
-      };
-    });
+    setSelectedSymptoms((current) =>
+      current.includes(symptom) ? current.filter((item) => item !== symptom) : [...current, symptom],
+    );
   };
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Salud Femenina"
+        title="Ciclo"
         showBack
-        color={Colors.female}
         rightAction={
-          <Pressable onPress={() => router.push('/modules/female/history' as any)} style={styles.histBtn}>
-            <Text style={styles.histText}>Historial</Text>
+          <Pressable onPress={() => setShowSensitive((value) => !value)}>
+            <Text style={styles.headerLink}>{showSensitive ? 'Ocultar' : 'Ver'}</Text>
           </Pressable>
         }
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {strictSensitiveMode ? (
-          <Card style={styles.privacyCard}>
-            <Text style={styles.privacyTitle}>Modo estricto activo</Text>
-            <Text style={styles.privacyText}>
-              La fase diaria se guarda cifrada. El modulo sigue funcionando localmente, pero algunas automatizaciones remotas por fase pueden reducirse.
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {strictSensitiveMode && !showSensitive ? (
+          <Card style={styles.lockCard} shadow={false}>
+            <Text style={styles.lockTitle}>Toca para ver tu informacion del ciclo</Text>
+            <Text style={styles.lockBody}>
+              El modo privado tapa fase, predicciones y sintomas hasta que tu decidas abrirlos.
             </Text>
+            <Button onPress={() => setShowSensitive(true)} fullWidth>
+              Mostrar ahora
+            </Button>
           </Card>
         ) : null}
 
         {!isInCycle ? (
-          <Card style={styles.setupCard}>
-            <Text style={styles.setupTitle}>Inicializa tu ciclo</Text>
-            <Text style={styles.setupText}>
-              Marca el inicio del ultimo periodo para que Vyra adapte entreno, ayuno, hidratacion y widget segun la fase.
+          <Card style={styles.setupCard} shadow={false}>
+            <Text style={styles.sectionTitle}>Inicializa tu ciclo</Text>
+            <Text style={styles.sectionBody}>
+              Marca el inicio reciente para calcular fase, predicciones y contexto diario.
             </Text>
-            <View style={styles.setupChips}>
-              {[26, 28, 30].map((option) => (
+            <View style={styles.setupRow}>
+              {[26, 28, 30].map((value) => (
                 <Pressable
-                  key={option}
-                  onPress={() => setSetupCycleLength(option)}
-                  style={[
-                    styles.setupChip,
-                    setupCycleLength === option && styles.setupChipActive,
-                  ]}
+                  key={value}
+                  style={[styles.setupChip, setupCycle === value && styles.setupChipActive]}
+                  onPress={() => setSetupCycle(value)}
                 >
-                  <Text style={[styles.setupChipText, setupCycleLength === option && styles.setupChipTextActive]}>
-                    {option} dias
+                  <Text style={[styles.setupChipText, setupCycle === value && styles.setupChipTextActive]}>
+                    {value} dias
                   </Text>
                 </Pressable>
               ))}
             </View>
             <Button
-              label="Usar hoy como inicio"
-              onPress={handleSetupCycle}
+              onPress={() => void saveCycleSetup(new Date().toISOString().split('T')[0] ?? '', setupCycle)}
               loading={isSavingSetup}
-              variant="primary"
               fullWidth
-            />
+            >
+              Usar hoy como inicio
+            </Button>
           </Card>
         ) : null}
 
-        {/* Ring con fase actual */}
-        <View style={styles.cycleSection}>
-          <ProgressCircle
-            value={cycleProgress}
-            size={180}
-            strokeWidth={12}
-            color={phaseColor}
-            trackColor={Colors.bgElevated}
-            animated
-            duration={1000}
-          >
-            <Text style={styles.phaseEmoji}>{phaseEmoji}</Text>
-            <Text style={[styles.phaseName, { color: phaseColor }]}>{phaseName}</Text>
-            <Text style={styles.cycleDay}>Día {daysInPhase + 1} de {cycleLength}</Text>
-          </ProgressCircle>
+        {(!strictSensitiveMode || showSensitive) && isInCycle ? (
+          <>
+            <Card style={styles.cycleCard} shadow={false}>
+              <View style={styles.cycleHeader}>
+                <View>
+                  <Text style={[styles.phaseTitle, { color: phaseTone.color }]}>{phaseTone.title}</Text>
+                  <Text style={styles.phaseSubtitle}>Dia {daysInPhase + 1} de tu ciclo</Text>
+                </View>
+              </View>
 
-          {nextPeriodDate && (
-            <View style={[styles.nextPeriodCard, { backgroundColor: `${Colors.female}0F` }]}>
-              <Text style={styles.nextPeriodLabel}>Próxima menstruación:</Text>
-              <Text style={[styles.nextPeriodDate, { color: Colors.female }]}>
-                {new Date(nextPeriodDate).toLocaleDateString('es-AR', {
-                  month: 'short',
-                  day: 'numeric',
+              <View style={styles.cycleScale}>
+                {cycleDays.map((day) => {
+                  const isToday = day === todayIndex;
+                  return (
+                    <View key={day} style={styles.cycleScaleItem}>
+                      <View
+                        style={[
+                          styles.cycleBar,
+                          {
+                            backgroundColor: getPhaseForDay(day, cycleLength),
+                            opacity: isToday ? 1 : 0.4,
+                            borderWidth: isToday ? 1.5 : 0,
+                            borderColor: isToday ? Colors.textPrimary : 'transparent',
+                          },
+                        ]}
+                      />
+                      {isToday ? <Text style={styles.todayMarker}>HOY</Text> : null}
+                    </View>
+                  );
                 })}
-              </Text>
-            </View>
-          )}
-        </View>
+              </View>
+            </Card>
 
-        {/* Info de la fase actual */}
-        <Card style={styles.phaseInfoCard}>
-          <Text style={styles.phaseInfoTitle}>Características de esta fase:</Text>
-          {currentPhase === 'menstrual' && (
-            <View>
-              <Text style={styles.phaseInfoText}>💧 Sangrado menstrual</Text>
-              <Text style={styles.phaseInfoText}>😴 Energía más baja</Text>
-              <Text style={styles.phaseInfoText}>💪 Enfocarse en descanso y nutrición</Text>
-            </View>
-          )}
-          {currentPhase === 'follicular' && (
-            <View>
-              <Text style={styles.phaseInfoText}>🌱 Crecimiento del óvulo</Text>
-              <Text style={styles.phaseInfoText}>⚡ Energía aumentando</Text>
-              <Text style={styles.phaseInfoText}>🏋️ Buen momento para entrenamientos intensos</Text>
-            </View>
-          )}
-          {currentPhase === 'ovulation' && (
-            <View>
-              <Text style={styles.phaseInfoText}>🌕 Liberación del óvulo</Text>
-              <Text style={styles.phaseInfoText}>🔥 Energía, confianza, libido en pico</Text>
-              <Text style={styles.phaseInfoText}>🎯 Mejor momento para retos y PRs</Text>
-            </View>
-          )}
-          {currentPhase === 'luteal' && (
-            <View>
-              <Text style={styles.phaseInfoText}>🌙 Preparación para menstruación</Text>
-              <Text style={styles.phaseInfoText}>😤 Posible fatiga, retención de agua</Text>
-              <Text style={styles.phaseInfoText}>🤝 Enfocarse en consistencia, no intensidad</Text>
-            </View>
-          )}
-        </Card>
+            <Card style={[styles.contextCard, { borderColor: withOpacity(phaseTone.color, 0.28) }]} shadow={false}>
+              <Text style={styles.sectionTitle}>{phaseTone.description}</Text>
+              <Text style={styles.sectionBody}>{phaseGuidance.training}</Text>
+              <Text style={styles.sectionBody}>{phaseGuidance.nutrition}</Text>
+              {activeSession ? (
+                <Text style={styles.compatibilityText}>La sesion activa de hoy es compatible con esta fase.</Text>
+              ) : null}
+            </Card>
 
-        <Card style={styles.guidanceCard}>
-          <Text style={styles.guidanceTitle}>Adaptación automática recomendada</Text>
-          <Text style={styles.guidanceText}>Entrenamiento: {phaseGuidance.training}</Text>
-          <Text style={styles.guidanceText}>Ayuno: {phaseGuidance.fasting}</Text>
-          <Text style={styles.guidanceText}>Nutrición: {phaseGuidance.nutrition}</Text>
-          {phaseGuidance.hydrationBoostMl > 0 && (
-            <Text style={styles.guidanceMeta}>Hidratación sugerida: +{phaseGuidance.hydrationBoostMl} ml.</Text>
-          )}
-          {phaseGuidance.weightContext && (
-            <Text style={styles.guidanceMeta}>{phaseGuidance.weightContext}</Text>
-          )}
-        </Card>
+            {imminentPhaseNotice ? (
+              <Card style={styles.noticeCard} shadow={false}>
+                <Text style={styles.sectionBody}>{imminentPhaseNotice}</Text>
+              </Card>
+            ) : null}
 
-        {imminentPhaseNotice && (
-          <Card style={styles.noticeCard}>
-            <Text style={styles.noticeTitle}>Fase inminente</Text>
-            <Text style={styles.noticeText}>{imminentPhaseNotice}</Text>
-          </Card>
-        )}
+            <Button onPress={() => setLogOpen(true)} fullWidth>
+              Registrar hoy
+            </Button>
 
-        {cycleIrregularity.isIrregular && cycleIrregularity.message && (
-          <Card style={styles.irregularCard}>
-            <Text style={styles.irregularTitle}>Variación de ciclo detectada</Text>
-            <Text style={styles.irregularText}>{cycleIrregularity.message}</Text>
-          </Card>
-        )}
+            <Card style={styles.predictionCard} shadow={false}>
+              <Text style={styles.sectionTitle}>Predicciones</Text>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Proxima menstruacion</Text>
+                <Text style={styles.predictionValue}>
+                  {nextPeriodDate
+                    ? new Date(`${nextPeriodDate}T00:00:00`).toLocaleDateString('es-UY', {
+                        day: 'numeric',
+                        month: 'short',
+                      })
+                    : '--'}
+                </Text>
+              </View>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Proxima ovulacion</Text>
+                <Text style={styles.predictionValue}>
+                  {ovulationDate.toLocaleDateString('es-UY', {
+                    day: 'numeric',
+                    month: 'short',
+                  })}
+                </Text>
+              </View>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Duracion promedio</Text>
+                <Text style={styles.predictionValue}>{cycleLength} dias</Text>
+              </View>
+            </Card>
+          </>
+        ) : null}
+      </ScrollView>
 
-        {/* Log de síntomas */}
-        {!showLogForm ? (
-          <Button
-            label="📝 Registrar síntomas de hoy"
-            onPress={() => setShowLogForm(true)}
-            variant="primary"
-            fullWidth
-            style={styles.logBtn}
-          />
-        ) : (
-          <Card style={styles.formCard}>
-            <Text style={styles.formTitle}>Síntomas de hoy</Text>
-
-            <View style={styles.symptomsGrid}>
+      <Modal visible={logOpen} transparent animationType="slide" onRequestClose={() => setLogOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.sectionTitle}>Registrar hoy</Text>
+            <View style={styles.symptomWrap}>
               {SYMPTOMS.map((symptom) => {
-                const isSelected = selectedSymptoms.includes(symptom);
+                const active = selectedSymptoms.includes(symptom);
                 return (
                   <Pressable
                     key={symptom}
+                    style={[styles.symptomChip, active && styles.symptomChipActive]}
                     onPress={() => toggleSymptom(symptom)}
-                    style={[
-                      styles.symptomTag,
-                      isSelected && {
-                        backgroundColor: phaseColor,
-                        borderColor: phaseColor,
-                      },
-                    ]}
                   >
-                    <Text
-                      style={[
-                        styles.symptomText,
-                        isSelected && { color: '#FFF' },
-                      ]}
-                    >
-                      {symptom}
-                    </Text>
+                    <Text style={[styles.symptomChipText, active && styles.symptomChipTextActive]}>{symptom}</Text>
                   </Pressable>
                 );
               })}
             </View>
 
-            {selectedSymptoms.length > 0 ? (
-              <View style={styles.severityPanel}>
-                <Text style={styles.severityTitle}>Severidad (1-5)</Text>
-                {selectedSymptoms.map((symptom) => {
-                  const severity = symptomSeverity[symptom] ?? 3;
-                  return (
-                    <View key={symptom} style={styles.severityRow}>
-                      <Text style={styles.severitySymptom}>{symptom}</Text>
-                      <View style={styles.severityControls}>
-                        <Pressable
-                          onPress={() => adjustSymptomSeverity(symptom, -1)}
-                          style={styles.severityBtn}
-                        >
-                          <Text style={styles.severityBtnText}>-</Text>
-                        </Pressable>
-                        <Text style={styles.severityValue}>{severity}</Text>
-                        <Pressable
-                          onPress={() => adjustSymptomSeverity(symptom, 1)}
-                          style={styles.severityBtn}
-                        >
-                          <Text style={styles.severityBtnText}>+</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-
-            <View style={styles.formActions}>
-              <Button
-                label="Cancelar"
-                onPress={() => setShowLogForm(false)}
-                variant="secondary"
-                style={styles.cancelBtn}
-              />
-              <Button
-                label="Guardar"
-                onPress={handleLogPeriod}
-                loading={isLogging}
-                disabled={selectedSymptoms.length === 0}
-                variant="primary"
-                style={styles.saveBtn}
-              />
+            <Text style={styles.label}>Estado emocional</Text>
+            <View style={styles.moodRow}>
+              {MOODS.map((mood) => {
+                const active = selectedMood === mood;
+                return (
+                  <Pressable
+                    key={mood}
+                    style={[styles.moodChip, active && styles.moodChipActive]}
+                    onPress={() => setSelectedMood(mood)}
+                  >
+                    <Text style={[styles.moodChipText, active && styles.moodChipTextActive]}>{mood}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          </Card>
-        )}
 
-        {/* Historial de registros recientes */}
-        {history.length > 0 && (
-          <View style={styles.historySection}>
-            <Text style={styles.historyTitle}>Registros recientes</Text>
-            {history.slice(0, 3).map((entry) => (
-              <Card key={entry.id} style={styles.historyCard}>
-                <View style={styles.historyEntry}>
-                  <Text style={styles.historyDate}>
-                    {new Date(entry.logged_at).toLocaleDateString('es-AR')}
-                  </Text>
-                  <Text style={styles.historyEmoji}>{PHASE_EMOJIS[entry.phase]}</Text>
-                  <Text style={styles.historyPhase}>{PHASE_NAMES[entry.phase]}</Text>
-                  {entry.symptoms && entry.symptoms.length > 0 && (
-                    <Text style={styles.historySymptoms}>
-                      {entry.symptoms.slice(0, 2).join(', ')}
-                      {entry.symptoms.length > 2 ? ` +${entry.symptoms.length - 2}` : ''}
-                      {entry.symptomSeverity && Object.keys(entry.symptomSeverity).length > 0
-                        ? ` · sev ${(
-                            Object.values(entry.symptomSeverity).reduce((sum, value) => sum + value, 0) /
-                            Math.max(1, Object.values(entry.symptomSeverity).length)
-                          ).toFixed(1)}`
-                        : ''}
-                    </Text>
-                  )}
-                </View>
-              </Card>
-            ))}
+            <Text style={styles.label}>Notas</Text>
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Algo que quieras recordar hoy"
+              placeholderTextColor={Colors.textMuted}
+              multiline
+              style={styles.notesInput}
+            />
+
+            <Button
+              onPress={() => {
+                log(currentPhase, [...selectedSymptoms, `estado:${selectedMood}`], notes.trim() || undefined);
+                setLogOpen(false);
+                setSelectedSymptoms([]);
+                setSelectedMood('3');
+                setNotes('');
+              }}
+              loading={isLogging}
+              fullWidth
+            >
+              Guardar
+            </Button>
+            <Button onPress={() => setLogOpen(false)} variant="ghost" fullWidth>
+              Cerrar
+            </Button>
           </View>
-        )}
-
-        {/* Info educativa */}
-        <Card style={[styles.infoCard, { backgroundColor: `${Colors.female}0A` }]}>
-          <Text style={styles.infoTitle}>📚 Sobre tu ciclo</Text>
-          <Text style={styles.infoText}>
-            Tu ciclo menstrual dura aproximadamente <Text style={{ fontFamily: FontFamily.bold }}>{cycleLength} días</Text>.
-          </Text>
-          <Text style={styles.infoText}>
-            Trackear tus síntomas ayuda a Vyra a adaptar tus planes de entrenamiento y nutrición a cada fase.
-          </Text>
-          <Text style={styles.infoText}>
-            No reemplaza el consejo médico. Si tienes síntomas severos, consultá a tu médico.
-          </Text>
-        </Card>
-
-      </ScrollView>
+        </View>
+      </Modal>
     </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  headerLink: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
   content: {
-    paddingHorizontal: Spacing[3],
-    paddingBottom: Spacing[5],
+    paddingHorizontal: Spacing[5],
+    paddingBottom: Spacing[10],
+    gap: Spacing[4],
   },
-  histBtn: {
-    marginRight: Spacing[3],
+  lockCard: {
+    gap: Spacing[3],
   },
-  histText: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: Colors.brand,
-  },
-  privacyCard: {
-    marginTop: Spacing[4],
-    marginBottom: Spacing[2],
-    borderWidth: 1,
-    borderColor: `${Colors.brand}55`,
-    backgroundColor: `${Colors.brand}12`,
-  },
-  privacyTitle: {
-    fontSize: FontSize.sm,
+  lockTitle: {
     fontFamily: FontFamily.bold,
-    color: Colors.brand,
-    marginBottom: Spacing[1],
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
   },
-  privacyText: {
-    fontSize: FontSize.sm,
+  lockBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
     color: Colors.textSecondary,
     lineHeight: 20,
-    fontFamily: FontFamily.regular,
   },
   setupCard: {
-    marginBottom: Spacing[2],
-    borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: `${Colors.female}10`,
+    gap: Spacing[3],
   },
-  setupTitle: {
-    fontSize: FontSize.base,
+  sectionTitle: {
     fontFamily: FontFamily.bold,
+    fontSize: FontSize.md,
     color: Colors.textPrimary,
-    marginBottom: Spacing[1],
   },
-  setupText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+  sectionBody: {
     fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
     lineHeight: 20,
-    marginBottom: Spacing[3],
   },
-  setupChips: {
+  setupRow: {
     flexDirection: 'row',
-    gap: Spacing[2],
-    marginBottom: Spacing[3],
+    gap: Spacing[3],
   },
   setupChip: {
     flex: 1,
-    borderRadius: Radius.full,
+    minHeight: 48,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
     borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: Colors.bgSurface,
-    paddingVertical: Spacing[2],
+    borderColor: Colors.border,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   setupChipActive: {
-    backgroundColor: Colors.female,
-    borderColor: Colors.female,
+    backgroundColor: withOpacity(Colors.action, 0.1),
+    borderColor: Colors.actionBorder,
   },
   setupChipText: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.semibold,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
     color: Colors.textSecondary,
   },
   setupChipTextActive: {
-    color: Colors.white,
+    color: Colors.action,
   },
-  cycleSection: {
-    alignItems: 'center',
-    marginVertical: Spacing[4],
+  cycleCard: {
+    gap: Spacing[4],
   },
-  phaseEmoji: {
-    fontSize: 48,
-    marginBottom: Spacing[2],
-  },
-  phaseName: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.bold,
-    marginBottom: Spacing[1],
-  },
-  cycleDay: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  nextPeriodCard: {
-    marginTop: Spacing[3],
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-    borderRadius: Radius.md,
+  cycleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  nextPeriodLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    fontFamily: FontFamily.semibold,
-  },
-  nextPeriodDate: {
-    fontSize: FontSize.lg,
+  phaseTitle: {
     fontFamily: FontFamily.bold,
-    marginTop: Spacing[1],
+    fontSize: FontSize.xl,
   },
-  phaseInfoCard: {
-    marginVertical: Spacing[3],
-  },
-  phaseInfoTitle: {
-    fontSize: FontSize.base,
-    fontFamily: FontFamily.bold,
-    color: Colors.textPrimary,
-    marginBottom: Spacing[2],
-  },
-  phaseInfoText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginBottom: Spacing[1],
-    lineHeight: 20,
-  },
-  guidanceCard: {
-    marginBottom: Spacing[3],
-    borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: `${Colors.female}10`,
-  },
-  guidanceTitle: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.bold,
-    color: Colors.female,
-    marginBottom: Spacing[2],
-  },
-  guidanceText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: Spacing[1],
-    fontFamily: FontFamily.medium,
-  },
-  guidanceMeta: {
-    marginTop: Spacing[1],
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
+  phaseSubtitle: {
     fontFamily: FontFamily.regular,
-    lineHeight: 17,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  cycleScale: {
+    flexDirection: 'row',
+    gap: 2,
+    alignItems: 'flex-end',
+  },
+  cycleScaleItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  cycleBar: {
+    width: '100%',
+    height: 28,
+    borderRadius: 4,
+  },
+  todayMarker: {
+    fontFamily: FontFamily.bold,
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  contextCard: {
+    gap: Spacing[2],
+    backgroundColor: withOpacity(Colors.female, 0.08),
+  },
+  compatibilityText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
   },
   noticeCard: {
-    marginBottom: Spacing[3],
-    borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: `${Colors.female}18`,
+    gap: Spacing[2],
   },
-  noticeTitle: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.bold,
-    color: Colors.female,
-    marginBottom: Spacing[1],
+  predictionCard: {
+    gap: Spacing[3],
   },
-  noticeText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    fontFamily: FontFamily.medium,
+  predictionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
   },
-  irregularCard: {
-    marginBottom: Spacing[3],
-    borderWidth: 1,
-    borderColor: `${Colors.warning}66`,
-    backgroundColor: `${Colors.warning}15`,
-  },
-  irregularTitle: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.bold,
-    color: Colors.warning,
-    marginBottom: Spacing[1],
-  },
-  irregularText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    fontFamily: FontFamily.medium,
-  },
-  logBtn: {
-    marginVertical: Spacing[3],
-  },
-  formCard: {
-    marginVertical: Spacing[3],
-  },
-  formTitle: {
+  predictionLabel: {
+    fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
-    fontFamily: FontFamily.bold,
-    marginBottom: Spacing[3],
+    color: Colors.textSecondary,
   },
-  symptomsGrid: {
+  predictionValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: Colors.bgSurface,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[5],
+    paddingBottom: Spacing[8],
+    gap: Spacing[3],
+  },
+  symptomWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing[2],
-    marginBottom: Spacing[4],
   },
-  severityPanel: {
-    marginBottom: Spacing[3],
+  symptomChip: {
+    minHeight: 38,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bgSurface,
-    padding: Spacing[3],
-    gap: Spacing[2],
-  },
-  severityTitle: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.bold,
-    color: Colors.textPrimary,
-  },
-  severityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing[2],
-  },
-  severitySymptom: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontFamily: FontFamily.medium,
-  },
-  severityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[2],
-  },
-  severityBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[3],
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.bgElevated,
   },
-  severityBtnText: {
+  symptomChipActive: {
+    backgroundColor: withOpacity(Colors.female, 0.12),
+    borderColor: withOpacity(Colors.female, 0.3),
+  },
+  symptomChipText: {
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
-    color: Colors.textPrimary,
-    fontFamily: FontFamily.bold,
-  },
-  severityValue: {
-    width: 18,
-    textAlign: 'center',
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    fontFamily: FontFamily.bold,
-  },
-  symptomTag: {
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.bgElevated,
-  },
-  symptomText: {
-    fontSize: FontSize.xs,
     color: Colors.textSecondary,
-    fontFamily: FontFamily.semibold,
   },
-  formActions: {
-    flexDirection: 'row',
-    gap: Spacing[3],
+  symptomChipTextActive: {
+    color: Colors.textPrimary,
   },
-  cancelBtn: {
-    flex: 1,
-  },
-  saveBtn: {
-    flex: 1,
-  },
-  historySection: {
-    marginTop: Spacing[4],
-  },
-  historyTitle: {
-    fontSize: FontSize.base,
+  label: {
     fontFamily: FontFamily.bold,
-    marginBottom: Spacing[3],
-  },
-  historyCard: {
-    marginBottom: Spacing[2],
-  },
-  historyEntry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[3],
-  },
-  historyDate: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
-    fontFamily: FontFamily.semibold,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
-  historyEmoji: {
-    fontSize: 20,
+  moodRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
   },
-  historyPhase: {
+  moodChip: {
     flex: 1,
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.semibold,
+    minHeight: 44,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  historySymptoms: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
+  moodChipActive: {
+    backgroundColor: withOpacity(Colors.female, 0.12),
+    borderColor: withOpacity(Colors.female, 0.3),
   },
-  infoCard: {
-    marginTop: Spacing[4],
-  },
-  infoTitle: {
+  moodChipText: {
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
-    fontFamily: FontFamily.bold,
-    marginBottom: Spacing[3],
-  },
-  infoText: {
-    fontSize: FontSize.sm,
     color: Colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: Spacing[2],
+  },
+  moodChipTextActive: {
+    color: Colors.textPrimary,
+  },
+  notesInput: {
+    minHeight: 92,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    textAlignVertical: 'top',
   },
 });

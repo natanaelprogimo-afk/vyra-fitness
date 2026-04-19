@@ -18,7 +18,7 @@ interface PremiumState {
   // Feature flags (sincronizados desde Supabase)
   flags: {
     femaleHealthEnabled:     boolean;
-    proactiveCoachEnabled:   boolean;
+    proactiveContextEnabled: boolean;
     rewardedAdStreakRescue:  boolean;
     morningCheckinEnabled:   boolean;
     voiceLogEnabled:         boolean;
@@ -41,7 +41,7 @@ interface PremiumState {
 }
 
 export type PremiumFeature =
-  | 'ai_coach_unlimited'
+  | 'ai_context_unlimited'
   | 'photo_log'
   | 'voice_log'
   | 'sleep_phases'
@@ -52,14 +52,14 @@ export type PremiumFeature =
   | 'gps_cardio'
   | 'barcode_unlimited'
   | 'no_ads'
-  | 'proactive_coach'
+  | 'context_briefs'
   | 'cycle_phases'
   | 'progress_photos_unlimited'
   | 'export_csv';
 
 const defaultFlags = {
   femaleHealthEnabled:     true,
-  proactiveCoachEnabled:   false,
+  proactiveContextEnabled: false,
   rewardedAdStreakRescue:  true,
   morningCheckinEnabled:   true,
   voiceLogEnabled:         true,

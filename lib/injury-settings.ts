@@ -1,3 +1,4 @@
+import { getProfileContextMemory } from '@/lib/profile-context';
 import type { UserProfile } from '@/types/user';
 
 export type InjuryId =
@@ -41,7 +42,7 @@ export const INJURY_OPTIONS: InjuryOption[] = [
   },
   {
     id: 'wrist',
-    label: 'Mu?eca',
+    label: 'Muñeca',
     description: 'Filtra presses y apoyos directos.',
     avoidMuscles: [],
     avoidPatterns: ['press', 'push', 'curl', 'plank'],
@@ -75,12 +76,8 @@ function toArray(value: unknown): InjuryId[] {
 }
 
 export function getInjurySelection(profile: UserProfile | null | undefined): InjuryId[] {
-  const memory =
-    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
-      ? (profile.coach_memory_json as Record<string, unknown>)
-      : null;
-
-  return toArray(memory?.injuries);
+  const memory = getProfileContextMemory(profile);
+  return toArray(memory.injuries);
 }
 
 export function withInjurySelection(

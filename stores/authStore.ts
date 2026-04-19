@@ -50,15 +50,29 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
   const bestStreak = Number(raw.best_streak ?? raw.longest_streak ?? streak);
   const calorieGoal = Number(raw.calorie_goal ?? raw.tdee ?? 2000);
 
-  const coachMemory =
-    raw.coach_memory_json && typeof raw.coach_memory_json === 'object'
-      ? (raw.coach_memory_json as Record<string, unknown>)
+  const contextMemory =
+    raw.context_memory_json && typeof raw.context_memory_json === 'object'
+      ? (raw.context_memory_json as Record<string, unknown>)
+      : raw.coach_memory_json && typeof raw.coach_memory_json === 'object'
+        ? (raw.coach_memory_json as Record<string, unknown>)
       : null;
   const pushToken =
     typeof raw.push_token === 'string'
       ? raw.push_token
-      : typeof coachMemory?.push_token === 'string'
-        ? coachMemory.push_token
+      : typeof contextMemory?.push_token === 'string'
+        ? contextMemory.push_token
+        : null;
+  const streakFreezeCount =
+    typeof raw.streak_freeze_count === 'number'
+      ? raw.streak_freeze_count
+      : typeof contextMemory?.streak_freeze_count === 'number'
+        ? Number(contextMemory.streak_freeze_count)
+        : 0;
+  const streakFreezeLastUsedAt =
+    typeof raw.streak_freeze_last_used_at === 'string'
+      ? raw.streak_freeze_last_used_at
+      : typeof contextMemory?.streak_freeze_last_used_at === 'string'
+        ? contextMemory.streak_freeze_last_used_at
         : null;
 
   return {
@@ -96,22 +110,32 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
     founding_member: Boolean(raw.founding_member),
     founding_member_rank:
       typeof raw.founding_member_rank === 'number' ? raw.founding_member_rank : null,
-    coins: Number(raw.coins ?? 0),
-    xp: Number(raw.xp ?? 0),
-    level: Math.max(1, Number(raw.level ?? 1)),
     streak,
     best_streak: bestStreak,
     current_streak: Number(raw.current_streak ?? streak),
     longest_streak: Number(raw.longest_streak ?? bestStreak),
+    streak_freeze_count: Math.max(0, Number(streakFreezeCount ?? 0)),
+    streak_freeze_last_used_at: streakFreezeLastUsedAt,
     push_token: pushToken,
     female_health_enabled: Boolean(raw.female_health_enabled),
     female_cycle_length:
       typeof raw.female_cycle_length === 'number' ? raw.female_cycle_length : null,
     female_last_period_date:
       typeof raw.female_last_period_date === 'string' ? raw.female_last_period_date : null,
+    context_name_preference:
+      typeof raw.context_name_preference === 'string'
+        ? raw.context_name_preference
+        : typeof raw.coach_name_preference === 'string'
+          ? raw.coach_name_preference
+          : null,
+    context_memory_json: contextMemory,
     coach_name_preference:
-      typeof raw.coach_name_preference === 'string' ? raw.coach_name_preference : null,
-    coach_memory_json: coachMemory,
+      typeof raw.coach_name_preference === 'string'
+        ? raw.coach_name_preference
+        : typeof raw.context_name_preference === 'string'
+          ? raw.context_name_preference
+          : null,
+    coach_memory_json: contextMemory,
     onboarding_completed: Boolean(raw.onboarding_completed),
     first_week_completed: Boolean(raw.first_week_completed),
     created_at:

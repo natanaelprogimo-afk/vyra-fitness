@@ -84,6 +84,7 @@ interface WorkoutStoreState {
   finishSession: (opts?: { notes?: string | null }) => Promise<WorkoutSummaryData | null>;
   cancelSession: () => Promise<void>;
   updateSessionNotes: (sessionId: string, notes: string | null) => Promise<boolean>;
+  updateExerciseNote: (exerciseId: string, note: string | null) => void;
   deleteSessionRecord: (sessionId: string) => Promise<boolean>;
   createRoutine: (input: CreateRoutineInput) => Promise<string | null>;
   updateRoutine: (routineId: string, input: CreateRoutineInput) => Promise<boolean>;
@@ -281,6 +282,7 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           exercises,
           currentExerciseIndex: 0,
           notes: null,
+          exerciseNotes: {},
           isQuickSession: !selectedRoutine,
         };
         set({ activeSession, summary: null });
@@ -387,6 +389,7 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           sets: activeSession.sets,
           exerciseBreakdown: calculateBreakdown(activeSession.sets),
           durationMin,
+          exerciseNotes: activeSession.exerciseNotes ?? {},
         };
 
         const summary: WorkoutSummaryData = {
@@ -438,6 +441,26 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           },
         });
         return true;
+      },
+      updateExerciseNote: (exerciseId, note) => {
+        const session = get().activeSession;
+        if (!session || !exerciseId) return;
+
+        const nextNotes = { ...(session.exerciseNotes ?? {}) };
+        const cleaned = note?.trim() ?? '';
+
+        if (cleaned.length === 0) {
+          delete nextNotes[exerciseId];
+        } else {
+          nextNotes[exerciseId] = cleaned;
+        }
+
+        set({
+          activeSession: {
+            ...session,
+            exerciseNotes: nextNotes,
+          },
+        });
       },
       deleteSessionRecord: async (sessionId) => {
         const state = get();

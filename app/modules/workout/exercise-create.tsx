@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Header from '@/components/layout/Header';
@@ -47,7 +47,7 @@ export default function WorkoutExerciseCreateScreen() {
     });
     setSaving(false);
     if (id) {
-      router.replace({ pathname: Routes.workout.exerciseDetail, params: { exerciseId: id } } as any);
+      router.replace({ pathname: Routes.workout.exerciseDetail, params: { exerciseId: id } } as never);
     }
   };
 

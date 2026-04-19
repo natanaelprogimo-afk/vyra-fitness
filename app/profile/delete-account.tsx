@@ -1,192 +1,261 @@
-// app/profile/delete-account.tsx
 import React, { useState } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, TextInput, Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Colors } from '@/constants/colors';
-import { useAuthStore } from '@/stores/authStore';
+import SafeScreen from '@/components/ui/SafeScreen';
+import Header from '@/components/layout/Header';
+import Card from '@/components/ui/Card';
+import Input from '@/components/ui/Input';
+import Button from '@/components/ui/Button';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/authStore';
+
+const CONFIRM_PHRASE = 'ELIMINAR MI CUENTA';
+
+const DATA_ROWS = [
+  'Historial de agua, pasos, sueno, nutricion, peso y ayuno.',
+  'Entrenamientos, sesiones, PRs y progreso acumulado.',
+  'Rachas, historial de actividad y estados sincronizados.',
+  'Lecturas IA guardadas y datos opcionales sensibles.',
+] as const;
 
 export default function DeleteAccountScreen() {
   const { profile, logout } = useAuthStore();
   const [confirmation, setConfirmation] = useState('');
-  const [isDeleting,   setIsDeleting]   = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const CONFIRM_PHRASE = 'ELIMINAR MI CUENTA';
-
-  async function handleDelete() {
-    if (confirmation !== CONFIRM_PHRASE) {
-      Alert.alert('Texto incorrecto', `Escribí exactamente: ${CONFIRM_PHRASE}`);
-      return;
-    }
-
-    Alert.alert(
-      '⚠️ Confirmación final',
-      'Esta acción es irreversible. Todos tus datos de salud, historial, monedas y badges serán eliminados permanentemente en 30 días.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Sí, eliminar',
-          style: 'destructive',
-          onPress: submitDeletionRequest,
-        },
-      ]
-    );
-  }
+  const phraseOk = confirmation.trim().toUpperCase() === CONFIRM_PHRASE;
 
   async function submitDeletionRequest() {
     if (!profile?.id) return;
     setIsDeleting(true);
+
     try {
-      // Insertar en deletion_requests (procesado en 30 días — GDPR)
       const { error } = await supabase.from('deletion_requests').insert({
-        user_id:            profile.id,
+        user_id: profile.id,
         confirmation_token: Math.random().toString(36).slice(2),
-        status:             'pending',
+        status: 'pending',
       });
 
       if (error) throw error;
 
       Alert.alert(
-        'Solicitud enviada',
-        'Tu solicitud de eliminación fue registrada. Tus datos serán eliminados en un máximo de 30 días según la normativa GDPR. Recibirás una confirmación por email.',
-        [{ text: 'OK', onPress: () => logout() }]
+        'Solicitud registrada',
+        'Tu pedido ya quedo guardado. La eliminacion se procesa en un maximo de 30 dias y recibirás confirmacion por email.',
+        [{ text: 'OK', onPress: () => void logout() }],
       );
     } catch {
-      Alert.alert('Error', 'No se pudo procesar tu solicitud. Contactá a soporte@vyrafitness.app');
+      Alert.alert('No se pudo procesar', 'Intenta de nuevo o contacta soporte si el problema sigue.');
     } finally {
       setIsDeleting(false);
     }
   }
 
+  function handleDelete() {
+    if (!phraseOk) {
+      Alert.alert('Confirmacion incompleta', `Escribe exactamente: ${CONFIRM_PHRASE}`);
+      return;
+    }
+
+    Alert.alert(
+      'Eliminar cuenta',
+      'Esta decision es irreversible. Tus datos y recompensas desapareceran cuando cierre el proceso.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => void submitDeletionRequest() },
+      ],
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backBtn}>← Volver</Text>
-        </TouchableOpacity>
+    <SafeScreen padHorizontal={false} padBottom>
+      <Header title="Eliminar cuenta" showBack color={Colors.error} />
 
-        <Text style={styles.title}>⚠️ Eliminar cuenta</Text>
-        <Text style={styles.subtitle}>
-          Esta acción es irreversible. Lee todo antes de continuar.
-        </Text>
-
-        {/* Qué se elimina */}
-        <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>Qué se elimina en 30 días:</Text>
-          {[
-            'Todos tus logs de salud (agua, pasos, sueño, comidas, peso)',
-            'Historial de entrenamientos y PRs',
-            'Monedas VyraCoin, XP, badges y rachas',
-            'Conversaciones con el Coach IA',
-            'Datos de ciclo menstrual (si aplica)',
-            'Tu cuenta de acceso a Vyra',
-          ].map((item, i) => (
-            <Text key={i} style={styles.infoItem}>• {item}</Text>
-          ))}
-        </View>
-
-        {/* Alternativa */}
-        <View style={styles.alternativeBox}>
-          <Text style={styles.alternativeTitle}>¿Consideraste estas alternativas?</Text>
-          <TouchableOpacity
-            style={styles.alternativeBtn}
-            onPress={() => router.push('/profile/export-data' as any)}
-          >
-            <Text style={styles.alternativeBtnText}>📦 Exportar mis datos antes</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.alternativeBtn}
-            onPress={() => router.push('/premium/manage' as any)}
-          >
-            <Text style={styles.alternativeBtnText}>💳 Solo cancelar Premium</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Confirmación */}
-        <View style={styles.confirmSection}>
-          <Text style={styles.confirmLabel}>
-            Para confirmar, escribí exactamente:
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Card style={styles.heroCard}>
+          <Text style={styles.eyebrow}>Decision seria</Text>
+          <Text style={styles.title}>Si te vas, queremos que lo hagas con toda la claridad.</Text>
+          <Text style={styles.body}>
+            Aqui no te vamos a presionar. Solo te mostramos lo que pasa y te dejamos una salida
+            limpia antes del punto final.
           </Text>
-          <Text style={styles.confirmPhrase}>{CONFIRM_PHRASE}</Text>
-          <TextInput
-            style={[
-              styles.confirmInput,
-              confirmation === CONFIRM_PHRASE && styles.confirmInputValid,
-            ]}
+        </Card>
+
+        <Card style={styles.dataCard}>
+          <Text style={styles.sectionTitle}>Esto se elimina</Text>
+          <View style={styles.list}>
+            {DATA_ROWS.map((item) => (
+              <View key={item} style={styles.listRow}>
+                <View style={styles.listDot} />
+                <Text style={styles.listText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </Card>
+
+        <Card>
+          <Text style={styles.sectionTitle}>Antes de confirmar</Text>
+          <Text style={styles.sectionHint}>
+            Si el problema era otro, puede que no necesites llegar hasta el final.
+          </Text>
+          <View style={styles.altActions}>
+            <Button
+              variant="secondary"
+              color={Colors.brand}
+              onPress={() => router.push('/profile/export-data' as never)}
+            >
+              Exportar mis datos primero
+            </Button>
+            <Button
+              variant="secondary"
+              color={Colors.premium}
+              onPress={() => router.push('/premium/manage' as never)}
+            >
+              Solo quiero revisar Premium
+            </Button>
+          </View>
+        </Card>
+
+        <Card>
+          <Text style={styles.sectionTitle}>Confirmacion final</Text>
+          <Text style={styles.sectionHint}>
+            Escribe la frase exacta. Asi evitamos taps impulsivos.
+          </Text>
+          <Input
+            label="Frase exacta"
             value={confirmation}
             onChangeText={setConfirmation}
-            placeholder="Escribí el texto aquí..."
-            placeholderTextColor={Colors.textMuted}
+            placeholder={CONFIRM_PHRASE}
             autoCapitalize="characters"
+            autoCorrect={false}
+            hint="La frase del placeholder es exactamente la que debes escribir."
           />
-        </View>
+          <View
+            style={[
+              styles.phrasePill,
+              phraseOk
+                ? { borderColor: withOpacity(Colors.success, 0.35), backgroundColor: withOpacity(Colors.success, 0.12) }
+                : null,
+            ]}
+          >
+            <Text style={[styles.phraseText, phraseOk ? { color: Colors.success } : null]}>
+              {CONFIRM_PHRASE}
+            </Text>
+          </View>
+        </Card>
 
-        <TouchableOpacity
-          style={[
-            styles.deleteBtn,
-            confirmation !== CONFIRM_PHRASE && styles.deleteBtnDisabled,
-            isDeleting && { opacity: 0.6 },
-          ]}
+        <Button
           onPress={handleDelete}
-          disabled={confirmation !== CONFIRM_PHRASE || isDeleting}
+          loading={isDeleting}
+          disabled={!phraseOk || isDeleting}
+          variant="danger"
+          fullWidth
         >
-          <Text style={styles.deleteBtnText}>
-            {isDeleting ? 'Procesando...' : '🗑️ Eliminar mi cuenta'}
-          </Text>
-        </TouchableOpacity>
+          Eliminar mi cuenta
+        </Button>
 
-        <Text style={styles.gdprNote}>
-          Derecho al olvido según GDPR Art. 17. Procesamos tu solicitud en máximo 30 días.
+        <Text style={styles.footnote}>
+          La solicitud se procesa bajo derecho de borrado. La baja de Premium y la exportacion de
+          datos siguen disponibles por separado.
         </Text>
       </ScrollView>
-    </SafeAreaView>
+    </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: Colors.bgPrimary },
-  scroll:      { padding: 20, paddingBottom: 40 },
-  backBtn:     { color: Colors.brand, fontSize: 14, marginBottom: 16 },
-  title:       { color: Colors.error, fontSize: 24, fontWeight: '800', marginBottom: 8 },
-  subtitle:    { color: Colors.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  infoBox: {
-    backgroundColor: Colors.error + '11', borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: Colors.error + '33', marginBottom: 16,
+  scroll: {
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[4],
+    paddingBottom: Spacing[10],
+    gap: Spacing[4],
   },
-  infoTitle:   { color: Colors.error, fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  infoItem:    { color: Colors.textSecondary, fontSize: 13, lineHeight: 22 },
-  alternativeBox: {
-    backgroundColor: Colors.bgSurface, borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: Colors.border, marginBottom: 24, gap: 8,
+  heroCard: {
+    borderColor: withOpacity(Colors.error, 0.18),
+    backgroundColor: withOpacity(Colors.error, 0.06),
   },
-  alternativeTitle: { color: Colors.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  alternativeBtn: {
-    backgroundColor: Colors.bgElevated, borderRadius: 10,
-    paddingVertical: 10, paddingHorizontal: 12,
+  eyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.error,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
-  alternativeBtnText: { color: Colors.textPrimary, fontSize: 14 },
-  confirmSection: { marginBottom: 20 },
-  confirmLabel:   { color: Colors.textSecondary, fontSize: 13, marginBottom: 6 },
-  confirmPhrase: {
-    color: Colors.error, fontSize: 15, fontWeight: '700',
-    fontFamily: 'monospace', marginBottom: 10, letterSpacing: 1,
+  title: {
+    fontFamily: FontFamily.display,
+    fontSize: 28,
+    lineHeight: 30,
+    color: Colors.textPrimary,
+    marginBottom: 6,
   },
-  confirmInput: {
-    backgroundColor: Colors.bgSurface, color: Colors.textPrimary,
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, borderWidth: 2, borderColor: Colors.border,
-    letterSpacing: 1, fontFamily: 'monospace',
+  body: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
   },
-  confirmInputValid: { borderColor: Colors.steps },
-  deleteBtn: {
-    backgroundColor: Colors.error, borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center', marginBottom: 12,
+  dataCard: {
+    borderColor: withOpacity(Colors.error, 0.14),
   },
-  deleteBtnDisabled: { opacity: 0.4 },
-  deleteBtnText:  { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  gdprNote:       { color: Colors.textMuted, fontSize: 12, textAlign: 'center', lineHeight: 17 },
+  sectionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  sectionHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 19,
+    color: Colors.textSecondary,
+    marginBottom: Spacing[3],
+  },
+  list: {
+    gap: Spacing[2],
+  },
+  listRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  listDot: {
+    width: 7,
+    height: 7,
+    borderRadius: Radius.full,
+    marginTop: 7,
+    backgroundColor: withOpacity(Colors.error, 0.55),
+  },
+  listText: {
+    flex: 1,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  altActions: {
+    gap: Spacing[2],
+  },
+  phrasePill: {
+    alignSelf: 'flex-start',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface2,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+  },
+  phraseText: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+    letterSpacing: 0.8,
+  },
+  footnote: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
 });

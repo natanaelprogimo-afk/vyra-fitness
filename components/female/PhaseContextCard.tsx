@@ -16,7 +16,7 @@ type PhaseModule =
   | 'water'
   | 'steps'
   | 'fasting'
-  | 'recovery'
+  | 'recuperación'
   | 'weight';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -30,12 +30,12 @@ function resolveModuleCopy(module: PhaseModule, guidance: ReturnType<typeof useF
   if (module === 'nutrition') return guidance.nutrition;
   if (module === 'water') {
     return guidance.hydrationBoostMl > 0
-      ? `Hoy suma +${guidance.hydrationBoostMl}ml para sostener energía y estabilidad.`
+      ?  `Hoy suma +${guidance.hydrationBoostMl}ml para sostener energía y estabilidad.`
       : 'Tu hidratación puede mantenerse estable hoy.';
   }
   if (module === 'fasting') return guidance.fasting;
   if (module === 'sleep') {
-    return 'Prioriza regularidad nocturna: acostarte dentro de la misma ventana mejora energ?a y control de antojos.';
+    return 'Prioriza regularidad nocturna: acostarte dentro de la misma ventana mejora energía y control de antojos.';
   }
   if (module === 'weight') return guidance.weightContext ?? 'Las variaciones de peso pueden ser transitorias según fase.';
   return guidance.training;
@@ -64,7 +64,7 @@ export default function PhaseContextCard({
       <Card style={styles.card}>
         <Text style={styles.title}>Activa tu fase actual</Text>
         <Text style={styles.body}>
-          Para que Vyra ajuste entreno, nutrici?n y recovery, registra tu fase en el m?dulo femenino.
+          Para que Vyra ajuste entreno, nutrición y recuperación, registra tu fase en el módulo femenino.
         </Text>
         <Button onPress={() => router.push(Routes.female.index as any)} variant="secondary" size="sm">
           Abrir seguimiento femenino
@@ -75,7 +75,7 @@ export default function PhaseContextCard({
 
   const phaseLabel = PHASE_LABELS[currentPhase] ?? 'Ciclo';
   const message = strictSensitiveMode
-    ? 'Contexto femenino activo. Ajustes automáticos limitados por privacidad.'
+    ?  'Contexto femenino activo. Ajustes automáticos limitados por privacidad.'
     : resolveModuleCopy(module, phaseGuidance);
 
   const cardStyle = [

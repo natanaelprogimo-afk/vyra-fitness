@@ -10,7 +10,6 @@ import { Colors, getModuleBg, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useNutrition } from '@/hooks/useNutrition';
 import { useReadiness } from '@/hooks/useReadiness';
-import { useAuthStore } from '@/stores/authStore';
 import { NUTRITION_MODE_OPTIONS } from '@/lib/nutrition-mode';
 import { Routes } from '@/constants/routes';
 
@@ -18,7 +17,6 @@ const TABS = [
   { label: 'Hoy', route: Routes.nutrition.index },
   { label: 'Historial', route: Routes.nutrition.history },
   { label: 'Alimentos', route: Routes.nutrition.search },
-  { label: 'Modo', route: Routes.nutrition.mode },
   { label: 'Ajustes', route: Routes.nutrition.settings },
 ] as const;
 
@@ -57,7 +55,6 @@ function RouteStat({
 }
 
 export default function NutritionSettingsScreen() {
-  const profile = useAuthStore((state) => state.profile);
   const { dailyScore, predictedScore, weeklyAverage, scoreColor, similarDayComparison, focusActions, morningNarrative } = useReadiness();
   const {
     nutritionMode,
@@ -77,7 +74,6 @@ export default function NutritionSettingsScreen() {
   const calorieGoalValue = calorieGoal ?? 2000;
   const goalValue = calorieBudget ?? calorieGoalValue;
   const modeSubtitle = nutritionModeOption?.description ?? 'Ajusta tu plan nutricional.';
-  const coachName = profile?.coach_name_preference ?? 'Vyra';
   const dayScore = dailyScore?.score != null ? Math.round(dailyScore.score) : null;
   const dayScoreAccent = dayScore !== null ? scoreColor(dayScore) : accent;
   const scoreVsWeek = dayScore !== null && weeklyAverage !== null ? Math.round(dayScore - weeklyAverage) : null;
@@ -88,19 +84,19 @@ export default function NutritionSettingsScreen() {
   const budgetLow = goalValue < calorieGoalValue * 0.88;
   const hasDynamicContext = Boolean(fastingIntegration || cycleNutritionGuidance || activityCalories > 0 || proteinBoost > 0);
   const returnMode = budgetHigh
-    ? 'Empujar'
+    ?  'Empujar'
     : budgetLow
-      ? 'Recuperar'
+      ?  'Recuperar'
       : hasDynamicContext
-        ? 'Coordinar'
+        ?  'Coordinar'
         : 'Sostener';
   const coachTitle = budgetHigh
-    ? `${coachName} quiere asegurarse de que el plan no empuje mas ruido que adherencia`
+    ?  'La lectura actual quiere asegurarse de que el plan no empuje mas ruido que adherencia'
     : budgetLow
-      ? `${coachName} quiere recuperar energia util antes de dejar el plan demasiado corto`
+      ?  'La lectura actual quiere recuperar energia util antes de dejar el plan demasiado corto'
       : hasDynamicContext
-        ? `${coachName} quiere coordinar ayuno, actividad y plan vivo sin friccion`
-        : `${coachName} ve una configuracion bastante limpia para sostener el plan vivo`;
+        ?  'La lectura actual quiere coordinar ayuno, actividad y plan vivo sin friccion'
+        : 'La configuracion ya se ve bastante limpia para sostener el plan vivo';
   const coachBody =
     similarDayComparison?.message ??
     morningNarrative ??
@@ -108,17 +104,17 @@ export default function NutritionSettingsScreen() {
     cycleNutritionGuidance ??
     `Tu modo actual es ${modeLabel} y el presupuesto visible queda en ${goalValue.toLocaleString()} kcal. Cuando ajustes poco pero bien, el plan se siente mucho mas facil de seguir.`;
   const coachHint = focusAction
-    ? `Siguiente lectura util: ${focusAction.title}.`
+    ? `Siguiente lectura útil: ${focusAction.title}.`
     : budgetHigh
       ? `Tu presupuesto esta ${deltaBudget > 0 ? '+' : ''}${deltaBudget} kcal vs. base. Si hoy te sientes pasado de revoluciones, conviene bajar ruido antes de cerrar macros.`
       : budgetLow
-        ? `Tu presupuesto esta ${deltaBudget > 0 ? '+' : ''}${deltaBudget} kcal vs. base. Si el dia se siente corto, conviene recuperar sin desordenar el plan.`
+        ? `Tu presupuesto esta ${deltaBudget > 0 ? '+' : ''}${deltaBudget} kcal vs. base. Si el día se siente corto, conviene recuperar sin desordenar el plan.`
         : hasDynamicContext
-          ? 'Ayuno, actividad o ciclo ya estan modulando el plan. Lo mas util ahora es aplicar ese contexto dentro del dia, no seguir tocando ajustes.'
-          : 'Si la configuracion ya se ve estable, lo mas util es volver al hub y usar el plan en vez de seguir afinando detalles.';
-  const primaryActionLabel = hasDynamicContext ? 'Abrir nutricion' : 'Abrir modo';
+          ?  'Ayuno, actividad o ciclo ya estan modulando el plan. Lo mas útil ahora es aplicar ese contexto dentro del día, no seguir tocando ajustes.'
+          : 'Si la configuración ya se ve estable, lo mas útil es volver al hub y usar el plan en vez de seguir afinando detalles.';
+  const primaryActionLabel = hasDynamicContext ? 'Abrir nutrición' : 'Abrir registro';
   const handlePrimaryAction = () => {
-    router.push((hasDynamicContext ? Routes.nutrition.index : Routes.nutrition.mode) as any);
+    router.push((hasDynamicContext ? Routes.nutrition.index : Routes.nutrition.log) as never);
   };
 
   return (
@@ -127,9 +123,9 @@ export default function NutritionSettingsScreen() {
         <Header
           showBack
           color={accent}
-          eyebrow="Nutricion"
-          title="Ajustes de nutricion"
-          subtitle="Toda la configuracion importante del plan diario en una sola vista clara y rapida de editar."
+          eyebrow="Nutrición"
+          title="Ajustes de nutrición"
+          subtitle="Toda la configuración importante del plan diario en una sola vista clara y rapida de editar."
         />
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
@@ -142,7 +138,7 @@ export default function NutritionSettingsScreen() {
                   styles.tab,
                   isActive && { borderColor: withOpacity(accent, 0.32), backgroundColor: getModuleBg('nutrition', 0.16) },
                 ]}
-                onPress={() => router.push(tab.route as any)}
+                onPress={() => router.push(tab.route as never)}
               >
                 <Text style={[styles.tabText, isActive && { color: accent }]}>{tab.label}</Text>
               </Pressable>
@@ -155,14 +151,14 @@ export default function NutritionSettingsScreen() {
             <View style={styles.heroCopy}>
               <View style={[styles.heroBadge, { backgroundColor: getModuleBg('nutrition', 0.16) }]}>
                 <Ionicons name="settings-outline" size={16} color={accent} />
-                <Text style={[styles.heroBadgeText, { color: accent }]}>Configuracion activa</Text>
+                <Text style={[styles.heroBadgeText, { color: accent }]}>Configuración activa</Text>
               </View>
               <Text style={styles.heroTitle}>{nutritionModeOption?.shortTitle ?? 'Modo actual'}</Text>
               <Text style={styles.heroHint}>{modeSubtitle}</Text>
             </View>
             <View style={styles.heroPill}>
               <Text style={[styles.heroPillValue, { color: accent }]}>{goalValue.toLocaleString()}</Text>
-              <Text style={styles.heroPillLabel}>kcal / dia</Text>
+              <Text style={styles.heroPillLabel}>kcal / día</Text>
             </View>
           </View>
 
@@ -184,7 +180,7 @@ export default function NutritionSettingsScreen() {
 
         <Card style={styles.coachCard}>
           <View style={styles.coachHeader}>
-            <Text style={styles.coachEyebrow}>Coach contextual</Text>
+            <Text style={styles.coachEyebrow}>Lectura contextual</Text>
             <Text style={styles.coachTitle}>{coachTitle}</Text>
             <Text style={styles.coachBody}>{coachBody}</Text>
           </View>
@@ -193,14 +189,14 @@ export default function NutritionSettingsScreen() {
             <RouteStat
               label="Score"
               value={dayScore !== null ? `${dayScore}` : '--'}
-              hint={dayScore !== null ? `cierre ${predictedScore ?? dayScore}` : 'sin lectura todavia'}
+              hint={dayScore !== null ? `cierre ${predictedScore ?? dayScore}` : 'sin lectura todavía'}
               accent={dayScoreAccent}
             />
             <RouteStat
               label="Retorno"
               value={returnMode}
               hint={modeLabel}
-              accent={Colors.coach}
+              accent={Colors.info}
             />
             <RouteStat
               label="Ritmo"
@@ -215,31 +211,31 @@ export default function NutritionSettingsScreen() {
               <Text style={styles.routeActionLabel}>Siguiente lectura</Text>
               <Text style={styles.routeActionTitle}>
                 {budgetHigh
-                  ? 'Limpia el plan antes de cerrar macros'
+                  ?  'Limpia el plan antes de cerrar macros'
                   : budgetLow
-                    ? 'Recupera energia sin romper el retorno'
+                    ?  'Recupera energía sin romper el retorno'
                     : hasDynamicContext
-                      ? 'Aplica el plan vivo dentro del dia'
-                      : 'Sostener una configuracion util'}
+                      ?  'Aplica el plan vivo dentro del día'
+                      : 'Sostener una configuración útil'}
               </Text>
               <Text style={styles.routeActionHint}>{coachHint}</Text>
             </View>
             <View style={styles.routeButtons}>
-              <Button onPress={handlePrimaryAction} label={primaryActionLabel} size="sm" color={Colors.coach} />
-              <Button onPress={() => router.push(Routes.coach.index as any)} label="Abrir coach" size="sm" variant="secondary" color={Colors.coach} />
-              <Button onPress={() => router.push(Routes.dailySummary as any)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.coach} />
+              <Button onPress={handlePrimaryAction} label={primaryActionLabel} size="sm" color={Colors.info} />
+              <Button onPress={() => router.push(Routes.tabs.home as never)} label="Abrir inicio" size="sm" variant="secondary" color={Colors.info} />
+              <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.info} />
             </View>
           </View>
         </Card>
 
         <Card>
           <SectionHeader
-            title="Cambio rapido de modo"
-            hint="Si quieres ajustar el plan sin salir de aqui, esta es la accion principal de esta pantalla."
+            title="Cambio rápido de modo"
+            hint="Si quieres ajustar el plan sin salir de aqui, esta es la acción principal de esta pantalla."
             action={
               <Button
-                onPress={() => router.push(Routes.nutrition.mode as any)}
-                label="Ver detalle"
+                onPress={() => router.push(Routes.nutrition.log as never)}
+                label="Abrir registro"
                 size="sm"
                 variant="secondary"
                 color={accent}
@@ -280,12 +276,12 @@ export default function NutritionSettingsScreen() {
         <Card>
           <SectionHeader
             title="Metas y macros"
-            hint="Asi queda tu presupuesto diario con la configuracion actual."
+            hint="Asi queda tu presupuesto diario con la configuración actual."
           />
           <View style={styles.goalStack}>
             {[
               { label: 'Calorias base', value: `${calorieGoalValue.toLocaleString()} kcal` },
-              { label: 'Proteina', value: `${Math.round(displayMacroGoals.protein)} g` },
+              { label: 'Proteína', value: `${Math.round(displayMacroGoals.protein)} g` },
               { label: 'Carbohidratos', value: `${Math.round(displayMacroGoals.carbs)} g` },
               { label: 'Grasas', value: `${Math.round(displayMacroGoals.fat)} g` },
             ].map((item) => (
@@ -308,7 +304,7 @@ export default function NutritionSettingsScreen() {
               <Ionicons name="timer-outline" size={16} color={Colors.fasting} />
               <Text style={styles.integrationText}>
                 {fastingIntegration
-                  ? fastingIntegration.message
+                  ?  fastingIntegration.message
                   : 'Sin ayuno activo. Puedes registrar comidas con normalidad.'}
               </Text>
             </View>
@@ -323,7 +319,7 @@ export default function NutritionSettingsScreen() {
 
         <Card>
           <SectionHeader
-            title="Atajos rapidos"
+            title="Atajos rápidos"
             hint="Puertas directas a los ajustes que mas cambian la experiencia diaria."
           />
           <View style={styles.linkStack}>
@@ -332,7 +328,7 @@ export default function NutritionSettingsScreen() {
               { label: 'Notificaciones', route: Routes.settings.notificationsSettings },
               { label: 'Exportar datos', route: Routes.profile.exportData },
             ].map((item) => (
-              <Pressable key={item.label} style={styles.linkRow} onPress={() => router.push(item.route as any)}>
+              <Pressable key={item.label} style={styles.linkRow} onPress={() => router.push(item.route as never)}>
                 <Text style={styles.linkLabel}>{item.label}</Text>
                 <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
               </Pressable>
@@ -375,8 +371,8 @@ const styles = StyleSheet.create({
   },
   coachCard: {
     borderWidth: 1,
-    borderColor: `${Colors.coach}45`,
-    backgroundColor: `${Colors.coach}0D`,
+    borderColor: `${Colors.info}45`,
+    backgroundColor: `${Colors.info}0D`,
   },
   heroTopRow: {
     flexDirection: 'row',
@@ -464,7 +460,7 @@ const styles = StyleSheet.create({
   coachEyebrow: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
-    color: Colors.coach,
+    color: Colors.info,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -549,7 +545,7 @@ const styles = StyleSheet.create({
   routeActionLabel: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
-    color: Colors.coach,
+    color: Colors.info,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },

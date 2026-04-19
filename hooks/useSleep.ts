@@ -4,15 +4,18 @@
 // correlaciones con otros módulos, historial
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { addCoins, addXP } from '@/services/supabase/profiles';
 import { captureError } from '@/lib/sentry';
-import { todayISO, daysAgoISO } from '@/utils/dates';
+import { daysAgoISO } from '@/utils/dates';
 import { calculateSleepScore } from '@/utils/calculations';
+import {
+  syncSleepSessionsFromHealthConnect,
+  type HealthConnectSleepSyncResult,
+} from '@/lib/health-connect-sleep';
 
 export interface SleepLogInput {
   bedtime:       Date;   // hora de acostarse
@@ -54,11 +57,11 @@ interface PhysicalDayState {
 
 // Rangos de calidad de sueño según duración + edad
 function getSleepQualityLabel(score: number): { label: string; color: string } {
-  if (score >= 85) return { label: 'Excelente',  color: '#7BC67E' };
-  if (score >= 70) return { label: 'Bueno',      color: '#82C91E' };
-  if (score >= 55) return { label: 'Regular',    color: '#FFD43B' };
-  if (score >= 40) return { label: 'Malo',       color: '#FF922B' };
-  return                  { label: 'Muy malo',   color: '#FF6B6B' };
+  if (score >= 85) return { label: 'Muy reparador', color: '#7BC67E' };
+  if (score >= 70) return { label: 'Bastante bien', color: '#82C91E' };
+  if (score >= 55) return { label: 'Intermedio', color: '#FFD43B' };
+  if (score >= 40) return { label: 'Algo corto', color: '#FF922B' };
+  return { label: 'Muy corto', color: '#FF6B6B' };
 }
 
 function average(values: number[]): number {
@@ -71,13 +74,6 @@ function stdDeviation(values: number[]): number {
   const avg = average(values);
   const variance = values.reduce((sum, item) => sum + (item - avg) ** 2, 0) / values.length;
   return Math.sqrt(variance);
-}
-
-function minuteToLabel(totalMinutes: number): string {
-  const minutes = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
-  const hour = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${String(hour).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
 }
 
 export function useSleep() {
@@ -142,16 +138,6 @@ export function useSleep() {
     return debt + Math.max(0, goalHours * 60 - h.duration_min);
   }, 0) / 60;
 
-  const wakeMinutesLast7 = last7.map((entry) => {
-    const end = new Date(entry.end_time);
-    return end.getHours() * 60 + end.getMinutes();
-  });
-  const avgWakeMinutes = wakeMinutesLast7.length ? average(wakeMinutesLast7) : null;
-  const estimatedLatencyMin = 14;
-  const recommendedBedtime = avgWakeMinutes !== null
-    ? minuteToLabel(avgWakeMinutes - goalHours * 60 - estimatedLatencyMin)
-    : null;
-
   const bedtimeMinutes = history.slice(-28).map((entry) => {
     const start = new Date(entry.start_time);
     const minutes = start.getHours() * 60 + start.getMinutes();
@@ -163,55 +149,55 @@ export function useSleep() {
     isIrregular: bedtimeStdDev > 90,
     stdDevMinutes: bedtimeStdDev,
     message: bedtimeStdDev > 90
-      ? 'Tu horario de sueno es irregular. Acostarte en una franja mas estable puede mejorar calidad.'
+      ?  'Tu horario de sueño es irregular. Acostarte en una franja más estable puede mejorar la calidad.'
       : null,
   };
 
   const last3 = history.slice(-3);
   const avgLast3Hours = last3.length
-    ? average(last3.map((item) => item.duration_min / 60))
+    ?  average(last3.map((item) => item.duration_min / 60))
     : 0;
   const physicalDayState: PhysicalDayState = avgLast3Hours < 6
-    ? {
+    ?  {
         state: 'recovery',
         avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
         stepGoalAdjustmentPct: -20,
         workoutRecommendation: 'recovery',
-        message: 'Ultimas 3 noches cortas. Hoy conviene bajar carga y priorizar recuperacion.',
+        message: 'Vienes corto de sueño. Hoy conviene un día más liviano y recuperar margen.',
       }
     : avgLast3Hours > 8
-      ? {
+      ?  {
           state: 'high',
           avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
           stepGoalAdjustmentPct: 0,
           workoutRecommendation: 'intense',
-          message: 'Dormiste bien los ultimos dias. Hoy es buena ventana para entrenar fuerte.',
+          message: 'Dormiste bien estos últimos días. Hoy hay margen para empujar un poco más.',
         }
       : {
           state: 'normal',
           avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
           stepGoalAdjustmentPct: 0,
           workoutRecommendation: 'moderate',
-          message: 'Sueno estable. Manten una carga moderada y consistente hoy.',
+          message: 'Tu sueño viene bastante estable. Hoy encaja mejor una carga moderada y consistente.',
         };
 
   // Backwards compatibility: expose a simple action plan for consumers expecting
   // `{ title, focus }` (used by intelligence/why-vyra and similar views).
   const sleepActionPlan = physicalDayState
-    ? {
+    ?  {
         title: physicalDayState.message,
         focus:
           physicalDayState.workoutRecommendation === 'recovery'
-            ? 'Recuperación'
+            ?  'Día más liviano'
             : physicalDayState.workoutRecommendation === 'moderate'
-              ? 'Carga moderada'
+              ?  'Carga moderada'
               : 'Entrenamiento intenso',
       }
     : null;
 
   const compensationHours = Math.min(9.5, goalHours + Math.min(2, sleepDebt));
   const sleepDebtMessage = sleepDebt > 0.5
-    ? `Deuda acumulada: ${sleepDebt.toFixed(1)}h. Objetivo de compensacion: una noche de ~${compensationHours.toFixed(1)}h.`
+    ? `Deuda acumulada: ${sleepDebt.toFixed(1)}h. Objetivo de compensación: una noche de ~${compensationHours.toFixed(1)}h.`
     : null;
 
   // Consecutive nights meeting goal (streak) — computed from the most recent history entries
@@ -244,7 +230,7 @@ export function useSleep() {
   })();
 
   // ─── Guardar sueño ───────────────────────────────────────
-  const { mutate: logSleep, isPending: isLogging } = useMutation({
+  const { mutate: logSleep, mutateAsync: logSleepAsync, isPending: isLogging } = useMutation({
     mutationFn: async (input: SleepLogInput) => {
       if (!userId) throw new Error('No user');
 
@@ -286,16 +272,12 @@ export function useSleep() {
     },
 
     onSuccess: async ({ score, durationMin }) => {
-      const coinsEarned = score >= 80 ? 10 : score >= 60 ? 5 : 2;
-      await addCoins(userId, coinsEarned, 'sleep_log', `Sueño registrado: ${(durationMin/60).toFixed(1)}h`);
-      await addXP(userId, 50);
-
       queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
       queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
       queryClient.invalidateQueries({ queryKey: ['today_summary'] });
       queryClient.invalidateQueries({ queryKey: ['daily_score'] });
 
-      showToast(`Sueño guardado — Score: ${score}/100 +${coinsEarned} 🪙`, 'success');
+      showToast(`Sueño guardado. Score: ${score}/100 · ${(durationMin / 60).toFixed(1)}h.`, 'success');
 
       if (isOnline) void supabase.rpc('calculate_daily_score', { p_user_id: userId });
     },
@@ -318,6 +300,87 @@ export function useSleep() {
     });
   }, []);
 
+  const importHealthConnectSessions = useCallback(async (): Promise<HealthConnectSleepSyncResult> => {
+    if (!userId) {
+      return {
+        status: 'error',
+        permissionsGranted: false,
+        records: [],
+        message: 'Necesitas sesión para importar sueño.',
+      };
+    }
+
+    const result = await syncSleepSessionsFromHealthConnect({
+      promptForPermissions: true,
+      daysBack: 14,
+    });
+
+    if (result.status !== 'ready') {
+      if (result.message) {
+        showToast(result.message, result.status === 'permissions_missing' ? 'warning' : 'error');
+      }
+      return result;
+    }
+
+    if (!result.records.length) {
+      showToast('No encontramos sesiones nuevas para importar.', 'info');
+      return result;
+    }
+
+    const rows = result.records.map((record) => ({
+      user_id: userId,
+      start_time: record.startTime,
+      end_time: record.endTime,
+      duration_min: record.durationMin,
+      quality_score: record.qualityScore,
+      deep_min: record.deepMin,
+      rem_min: record.remMin,
+      light_min: record.lightMin,
+      awake_min: record.awakeMin,
+      source: record.source,
+      source_record_id: record.sourceRecordId,
+      source_origin: record.sourceOrigin,
+      source_device: record.sourceDevice,
+      synced_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from('sleep_logs')
+      .upsert(rows, { onConflict: 'user_id,source,source_record_id' });
+
+    if (error) {
+      showToast('No pudimos guardar las sesiones importadas.', 'error');
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        action: 'useSleep.importHealthConnectSessions',
+      });
+      return {
+        status: 'error',
+        permissionsGranted: true,
+        records: result.records,
+        message: 'No pudimos guardar las sesiones importadas.',
+      };
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
+    queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
+    queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+    queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+    void (async () => {
+      try {
+        await supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      } catch {
+        // Best effort: the import is still useful even if score recalculation fails.
+      }
+    })();
+
+    showToast(
+      `Importamos ${result.records.length} sesión${result.records.length === 1 ? '' : 'es'} de sueño.`,
+      'success',
+    );
+
+    return result;
+  }, [queryClient, showToast, userId]);
+
   return {
     lastSleep,
     lastDurationHours,
@@ -330,17 +393,18 @@ export function useSleep() {
     daysWithGoal,
     sleepDebt,
     sleepDebtMessage,
-    recommendedBedtime,
     sleepIrregularity,
     physicalDayState,
     isLoading,
     isLogging,
     logSleep,
+    logSleepAsync,
     getLastNight: () => lastSleep,
     getWeeklyAverage: () => avgHours,
     getOptimalAlarmTimes,
     refetch,
     sleepActionPlan,
     sleepStreakDays,
+    importHealthConnectSessions,
   };
 }

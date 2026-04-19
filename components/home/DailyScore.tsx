@@ -1,35 +1,34 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
   Easing,
   interpolate,
+  useAnimatedStyle,
   useDerivedValue,
+  useSharedValue,
+  withDelay,
+  withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle } from 'react-native-svg';
 import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
-import { DailyScore as DailyScoreType, ScoreBreakdown } from '@/hooks/useReadiness';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import type { DailyScore as DailyScoreType, ScoreBreakdown } from '@/hooks/useReadiness';
 
 interface DailyScoreProps {
-  data:    DailyScoreType | null;
+  data: DailyScoreType | null;
   loading: boolean;
   onPress?: () => void;
 }
 
-// Animador de número (cuenta de 0 al valor)
 function AnimatedScore({ target, color }: { target: number; color: string }) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
     progress.value = 0;
     progress.value = withDelay(
-      200,
+      160,
       withTiming(target, {
-        duration: 1500,
+        duration: 1200,
         easing: Easing.out(Easing.cubic),
       }),
     );
@@ -43,20 +42,14 @@ function AnimatedScore({ target, color }: { target: number; color: string }) {
     color,
   }));
 
-  return (
-    <Animated.Text style={[styles.scoreNumber, animStyle]}>
-      {displayValue.value}
-    </Animated.Text>
-  );
+  return <Animated.Text style={[styles.scoreNumber, animStyle]}>{displayValue.value}</Animated.Text>;
 }
 
-// Ring SVG animado
 function ScoreRing({ score, color }: { score: number; color: string }) {
-  const RADIUS = 72;
-  const STROKE = 10;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-  const SIZE = (RADIUS + STROKE) * 2 + 4;
-
+  const radius = 54;
+  const stroke = 8;
+  const circumference = 2 * Math.PI * radius;
+  const size = (radius + stroke) * 2 + 4;
   const animProgress = useSharedValue(0);
 
   useEffect(() => {
@@ -64,52 +57,47 @@ function ScoreRing({ score, color }: { score: number; color: string }) {
     animProgress.value = withDelay(
       100,
       withTiming(score / 100, {
-        duration: 1500,
+        duration: 1200,
         easing: Easing.out(Easing.cubic),
       }),
     );
   }, [score]);
 
   const animStyle = useAnimatedStyle(() => ({
-    // Usado para re-render — el SVG strokeDashoffset no es animable directo en RN
-    // Se hace con opacity para el glow effect
     opacity: 0.95 + animProgress.value * 0.05,
   }));
 
-  const offset = CIRCUMFERENCE * (1 - score / 100);
+  const offset = circumference * (1 - score / 100);
 
   return (
     <Animated.View style={animStyle}>
-      <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
-        {/* Track gris */}
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <Circle
-          cx={SIZE / 2}
-          cy={SIZE / 2}
-          r={RADIUS}
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
           stroke={Colors.bgElevated}
-          strokeWidth={STROKE}
+          strokeWidth={stroke}
           fill="none"
         />
-        {/* Arco coloreado */}
         <Circle
-          cx={SIZE / 2}
-          cy={SIZE / 2}
-          r={RADIUS}
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
           stroke={color}
-          strokeWidth={STROKE}
+          strokeWidth={stroke}
           fill="none"
-          strokeDasharray={`${CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+          strokeDasharray={`${circumference} ${circumference}`}
           strokeDashoffset={offset}
           strokeLinecap="round"
           rotation="-90"
-          origin={`${SIZE / 2},${SIZE / 2}`}
+          origin={`${size / 2},${size / 2}`}
         />
       </Svg>
     </Animated.View>
   );
 }
 
-// Barra de breakdown por módulo
 function BreakdownBar({
   label,
   value,
@@ -126,48 +114,49 @@ function BreakdownBar({
   useEffect(() => {
     barWidth.value = withDelay(
       delay,
-      withTiming(value / 100, { duration: 800, easing: Easing.out(Easing.quad) }),
+      withTiming(value / 100, { duration: 700, easing: Easing.out(Easing.quad) }),
     );
-  }, [value]);
+  }, [delay, value]);
 
   const barStyle = useAnimatedStyle(() => ({
-    width: `${barWidth.value * 100}%` as any,
+    width: `${barWidth.value * 100}%` as const,
   }));
 
   return (
     <View style={styles.breakdownRow}>
       <Text style={styles.breakdownLabel}>{label}</Text>
       <View style={styles.breakdownTrack}>
-        <Animated.View
-          style={[styles.breakdownFill, { backgroundColor: color }, barStyle]}
-        />
+        <Animated.View style={[styles.breakdownFill, { backgroundColor: color }, barStyle]} />
       </View>
       <Text style={[styles.breakdownValue, { color }]}>{value}</Text>
     </View>
   );
 }
 
-const BREAKDOWN_ITEMS: {
+const BREAKDOWN_ITEMS: Array<{
   key: keyof ScoreBreakdown;
   label: string;
   color: string;
-}[] = [
-  { key: 'hydration',  label: '💧 Agua',       color: Colors.water },
-  { key: 'activity',   label: '🚶 Actividad',   color: Colors.steps },
-  { key: 'sleep',      label: '😴 Sueño',       color: Colors.sleep },
-  { key: 'nutrition',  label: '🍎 Nutrición',   color: Colors.nutrition },
-  { key: 'mental',     label: '🧠 Mental',      color: Colors.mental },
+}> = [
+  { key: 'hydration', label: 'Agua', color: Colors.water },
+  { key: 'activity', label: 'Actividad', color: Colors.steps },
+  { key: 'sleep', label: 'Sueño', color: Colors.sleep },
+  { key: 'nutrition', label: 'Nutrición', color: Colors.nutrition },
+  { key: 'mental', label: 'Ánimo', color: Colors.mental },
 ];
 
+function getScoreLabel(score: number) {
+  if (score >= 90) return 'Muy buen equilibrio';
+  if (score >= 80) return 'Día bien sostenido';
+  if (score >= 70) return 'Buena base';
+  if (score >= 60) return 'Conviene ordenar dos cosas';
+  if (score >= 40) return 'Mejor bajar ruido';
+  return 'Empieza por lo básico';
+}
+
 export function DailyScore({ data, loading, onPress }: DailyScoreProps) {
-  const score  = data?.score     ?? 0;
-  const color  = score >= 80 ? Colors.success : score >= 60 ? Colors.warning : Colors.error;
-  const label  = score >= 90 ? '¡Día excepcional!'
-               : score >= 80 ? 'Muy buen día'
-               : score >= 70 ? 'Buen día'
-               : score >= 60 ? 'Día regular'
-               : score >= 40 ? 'Podés mejorar'
-               : 'Empezá por un paso';
+  const score = data?.score ?? 0;
+  const color = score >= 80 ? Colors.success : score >= 60 ? Colors.warning : Colors.error;
 
   if (loading) {
     return (
@@ -179,44 +168,37 @@ export function DailyScore({ data, loading, onPress }: DailyScoreProps) {
   }
 
   return (
-    <TouchableOpacity
-      style={styles.container}
-      onPress={onPress}
-      activeOpacity={0.92}
-    >
-      {/* Ring + número */}
+    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.92}>
       <View style={styles.ringWrapper}>
         <ScoreRing score={score} color={color} />
         <View style={styles.ringCenter}>
           <AnimatedScore target={score} color={color} />
           <Text style={styles.scoreMax}>/100</Text>
-          <Text style={styles.scoreLabel}>{label}</Text>
+          <Text style={styles.scoreLabel}>{getScoreLabel(score)}</Text>
         </View>
       </View>
 
-      {/* Breakdown barras */}
-      {data?.breakdown && (
+      {data?.breakdown ? (
         <View style={styles.breakdown}>
-          {BREAKDOWN_ITEMS.map((item, i) => (
+          {BREAKDOWN_ITEMS.map((item, index) => (
             <BreakdownBar
               key={item.key}
               label={item.label}
               value={data.breakdown[item.key]}
               color={item.color}
-              delay={300 + i * 80}
+              delay={260 + index * 70}
             />
           ))}
         </View>
-      )}
+      ) : null}
 
-      {/* Estrés capeado */}
-      {data?.meta?.stressCapped && (
+      {data?.meta?.stressCapped ? (
         <View style={styles.capNotice}>
           <Text style={styles.capNoticeText}>
-            ⚡ Score máximo reducido por estrés alto — cuidate hoy
+            Hoy conviene ir más suave; el estrés está pesando más de lo normal.
           </Text>
         </View>
-      )}
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -225,13 +207,13 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.bgSurface,
     borderRadius: Radius['2xl'],
-    padding: Spacing[5],
-    gap: Spacing[5],
+    padding: Spacing[4],
+    gap: Spacing[4],
   },
   loadingRing: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 124,
+    height: 124,
+    borderRadius: 62,
     backgroundColor: Colors.bgElevated,
     alignSelf: 'center',
   },
@@ -251,9 +233,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scoreNumber: {
-    fontFamily: FontFamily.bold,
-    fontSize: 52,
-    lineHeight: 60,
+    fontFamily: FontFamily.display,
+    fontSize: 46,
+    lineHeight: 46,
+    letterSpacing: 2,
   },
   scoreMax: {
     fontFamily: FontFamily.medium,
@@ -263,11 +246,12 @@ const styles = StyleSheet.create({
   },
   scoreLabel: {
     fontFamily: FontFamily.medium,
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: 4,
-    maxWidth: 120,
+    maxWidth: 132,
+    lineHeight: 16,
   },
   breakdown: {
     gap: Spacing[2],
@@ -281,7 +265,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: 13,
     color: Colors.textSecondary,
-    width: 100,
+    width: 82,
   },
   breakdownTrack: {
     flex: 1,
@@ -295,22 +279,24 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   breakdownValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 12,
-    width: 30,
+    width: 28,
     textAlign: 'right',
+    fontFamily: FontFamily.semibold,
+    fontSize: 12,
   },
   capNotice: {
-    backgroundColor: `${Colors.warning}15`,
-    borderRadius: Radius.lg,
-    padding: Spacing[3],
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.warning,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}2A`,
+    backgroundColor: `${Colors.warning}10`,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
   },
   capNoticeText: {
     fontFamily: FontFamily.medium,
     fontSize: 12,
-    color: Colors.warning,
+    color: Colors.textSecondary,
+    lineHeight: 18,
   },
 });
 

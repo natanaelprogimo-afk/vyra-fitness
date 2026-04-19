@@ -18,6 +18,12 @@ import { Colors, withOpacity } from '@/constants/colors';
 
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
+import {
+  buildLegacyProfileContextUpdate,
+  buildProfileContextUpdate,
+  getProfileContextMemory,
+  shouldFallbackToLegacyProfileContext,
+} from '@/lib/profile-context';
 import { supabase } from '@/lib/supabase';
 
 import { useAuthStore } from '@/stores/authStore';
@@ -222,7 +228,7 @@ function routeForWidgetFocus(focus: WidgetFocus) {
 
     case 'kora':
 
-      return Routes.kora;
+      return Routes.dailySummary;
 
     case 'steps':
 
@@ -250,7 +256,7 @@ function routeForWidgetFocus(focus: WidgetFocus) {
 
     case 'weight':
 
-      return Routes.weight.index;
+      return Routes.progress.index;
 
     case 'female':
 
@@ -304,7 +310,7 @@ export default function WidgetSettingsScreen() {
 
     setSelected(getWidgetFocus(profile));
 
-  }, [profile?.coach_memory_json, profile?.id]);
+  }, [profile?.context_memory_json, profile?.id]);
 
 
 
@@ -322,8 +328,6 @@ export default function WidgetSettingsScreen() {
 
   const coverageState = getWidgetCoverageStateCopy(installedCount, widgetStatus.pinSupported);
 
-  const coachName = profile?.coach_name_preference ?? 'Vyra';
-
   const focusAction = focusActions[0] ?? null;
 
   const dayScore = dailyScore?.score != null ? Math.round(dailyScore.score) : null;
@@ -338,21 +342,21 @@ export default function WidgetSettingsScreen() {
 
   const coveragePercent = Math.round((installedCount / 2) * 100);
 
-  const coverageAccent = installedCount === 2 ? Colors.steps : installedCount === 1 ? Colors.coach : Colors.warning;
+  const coverageAccent = installedCount === 2 ? Colors.steps : installedCount === 1 ? Colors.brand : Colors.warning;
 
   const launcherCoverage = coverageState.coverageLabel;
 
   const activeFormat = installedCount === 0
 
-    ? 'Sin anclar'
+    ?  'Sin anclar'
 
     : widgetStatus.compactPinned && widgetStatus.expandedPinned
 
-      ? 'Doble'
+      ?  'Doble'
 
       : widgetStatus.compactPinned
 
-        ? 'Compacto'
+        ?  'Compacto'
 
         : 'Expandido';
 
@@ -365,112 +369,80 @@ export default function WidgetSettingsScreen() {
   const expandedState = widgetStatus.expandedPinned ? 'Listo' : widgetStatus.pinSupported ? 'Pendiente' : 'Manual';
 
   const compactHint = widgetStatus.compactPinned
-
-    ? 'Ya protege score, racha y siguiente accion sin abrir la app.'
-
+    ? 'Ya te deja ver lo importante sin abrir la app.'
     : widgetStatus.pinSupported
-
-      ? 'Es la base mas rapida para montar retorno desde el escritorio.'
-
-      : 'Tu launcher pide montarlo a mano, pero sigue siendo la salida minima mas util.';
+      ? 'Es la forma mas rapida de tener el dato clave en la pantalla de inicio.'
+      : 'Si tu telefono no permite agregarlo desde aqui, puedes ponerlo manualmente desde la pantalla de inicio.';
 
   const expandedHint = widgetStatus.expandedPinned
-
-    ? 'Ya deja semana, score y contexto en una sola lectura larga.'
-
+    ? 'Ya te muestra resumen y contexto del dia de un vistazo.'
     : widgetStatus.pinSupported
-
-      ? 'Completa la capa visible cuando necesitas mas contexto del dia.'
-
-      : 'Si cabe en tu launcher, agregalo manualmente para cerrar mejor la lectura del dia.';
+      ? 'Completa el compacto cuando necesitas mas contexto sin entrar a la app.'
+      : 'Si tu telefono lo permite, agregalo manualmente para tener mas contexto sin abrir la app.';
 
   const launcherTitle = coverageState.title;
 
   const launcherBody = installedCount === 0
-
-    ? `${coverageState.body} Hoy conviene empezar por ${preferredStartKind} para que el escritorio deje de depender de abrir la app completa.`
-
+    ? `${coverageState.body} Hoy conviene empezar por ${preferredStartKind} para ver algo util apenas desbloqueas el telefono.`
     : installedCount === 1
-
-      ? `${coverageState.body} Ahora mismo ${widgetStatus.compactPinned ? 'compacto' : 'expandido'} ya esta vivo. Falta ${widgetStatus.compactPinned ? 'expandido' : 'compacto'} para cerrar la capa visible.`
-
-      : `${coverageState.body} Compacto y expandido ya estan montados. El siguiente ajuste util es afinar el foco en ${selectedOption.title.toLowerCase()} y sostener esa lectura.`;
+      ? `${coverageState.body} Ahora mismo ${widgetStatus.compactPinned ? 'compacto' : 'expandido'} ya esta activo. Falta ${widgetStatus.compactPinned ? 'expandido' : 'compacto'} para cerrar mejor la lectura del dia.`
+      : `${coverageState.body} El siguiente ajuste util es afinar el foco en ${selectedOption.title.toLowerCase()} y dejarlo estable.`;
 
   const nextMountTitle = installedCount === 0
 
-    ? `Empieza por ${preferredStartKind}`
+    ?  `Empieza por ${preferredStartKind}`
 
     : compactPending
 
-      ? 'Completa con compacto'
+      ?  'Completa con compacto'
 
       : expandedPending
 
-        ? 'Completa con expandido'
+        ?  'Completa con expandido'
 
         : selected === 'summary'
 
-          ? 'Deja el resumen al frente'
+          ?  'Deja el resumen al frente'
 
           : selected === 'kora'
 
-            ? 'Deja el coach a un toque'
+            ?  'Deja el resumen a un toque'
 
             : `Sostener ${selectedOption.title.toLowerCase()} como foco`;
 
   const nextMountHint = installedCount === 0
-
     ? preferredStartKind === 'compacto'
-
-      ? 'Compacto gana cuando quieres score, racha y accion rapida sin saturar el escritorio.'
-
-      : 'Expandido gana cuando quieres semana, score y contexto en la misma primera mirada.'
-
+      ? 'Empieza por compacto si quieres ver lo esencial rapido y sin ruido.'
+      : 'Empieza por expandido si prefieres mas contexto en la primera mirada.'
     : compactPending
-
       ? 'Compacto cierra la lectura minima y te devuelve la siguiente accion en un vistazo.'
-
       : expandedPending
-
-        ? 'Expandido cierra contexto de semana y deja menos ida y vuelta al abrir la app.'
-
+        ? 'Expandido suma contexto sin obligarte a entrar a la app.'
         : dayScore !== null && dayScore < 65
-
-          ? 'Con los dos formatos montados, ahora conviene proteger el dia y no seguir cambiando el panel.'
-
-          : 'Con la cobertura lista, el siguiente paso real es limpiar friccion y sostener el foco correcto.';
+          ? 'Con todo listo, ahora conviene cuidar el dia y no seguir tocando ajustes.'
+          : 'Con la cobertura lista, lo importante es dejar el foco correcto y no meter mas friccion.';
 
   const returnMode = installedCount === 2 && dayScore !== null && dayScore < 65
 
-    ? 'Cuidar'
+    ?  'Cuidar'
 
     : installedCount === 2 && (selected === 'summary' || selected === 'kora')
 
-      ? 'Guiar'
+      ?  'Guiar'
 
       : coverageState.returnMode;
 
   const coachTitle = installedCount === 0
-
-    ? `${coachName} quiere fijar una salida real en el escritorio antes de pedir mas memoria.`
-
+    ? 'El primer widget deberia mostrar algo realmente util apenas desbloqueas.'
     : installedCount === 1
-
-      ? `${coachName} ve un widget vivo, pero quiere completar la capa visible del dia.`
-
+      ? 'Ya tienes un widget activo, pero aun puedes dejar la vista mucho mas completa.'
       : dayScore !== null && dayScore < 65
-
-        ? `${coachName} quiere proteger el retorno del dia antes de tocar mas el panel.`
-
+        ? 'Hoy conviene una vista simple, clara y sin seguir tocando ajustes.'
         : selected === 'summary'
-
-          ? `${coachName} quiere que el widget abra con la lectura correcta del dia.`
-
+          ? 'La pantalla de inicio ya puede devolverte la lectura correcta del dia.'
           : selected === 'kora'
-
-            ? `${coachName} quiere que el widget te devuelva contexto emocional rapido.`
-
-            : `${coachName} quiere que el widget sostenga ${selectedOption.title.toLowerCase()} sin meter friccion.`;
+            ? 'La pantalla de inicio ya puede devolverte el tono del dia de un vistazo.'
+            : `La pantalla de inicio ya puede sostener ${selectedOption.title.toLowerCase()} sin meter friccion.`;
 
   const coachBody =
 
@@ -480,48 +452,29 @@ export default function WidgetSettingsScreen() {
 
     (installedCount === 0
 
-      ? 'Widgets gana valor cuando deja de ser solo una opcion bonita y pasa a poner la siguiente decision util delante de tus ojos.'
-
+      ? 'El widget vale la pena cuando te evita abrir la app solo para mirar lo importante.'
       : `Ahora mismo tienes ${installedCount} widget${installedCount === 1 ? '' : 's'} activo${installedCount === 1 ? '' : 's'} y el foco principal esta en ${selectedOption.title.toLowerCase()}.`);
 
   const coachHint = installedCount === 0
-
     ? widgetStatus.pinSupported
-
-      ? 'Siguiente lectura util: agrega el widget compacto y luego revisa si tambien conviene fijar el expandido.'
-
-      : 'Siguiente lectura util: si tu launcher no permite pinning, agrega el widget manualmente y vuelve para afinar el foco.'
-
+      ? 'Empieza por el widget compacto y luego decide si tambien te sirve el expandido.'
+      : 'Agregalo manualmente desde la pantalla de inicio y luego vuelve para ajustar el foco.'
     : installedCount === 1
-
-      ? 'Siguiente lectura util: si el espacio lo permite, completa el stack con el segundo widget para que el dia no dependa de abrir la app.'
-
+      ? 'Si tienes espacio, completa con el segundo formato para depender menos de abrir la app.'
       : focusAction
-
-        ? `Siguiente lectura util: ${focusAction.title}.`
-
+        ? `${focusAction.title}.`
         : dayScore !== null && dayScore < 65
-
-          ? 'Siguiente lectura util: si el score viene bajo, resumen y coach ordenan mejor el dia antes de tocar mas ajustes.'
-
-          : `Siguiente lectura util: si ${selectedOption.title.toLowerCase()} ya esta bien elegido, el siguiente paso es limpiar friccion y sostener retorno.`;
+          ? 'Si hoy vienes bajo, resumen e inicio ordenan mejor el dia que seguir tocando ajustes.'
+          : `Si ${selectedOption.title.toLowerCase()} ya esta bien elegido, ahora conviene no meter mas ruido.`;
 
   const routeActionTitle = installedCount === 0
-
-    ? 'Montar la capa visible del dia'
-
+    ? 'Poner algo util en la pantalla de inicio'
     : installedCount === 1
-
-      ? 'Completar el stack del escritorio'
-
+      ? 'Completar la vista de inicio'
       : dayScore !== null && dayScore < 65
-
         ? 'Proteger el dia antes de retocar'
-
         : selected === 'summary' || selected === 'kora'
-
           ? 'Guiar el dia desde afuera de la app'
-
           : `Sostener ${selectedOption.title.toLowerCase()} en primer plano`;
 
   const primaryActionLabel = installedCount === 0
@@ -530,19 +483,19 @@ export default function WidgetSettingsScreen() {
 
     : installedCount === 1 && widgetStatus.pinSupported
 
-      ? 'Agregar expandido'
+      ?  'Agregar expandido'
 
       : focusAction
 
-        ? 'Seguir foco'
+        ?  'Seguir foco'
 
         : dayScore !== null && dayScore < 65
 
-          ? 'Abrir resumen'
+          ?  'Abrir resumen'
 
           : selected === 'kora'
 
-            ? 'Abrir coach'
+            ?  'Abrir resumen'
 
             : 'Abrir foco';
 
@@ -584,27 +537,37 @@ export default function WidgetSettingsScreen() {
 
     try {
 
-      const currentMemory = profile.coach_memory_json && typeof profile.coach_memory_json === 'object'
-
-        ? (profile.coach_memory_json as Record<string, unknown>)
-
-        : {};
+      const currentMemory = getProfileContextMemory(profile);
 
       const nextMemory = withWidgetFocus(currentMemory, next);
 
-      const { error } = await supabase
+      let { error } = await supabase
 
         .from('profiles')
 
-        .update({ coach_memory_json: nextMemory, updated_at: new Date().toISOString() })
+        .update({ ...buildProfileContextUpdate({ memory: nextMemory }), updated_at: new Date().toISOString() })
 
         .eq('id', profile.id);
 
 
 
+      if (error && shouldFallbackToLegacyProfileContext(error)) {
+
+        const retry = await supabase
+
+          .from('profiles')
+
+          .update({ ...buildLegacyProfileContextUpdate({ memory: nextMemory }), updated_at: new Date().toISOString() })
+
+          .eq('id', profile.id);
+
+        error = retry.error;
+
+      }
+
       if (error) throw error;
 
-      updateProfile({ coach_memory_json: nextMemory });
+      updateProfile(buildProfileContextUpdate({ memory: nextMemory }));
 
       showToast(`Widget maestro ahora prioriza ${getWidgetFocusOption(next).title.toLowerCase()}.`, 'success');
 
@@ -634,17 +597,17 @@ export default function WidgetSettingsScreen() {
 
       if (accepted) {
 
-        showToast(kind === 'compact' ? 'El launcher acepto agregar el widget compacto.' : 'El launcher acepto agregar el widget expandido.', 'success');
+        showToast(kind === 'compact' ? 'Se abrio la solicitud para agregar el widget compacto.' : 'Se abrio la solicitud para agregar el widget expandido.', 'success');
 
       } else {
 
-        showToast('Tu launcher no permitio fijar el widget desde la app.', 'warning');
+        showToast('Tu telefono no permitio agregar el widget desde aqui.', 'warning');
 
       }
 
     } catch {
 
-      showToast('No se pudo solicitar el widget al launcher.', 'error');
+      showToast('No se pudo abrir la solicitud del widget.', 'error');
 
     } finally {
 
@@ -714,15 +677,15 @@ export default function WidgetSettingsScreen() {
 
     <SafeScreen padHorizontal={false} padBottom>
 
-      <Header title="Widgets" subtitle="Que quieres ver primero fuera de la app" showBack color={Colors.steps} />
+      <Header title="Widgets" subtitle="Lo que quieres ver primero fuera de la app" showBack color={Colors.steps} />
 
 
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        <Card style={styles.routeCard} accentColor={Colors.coach}>
+        <Card style={styles.routeCard} accentColor={Colors.brand}>
 
-          <Text style={styles.routeEyebrow}>Coach contextual</Text>
+          <Text style={styles.routeEyebrow}>Resumen rápido</Text>
 
           <Text style={styles.routeTitle}>{coachTitle}</Text>
 
@@ -734,7 +697,7 @@ export default function WidgetSettingsScreen() {
 
             <RouteStat
 
-              label="Score"
+              label="Dia"
 
               value={dayScore !== null ? `${dayScore}` : '--'}
 
@@ -746,23 +709,23 @@ export default function WidgetSettingsScreen() {
 
             <RouteStat
 
-              label="Retorno"
+              label="Vista"
 
               value={returnMode}
 
               hint={`${installedCount}/2 widgets`}
 
-              accent={installedCount === 0 ? Colors.warning : Colors.coach}
+              accent={installedCount === 0 ? Colors.warning : Colors.brand}
 
             />
 
             <RouteStat
 
-              label="Ritmo"
+              label="Atajo"
 
               value={scoreVsWeek !== null ? `${scoreVsWeek > 0 ? '+' : ''}${scoreVsWeek}` : `${selectedOption.shortTitle}`}
 
-              hint={scoreVsWeek !== null ? 'vs semana' : selectedOption.launcherCue}
+              hint={scoreVsWeek !== null ? 'vs semana' : selectedOption.focusCue}
 
               accent={scoreVsWeek !== null && scoreVsWeek < 0 ? Colors.warning : Colors.textPrimary}
 
@@ -776,7 +739,7 @@ export default function WidgetSettingsScreen() {
 
             <View style={styles.routeActionCopy}>
 
-              <Text style={styles.routeActionLabel}>Siguiente lectura</Text>
+              <Text style={styles.routeActionLabel}>Lo siguiente</Text>
 
               <Text style={styles.routeActionTitle}>{routeActionTitle}</Text>
 
@@ -790,11 +753,11 @@ export default function WidgetSettingsScreen() {
 
           <View style={styles.routeButtons}>
 
-            <Button onPress={() => void handlePrimaryAction()} label={primaryActionLabel} size="sm" color={Colors.coach} />
+            <Button onPress={() => void handlePrimaryAction()} label={primaryActionLabel} size="sm" color={Colors.brand} />
 
-            <Button onPress={() => router.push(Routes.coach.index as never)} label="Abrir coach" size="sm" variant="secondary" color={Colors.coach} />
+            <Button onPress={() => router.push(Routes.tabs.home as never)} label="Abrir inicio" size="sm" variant="secondary" color={Colors.brand} />
 
-            <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.coach} />
+            <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.brand} />
 
           </View>
 
@@ -812,7 +775,7 @@ export default function WidgetSettingsScreen() {
 
               <Text style={styles.heroTitle} numberOfLines={3}>El widget maestro ya puede priorizar justo el dato que mas consultas fuera de la app.</Text>
 
-              <Text style={styles.heroBody} numberOfLines={2}>Desde aqui decides si el launcher abre con {selectedOption.widgetLabel.toLowerCase()} y que formato conviene fijar primero.</Text>
+              <Text style={styles.heroBody} numberOfLines={2}>Desde aqui decides que quieres ver primero y que formato te sirve mas fuera de la app.</Text>
 
             </View>
 
@@ -830,7 +793,7 @@ export default function WidgetSettingsScreen() {
 
             <Metric label="Instalados" value={String(installedCount)} accent={Colors.steps} />
 
-            <Metric label="Launcher" value={widgetStatus.pinSupported ? 'Smart pin' : 'Manual'} accent={Colors.coach} />
+            <Metric label="Anclaje" value={widgetStatus.pinSupported ? 'Directo' : 'Manual'} accent={Colors.brand} />
 
             <Metric label="Foco" value={getWidgetFocusOption(selected).shortTitle} accent={Colors.textPrimary} />
 
@@ -842,7 +805,7 @@ export default function WidgetSettingsScreen() {
 
         <Card style={styles.launcherCard} accentColor={Colors.steps}>
 
-          <Text style={styles.launcherEyebrow}>Cobertura del launcher</Text>
+          <Text style={styles.launcherEyebrow}>Widgets activos</Text>
 
           <Text style={styles.launcherTitle}>{launcherTitle}</Text>
 
@@ -854,7 +817,7 @@ export default function WidgetSettingsScreen() {
 
             <RouteStat
 
-              label="Cobertura"
+              label="Activos"
 
               value={`${coveragePercent}%`}
 
@@ -878,13 +841,13 @@ export default function WidgetSettingsScreen() {
 
             <RouteStat
 
-              label="Montaje"
+              label="Siguiente"
 
               value={nextMountMode}
 
-              hint={widgetStatus.pinSupported ? 'launcher listo' : 'agrega a mano'}
+              hint={widgetStatus.pinSupported ? 'listo desde aqui' : 'agrega a mano'}
 
-              accent={widgetStatus.pinSupported ? Colors.coach : Colors.warning}
+              accent={widgetStatus.pinSupported ? Colors.brand : Colors.warning}
 
             />
 
@@ -906,7 +869,7 @@ export default function WidgetSettingsScreen() {
 
               icon="phone-portrait-outline"
 
-              accent={widgetStatus.compactPinned ? Colors.steps : Colors.coach}
+              accent={widgetStatus.compactPinned ? Colors.steps : Colors.brand}
 
             />
 
@@ -932,7 +895,7 @@ export default function WidgetSettingsScreen() {
 
           <View style={styles.launcherAction}>
 
-            <Text style={styles.launcherActionLabel}>Siguiente montaje util</Text>
+            <Text style={styles.launcherActionLabel}>Lo siguiente</Text>
 
             <Text style={styles.launcherActionTitle}>{nextMountTitle}</Text>
 
@@ -950,9 +913,9 @@ export default function WidgetSettingsScreen() {
 
             <View style={styles.sectionCopy}>
 
-              <Text style={styles.sectionTitle}>Instalar en el escritorio</Text>
+              <Text style={styles.sectionTitle}>Agregar a la pantalla de inicio</Text>
 
-              <Text style={styles.sectionBody}>Si tu launcher lo soporta, puedes fijar el widget sin salir de VYRA.</Text>
+              <Text style={styles.sectionBody}>Si tu telefono lo permite, puedes agregar el widget sin salir de VYRA.</Text>
 
             </View>
 
@@ -1036,7 +999,7 @@ export default function WidgetSettingsScreen() {
 
               <Ionicons name="information-circle-outline" size={16} color={Colors.textMuted} />
 
-              <Text style={styles.noteText}>Si tu launcher no soporta pinning directo, agrega el widget manualmente desde el escritorio.</Text>
+              <Text style={styles.noteText}>Si tu telefono no lo permite desde aqui, agrega el widget manualmente desde la pantalla de inicio.</Text>
 
             </View>
 
@@ -1144,7 +1107,7 @@ const styles = StyleSheet.create({
 
   routeCard: { gap: Spacing[4] },
 
-  routeEyebrow: { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.coach },
+  routeEyebrow: { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.brand },
 
   routeTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: 28 },
 
@@ -1160,11 +1123,11 @@ const styles = StyleSheet.create({
 
   routeStatHint: { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.textSecondary },
 
-  routeActionRow: { borderRadius: Radius.lg, borderWidth: 1, borderColor: withOpacity(Colors.coach, 0.24), backgroundColor: withOpacity(Colors.coach, 0.1), padding: Spacing[3] },
+  routeActionRow: { borderRadius: Radius.lg, borderWidth: 1, borderColor: withOpacity(Colors.brand, 0.24), backgroundColor: withOpacity(Colors.brand, 0.1), padding: Spacing[3] },
 
   routeActionCopy: { gap: 4 },
 
-  routeActionLabel: { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.coach },
+  routeActionLabel: { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.brand },
 
   routeActionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
 
@@ -1271,4 +1234,5 @@ const styles = StyleSheet.create({
   lockText: { fontFamily: FontFamily.medium, fontSize: 11, color: Colors.steps },
 
 });
+
 

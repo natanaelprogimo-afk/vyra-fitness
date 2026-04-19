@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -55,7 +55,7 @@ export default function WorkoutPlannerScreen() {
           <Text style={styles.heroTitle}>{activeProgram?.name ?? 'Semana libre'}</Text>
           <Text style={styles.heroBody}>
             {activeProgram
-              ? 'Podés leer el bloque completo de la semana y ver rápido qué días ya quedaron hechos.'
+              ?  'Podés leer el bloque completo de la semana y ver rápido qué días ya quedaron hechos.'
               : 'No hay programa activo. Usá esta vista para decidir cuándo empujar y cuándo recuperar.'}
           </Text>
         </Card>
@@ -70,7 +70,7 @@ export default function WorkoutPlannerScreen() {
                 <Text style={styles.dayTitle}>{entry.routine?.name ?? 'Descanso / movilidad'}</Text>
                 <Text style={styles.dayBody}>
                   {entry.routine?.estimated_duration_min
-                    ? `${entry.routine.estimated_duration_min} min · ${entry.routine.exercises.length} ejercicios`
+                    ?  `${entry.routine.estimated_duration_min} min · ${entry.routine.exercises.length} ejercicios`
                     : 'Sesión libre o recuperación'}
                 </Text>
               </View>

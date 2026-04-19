@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -11,9 +11,7 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
-import { estimateProgramCalories, getRoutineLastSession } from '@/lib/workout-metrics';
-import { useAuthStore } from '@/stores/authStore';
-import { formatNumber } from '@/utils/formatters';
+import { getRoutineLastSession } from '@/lib/workout-metrics';
 
 function levelColor(level: string) {
   const value = level.toLowerCase();
@@ -41,26 +39,31 @@ function StatChip({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label
 }
 
 export default function WorkoutProgramsScreen() {
-  const { programs, routines, exercises, history, getActiveProgram, getProgramPhase, setActiveProgram } = useWorkout();
-  const profile = useAuthStore((state) => state.profile);
+  const { programs, routines, history, getActiveProgram, getProgramPhase, setActiveProgram } = useWorkout();
   const activeProgram = getActiveProgram();
   const phase = getProgramPhase();
   const listedPrograms = programs.filter((program) => program.id !== activeProgram?.id);
-  const activeEstimate = activeProgram ? estimateProgramCalories(activeProgram, routines, exercises, profile) : null;
   const completedThisProgram = activeProgram
     ? history.filter((entry) => activeProgram.routine_ids.includes(entry.routine_id ?? '')).length
     : 0;
   const activeProgressPct = activeProgram && phase ? Math.round((phase.week / phase.totalWeeks) * 100) : 0;
-  const nextRoutine =
-    activeProgram?.routine_ids?.length
-      ?
+  const nextRoutine = activeProgram
+    ? (() => {
+        const routineIds = activeProgram.routine_ids ?? [];
+        if (routineIds.length === 0) return null;
+
+        const firstPendingRoutine =
           routines.find((routine) => {
             const lastSession = getRoutineLastSession(routine.id, history);
-            return activeProgram.routine_ids.includes(routine.id) && !lastSession;
-          }) ??
-          routines.find((routine) => routine.id === activeProgram.routine_ids[completedThisProgram % activeProgram.routine_ids.length]) ??
-          null
-      : null;
+            return routineIds.includes(routine.id) && !lastSession;
+          }) ?? null;
+
+        if (firstPendingRoutine) return firstPendingRoutine;
+
+        const fallbackRoutineId = routineIds[completedThisProgram % routineIds.length];
+        return routines.find((routine) => routine.id === fallbackRoutineId) ?? null;
+      })()
+    : null;
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
@@ -101,8 +104,8 @@ export default function WorkoutProgramsScreen() {
             <View style={styles.metaWrap}>
               <StatChip icon="calendar-outline" label={`${activeProgram.days_per_week} d/sem`} />
               <StatChip icon="time-outline" label={`${activeProgram.estimated_session_min} min`} />
-              <StatChip icon="flame-outline" label={`~${formatNumber(activeEstimate?.perSession ?? 0)} kcal/ses`} />
-              <StatChip icon="albums-outline" label={`~${formatNumber(activeEstimate?.total ?? 0)} kcal total`} />
+              <StatChip icon="hourglass-outline" label={`${activeProgram.duration_weeks} semanas`} />
+              <StatChip icon="albums-outline" label={`${completedThisProgram} sesiones hechas`} />
             </View>
 
             <Card style={styles.previewCard}>
@@ -111,15 +114,15 @@ export default function WorkoutProgramsScreen() {
               <Text style={styles.previewBody}>
                 {nextRoutine
                   ? `${nextRoutine.exercises.length} ejercicios · ${nextRoutine.estimated_duration_min ?? activeProgram.estimated_session_min} min`
-                  : 'Podés abrir las rutinas del plan para revisar el detalle completo.'}
+                  : 'Puedes abrir las rutinas del plan para revisar el detalle completo.'}
               </Text>
               <Text style={styles.previewHint}>
-                Llevás ~{formatNumber((activeEstimate?.perSession ?? 0) * completedThisProgram)} kcal quemadas en este programa.
+                Llevas {completedThisProgram} sesiones dentro de este programa.
               </Text>
             </Card>
 
             <View style={styles.actionRow}>
-              <Button onPress={() => router.push(Routes.workout.routines as any)} fullWidth color={Colors.brand} style={styles.flexButton}>
+              <Button onPress={() => router.push(Routes.workout.routines as never)} fullWidth color={Colors.brand} style={styles.flexButton}>
                 Ver rutinas
               </Button>
               <Button onPress={() => void setActiveProgram(null)} variant="secondary" color={Colors.brand} fullWidth style={styles.flexButton}>
@@ -130,18 +133,19 @@ export default function WorkoutProgramsScreen() {
         ) : null}
 
         {listedPrograms.map((program) => {
-          const estimate = estimateProgramCalories(program, routines, exercises, profile);
           const levelTint = levelColor(program.difficulty_level);
 
           return (
             <Card key={program.id} accentColor={Colors.workout} style={styles.card}>
               <View style={styles.rowBetween}>
-              <View style={styles.copy}>
+                <View style={styles.copy}>
                   <View style={styles.programTitleRow}>
                     <Ionicons name={programIcon(program.name)} size={16} color={Colors.workout} />
                     <Text style={styles.cardTitle}>{program.name}</Text>
                   </View>
-                  <Text style={styles.cardBody}>{program.objective ?? program.structure ?? 'Programa progresivo listo para usar.'}</Text>
+                  <Text style={styles.cardBody}>
+                    {program.objective ?? program.structure ?? 'Programa progresivo listo para usar.'}
+                  </Text>
                 </View>
                 <View style={[styles.levelBadge, { backgroundColor: withOpacity(levelTint, 0.14), borderColor: withOpacity(levelTint, 0.28) }]}>
                   <Text style={[styles.levelText, { color: levelTint }]}>{program.difficulty_level}</Text>
@@ -152,13 +156,15 @@ export default function WorkoutProgramsScreen() {
                 <StatChip icon="calendar-outline" label={`${program.days_per_week} d/sem`} />
                 <StatChip icon="time-outline" label={`${program.estimated_session_min} min`} />
                 <StatChip icon="hourglass-outline" label={`${program.duration_weeks} semanas`} />
-                <StatChip icon="flame-outline" label={`~${formatNumber(estimate.perSession)} kcal/ses`} />
+                <StatChip icon="albums-outline" label={`${program.routine_ids.length} bloques`} />
               </View>
 
-              <Text style={styles.totalText}>~{formatNumber(estimate.total)} kcal en todo el programa · ~{formatNumber(estimate.weekly)} kcal/semana</Text>
+              <Text style={styles.totalText}>
+                Hecho para {program.objective ?? 'avanzar con una estructura clara'} y sostenerse varias semanas, no para perseguir calorias.
+              </Text>
 
               <View style={styles.actionRow}>
-                <Button onPress={() => router.push(Routes.workout.routines as any)} variant="secondary" color={Colors.workout} style={styles.flexButton}>
+                <Button onPress={() => router.push(Routes.workout.routines as never)} variant="secondary" color={Colors.workout} style={styles.flexButton}>
                   Ver rutinas
                 </Button>
                 <Button onPress={() => void setActiveProgram(program.id)} color={Colors.workout} style={styles.flexButton}>

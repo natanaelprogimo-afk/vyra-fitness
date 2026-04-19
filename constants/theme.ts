@@ -1,29 +1,24 @@
-// ============================================================
-// VYRA FITNESS - Theme System 2026
-// Tipografia, espaciado, radios, sombras y timings base.
-// ============================================================
-
 export const FontFamily = {
   regular: 'Inter_400Regular',
   medium: 'Inter_500Medium',
   semibold: 'Inter_600SemiBold',
   bold: 'Inter_700Bold',
-  display: 'Inter_700Bold',
-  mono: 'Inter_700Bold',
+  display: 'Inter_800ExtraBold',
+  mono: 'JetBrainsMono_600SemiBold',
 } as const;
 
 export const FontSize = {
-  xs: 12,
-  sm: 14,
-  base: 16,
-  md: 18,
-  lg: 20,
-  xl: 24,
-  '2xl': 30,
-  '3xl': 36,
-  '4xl': 44,
-  '5xl': 52,
-  '6xl': 60,
+  xs: 11,
+  sm: 12,
+  base: 13,
+  md: 15,
+  lg: 17,
+  xl: 22,
+  '2xl': 28,
+  '3xl': 42,
+  '4xl': 56,
+  '5xl': 72,
+  '6xl': 96,
 } as const;
 
 export const FontWeight = {
@@ -34,10 +29,10 @@ export const FontWeight = {
 } as const;
 
 export const LineHeight = {
-  tight: 1.08,
-  snug: 1.24,
-  normal: 1.56,
-  relaxed: 1.64,
+  tight: 1.05,
+  snug: 1.2,
+  normal: 1.45,
+  relaxed: 1.6,
 } as const;
 
 export const Spacing = {
@@ -67,10 +62,10 @@ export const Radius = {
   none: 0,
   sm: 10,
   md: 14,
-  lg: 18,
-  xl: 22,
-  '2xl': 28,
-  '3xl': 34,
+  lg: 16,
+  xl: 20,
+  '2xl': 20,
+  '3xl': 24,
   full: 9999,
 } as const;
 
@@ -85,13 +80,13 @@ export const Shadows = {
   sm: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
+    shadowOpacity: 0.14,
     shadowRadius: 18,
     elevation: 3,
   },
   md: {
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
+    shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.22,
     shadowRadius: 24,
     elevation: 6,
@@ -99,23 +94,23 @@ export const Shadows = {
   lg: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.3,
-    shadowRadius: 34,
+    shadowOpacity: 0.28,
+    shadowRadius: 30,
     elevation: 10,
   },
   brand: {
-    shadowColor: '#7B6DFF',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.26,
-    shadowRadius: 26,
-    elevation: 10,
+    shadowColor: '#FF4500',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 22,
+    elevation: 8,
   },
   premium: {
-    shadowColor: '#5ABEFF',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.22,
-    shadowRadius: 26,
-    elevation: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 8,
   },
 } as const;
 
@@ -131,13 +126,13 @@ export const IconSize = {
 } as const;
 
 export const ComponentHeight = {
-  tabBar: 68,
-  header: 66,
+  tabBar: 64,
+  header: 56,
   button: 56,
-  buttonSm: 44,
+  buttonSm: 48,
   buttonLg: 60,
   input: 56,
-  inputSm: 42,
+  inputSm: 44,
   bottomSheet: {
     snap1: '40%',
     snap2: '75%',
@@ -164,19 +159,18 @@ export const ZIndex = {
 export const Duration = {
   instant: 0,
   fast: 150,
-  normal: 250,
+  normal: 200,
   slow: 400,
   slower: 600,
   slowest: 1000,
-  countUp: 1500,
+  countUp: 800,
 } as const;
 
 export const Easing = {
-  spring: { damping: 15, stiffness: 200 },
-  springBouncy: { damping: 10, stiffness: 180 },
+  spring: { damping: 18, stiffness: 220 },
+  springBouncy: { damping: 12, stiffness: 180 },
   springSnappy: { damping: 20, stiffness: 300 },
 } as const;
 
-// Compatibility helpers: explicit types and a stable `md` alias export
 export type FontSizeType = typeof FontSize;
 export const FontSizeMd = FontSize.md;

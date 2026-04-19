@@ -37,7 +37,7 @@ export function SafeScreen({
   padTop          = true,
   padBottom       = true,
   disableAtmosphere = false,
-  backgroundColor = Colors.bgPrimary,
+  backgroundColor = Colors.bgBase,
   style,
   contentStyle,
   onScroll,
@@ -48,13 +48,14 @@ export function SafeScreen({
   const containerStyle: ViewStyle = {
     flex:            1,
     backgroundColor,
+    position:        'relative',
     paddingTop:      padTop ? insets.top : 0,
     paddingBottom:   padBottom ? insets.bottom : 0,
     paddingLeft:     padHorizontal ? 20 : 0,
     paddingRight:    padHorizontal ? 20 : 0,
   };
 
-  const content = scrollable ? (
+  const content = scrollable ?  (
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={[styles.scrollContent, contentStyle]}

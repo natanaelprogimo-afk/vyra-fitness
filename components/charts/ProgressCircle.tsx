@@ -27,6 +27,7 @@ interface ProgressCircleProps {
   style?:       ViewStyle;
   animated?:    boolean;
   duration?:    number;
+  accessibilityLabel?: string;
 }
 
 export default function ProgressCircle({
@@ -39,6 +40,7 @@ export default function ProgressCircle({
   style,
   animated    = true,
   duration    = 800,
+  accessibilityLabel,
 }: ProgressCircleProps) {
   const radius      = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -59,7 +61,12 @@ export default function ProgressCircle({
   const center = size / 2;
 
   return (
-    <View style={[{ width: size, height: size }, style]}>
+    <View
+      style={[{ width: size, height: size }, style]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel ?? `Progreso ${Math.round(clampedValue)} por ciento`}
+    >
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
         {/* Track */}
         <Circle

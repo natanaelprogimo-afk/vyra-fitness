@@ -1,8 +1,8 @@
-﻿import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { getOnboardingStepMeta } from '@/constants/onboardingFlow';
+import { Radius, Spacing } from '@/constants/theme';
+import { getOnboardingStepMeta, ONBOARDING_STEPS } from '@/constants/onboardingFlow';
 
 interface OnboardingProgressProps {
   pathname: string;
@@ -10,46 +10,54 @@ interface OnboardingProgressProps {
 
 export default function OnboardingProgress({ pathname }: OnboardingProgressProps) {
   const meta = getOnboardingStepMeta(pathname);
-
   if (!meta) return null;
 
-  const progress = Math.max(0, Math.min(1, meta.order / meta.totalSteps));
-  const statusLabel =
-    meta.order === meta.totalSteps
-      ? 'Configurando VYRA · Último paso'
-      : `Configurando VYRA · Paso ${meta.order} de ${meta.totalSteps}`;
-
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.label}>{statusLabel}</Text>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-      </View>
+    <View style={styles.row}>
+      {ONBOARDING_STEPS.map((step) => {
+        const isActive = step.order === meta.order;
+        const isComplete = step.order < meta.order;
+        return (
+          <View key={step.pathname} style={styles.track}>
+            <View
+              style={[
+                styles.fill,
+                isComplete && styles.fillComplete,
+                isActive && styles.fillActive,
+              ]}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing[2],
   },
-  label: {
-    fontFamily: FontFamily.medium,
-    fontSize: 10,
-    color: withOpacity(Colors.white, 0.34),
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
   track: {
-    width: '100%',
-    height: 4,
+    flex: 1,
+    height: 3,
     borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.white, 0.12),
+    backgroundColor: Colors.elevated,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
+    width: '0%',
     borderRadius: Radius.full,
-    backgroundColor: Colors.brand,
+    backgroundColor: withOpacity(Colors.action, 0.22),
   },
-});
+  fillComplete: {
+    width: '100%',
+    backgroundColor: Colors.action,
+  },
+  fillActive: {
+    width: '100%',
+    backgroundColor: Colors.action,
+  },
+});

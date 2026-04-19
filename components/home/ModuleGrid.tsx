@@ -1,33 +1,22 @@
-// ============================================================
-// VYRA FITNESS — ModuleGrid
-// Grid de módulos con progreso en tiempo real
-// ============================================================
-
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
-import { GridModules, Modules } from '@/constants/modules';
+import * as Haptics from 'expo-haptics';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Modules } from '@/constants/modules';
 import type { ModuleId } from '@/constants/modules';
 
-// Datos del día para cada módulo (se pasan como prop desde el dashboard)
 export interface ModuleProgress {
-  water?:    { current: number; goal: number };
-  steps?:    { current: number; goal: number };
-  fasting?:  { isActive: boolean; hours: number; target: number };
-  sleep?:    { hours: number; quality: number };
-  nutrition?:{ calories: number; goal: number };
-  weight?:   { lastKg: number | null };
-  workout?:  { done: boolean; setsToday: number };
-  mental?:   { done: boolean; mood: number | null };
-  supplements?:{ taken: number; total: number };
+  water?: { current: number; goal: number };
+  steps?: { current: number; goal: number };
+  fasting?: { isActive: boolean; hours: number; target: number };
+  sleep?: { hours: number; quality: number };
+  nutrition?: { calories: number; goal: number };
+  weight?: { lastKg: number | null };
+  workout?: { done: boolean; setsToday: number };
+  mental?: { done: boolean; mood: number | null };
+  supplements?: { taken: number; total: number };
 }
 
 interface ModuleGridProps {
@@ -35,206 +24,229 @@ interface ModuleGridProps {
   activeModules?: ModuleId[];
 }
 
-export const ModuleGrid = ({ progress = {}, activeModules }: ModuleGridProps) => {
-  const visibleModules = activeModules && activeModules.length > 0 ? activeModules : GridModules;
-
-  return (
-    <View style={styles.grid}>
-      {visibleModules.map((id) => (
-        <ModuleCell
-          key={id}
-          id={id}
-          progress={progress}
-        />
-      ))}
-    </View>
-  );
+type ModuleStatus = {
+  value: string;
+  detail: string | null;
+  pct: number | null;
 };
 
-function ModuleCell({ id, progress }: { id: ModuleId; progress: ModuleProgress }) {
-  const found = Modules.find(m => m.id === id);
-  const cfg = found ?? { id, name: id, emoji: '❓', color: Colors.brand, route: '/' };
-  const cfgColorBg = `${cfg.color}22`;
-  const scale = useSharedValue(1);
-  const anim  = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  const handlePress = () => {
-    scale.value = withSpring(0.93, { damping: 10 }, () => { scale.value = withSpring(1); });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    router.push(cfg.route as never);
-  };
-
-  const { pct, badge, statusText } = getModuleStatus(id, progress);
-
-  return (
-    <Animated.View style={[styles.cellWrap, anim]}>
-      <Pressable onPress={handlePress} style={[styles.cell, { borderColor: `${cfg.color}33` }]}>
-        {/* Background glow */}
-        <View style={[styles.cellGlow, { backgroundColor: `${cfg.color}08` }]} />
-
-        {/* Header */}
-        <View style={styles.cellHeader}>
-          <Text style={styles.cellEmoji}>{cfg.emoji}</Text>
-          {badge !== null && (
-            <View style={[styles.cellBadge, { backgroundColor: cfgColorBg }]}>
-              <Text style={[styles.cellBadgeText, { color: cfg.color }]}>{badge}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Name */}
-        <Text style={styles.cellName}>{cfg.name}</Text>
-
-        {/* Status */}
-        {statusText && (
-          <Text style={[styles.cellStatus, { color: cfg.color }]} numberOfLines={1}>
-            {statusText}
-          </Text>
-        )}
-
-        {/* Progress bar */}
-        {pct !== null && (
-          <View style={styles.cellBarTrack}>
-            <View
-              style={[
-                styles.cellBarFill,
-                {
-                  backgroundColor: cfg.color,
-                  width:           `${Math.min(100, pct)}%`,
-                },
-              ]}
-            />
-          </View>
-        )}
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-function getModuleStatus(id: ModuleId, p: ModuleProgress): {
-  pct:        number | null;
-  badge:      string | null;
-  statusText: string | null;
-} {
+function formatModuleStatus(id: ModuleId, progress: ModuleProgress): ModuleStatus {
   switch (id) {
     case 'water': {
-      const w = p.water;
-      if (!w) return { pct: 0, badge: null, statusText: 'Sin logs' };
-      const pct = (w.current / w.goal) * 100;
-      return { pct, badge: pct >= 100 ? '✓' : null, statusText: `${w.current}/${w.goal}ml` };
+      const water = progress.water;
+      if (!water) return { value: '0 ml', detail: 'Sin registros', pct: 0 };
+      const pct = water.goal > 0 ? (water.current / water.goal) * 100 : 0;
+      return {
+        value: `${Math.round(water.current)}`,
+        detail: `de ${Math.round(water.goal)} ml`,
+        pct,
+      };
     }
     case 'steps': {
-      const s = p.steps;
-      if (!s) return { pct: 0, badge: null, statusText: '0 pasos' };
-      const pct = (s.current / s.goal) * 100;
-      return { pct, badge: pct >= 100 ? '✓' : null, statusText: `${s.current.toLocaleString('es')} pasos` };
+      const steps = progress.steps;
+      if (!steps) return { value: '0', detail: 'Pasos hoy', pct: 0 };
+      const pct = steps.goal > 0 ? (steps.current / steps.goal) * 100 : 0;
+      return {
+        value: `${Math.round(steps.current)}`,
+        detail: 'pasos',
+        pct,
+      };
     }
     case 'fasting': {
-      const f = p.fasting;
-      if (!f || !f.isActive) return { pct: null, badge: null, statusText: 'Inactivo' };
-      const pct = (f.hours / f.target) * 100;
-      return { pct, badge: '🔥', statusText: `${f.hours.toFixed(1)}h` };
+      const fasting = progress.fasting;
+      if (!fasting || !fasting.isActive) return { value: 'Listo', detail: 'Sin ayuno activo', pct: null };
+      const pct = fasting.target > 0 ? (fasting.hours / fasting.target) * 100 : 0;
+      return {
+        value: `${fasting.hours.toFixed(1)} h`,
+        detail: `meta ${fasting.target} h`,
+        pct,
+      };
     }
     case 'sleep': {
-      const s = p.sleep;
-      if (!s) return { pct: null, badge: null, statusText: 'Sin log' };
-      const pct = Math.min(100, (s.hours / 8) * 100);
-      return { pct, badge: s.quality >= 80 ? '⭐' : null, statusText: `${s.hours.toFixed(1)}h` };
+      const sleep = progress.sleep;
+      if (!sleep) return { value: '--', detail: 'Sin sueno', pct: null };
+      return {
+        value: `${sleep.hours.toFixed(1)} h`,
+        detail: sleep.quality >= 80 ? 'buen cierre' : 'anoche',
+        pct: Math.min(100, (sleep.hours / 8) * 100),
+      };
     }
     case 'nutrition': {
-      const n = p.nutrition;
-      if (!n) return { pct: 0, badge: null, statusText: '0 kcal' };
-      const pct = (n.calories / n.goal) * 100;
-      return { pct, badge: null, statusText: `${Math.round(n.calories)}kcal` };
+      const nutrition = progress.nutrition;
+      if (!nutrition) return { value: '0', detail: 'kcal', pct: 0 };
+      const pct = nutrition.goal > 0 ? (nutrition.calories / nutrition.goal) * 100 : 0;
+      return {
+        value: `${Math.round(nutrition.calories)}`,
+        detail: nutrition.goal > 0 ? `de ${Math.round(nutrition.goal)} kcal` : 'kcal',
+        pct,
+      };
     }
     case 'weight': {
-      const w = p.weight;
-      return { pct: null, badge: null, statusText: w?.lastKg ? `${w.lastKg}kg` : 'Sin log' };
+      const weight = progress.weight?.lastKg;
+      return {
+        value: weight != null ? `${weight.toFixed(1)} kg` : '--',
+        detail: 'ultimo peso',
+        pct: null,
+      };
     }
     case 'workout': {
-      const w = p.workout;
-      if (!w || !w.done) return { pct: null, badge: null, statusText: 'Sin entreno hoy' };
-      return { pct: null, badge: '💪', statusText: `${w.setsToday} series` };
+      const workout = progress.workout;
+      if (!workout?.done) return { value: 'Pendiente', detail: 'sin sesion', pct: null };
+      return {
+        value: `${workout.setsToday}`,
+        detail: 'series hoy',
+        pct: 100,
+      };
     }
     case 'mental': {
-      const m = p.mental;
-      if (!m || !m.done) return { pct: null, badge: null, statusText: 'Check-in pendiente' };
-      return { pct: null, badge: '✓', statusText: m.mood ? `Ánimo ${m.mood}/5` : 'Hecho' };
+      const mental = progress.mental;
+      if (!mental?.done) return { value: 'Pendiente', detail: 'check-in', pct: null };
+      return {
+        value: mental.mood ? `Animo ${mental.mood}/5` : 'Hecho',
+        detail: 'resumen',
+        pct: 100,
+      };
     }
     case 'supplements': {
-      const s = p.supplements;
-      if (!s || s.total === 0) return { pct: null, badge: null, statusText: 'Sin suplementos' };
-      const pct = (s.taken / s.total) * 100;
-      return { pct, badge: pct >= 100 ? '✓' : null, statusText: `${s.taken}/${s.total}` };
+      const supplements = progress.supplements;
+      if (!supplements || supplements.total === 0) {
+        return { value: '--', detail: 'sin pauta', pct: null };
+      }
+      const pct = (supplements.taken / supplements.total) * 100;
+      return {
+        value: `${supplements.taken}/${supplements.total}`,
+        detail: 'tomados',
+        pct,
+      };
     }
     default:
-      return { pct: null, badge: null, statusText: null };
+      return { value: '--', detail: null, pct: null };
   }
 }
 
-const styles = StyleSheet.create({
-  grid: {
-    flexDirection:  'row',
-    flexWrap:       'wrap',
-    gap:            Spacing[3],
-  },
-  cellWrap: {
-    width:  '31%',
-  },
-  cell: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius:    Radius.xl,
-    padding:         Spacing[3],
-    borderWidth:     1,
-    overflow:        'hidden',
-    minHeight:       100,
-  },
-  cellGlow: {
-    position:        'absolute',
-    top:             0, left: 0, right: 0, bottom: 0,
-    borderRadius:    Radius.xl,
-  },
-  cellHeader: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'flex-start',
-    marginBottom:   Spacing[1.5],
-  },
-  cellEmoji: {
-    fontSize: 22,
-  },
-  cellBadge: {
-    paddingHorizontal: 5,
-    paddingVertical:   1,
-    borderRadius:      Radius.full,
-  },
-  cellBadgeText: {
-    fontFamily: FontFamily.bold,
-    fontSize:   10,
-  },
-  cellName: {
-    fontFamily: FontFamily.semibold,
-    fontSize:   FontSize.xs,
-    color:      Colors.textSecondary,
-    marginBottom: Spacing[1],
-  },
-  cellStatus: {
-    fontFamily: FontFamily.bold,
-    fontSize:   FontSize.xs,
-    marginBottom: Spacing[1.5],
-  },
-  cellBarTrack: {
-    height:          4,
-    borderRadius:    2,
-    backgroundColor: Colors.bgElevated,
-    overflow:        'hidden',
-    marginTop:       'auto',
-  },
-  cellBarFill: {
-    height:       '100%',
-    borderRadius: 2,
-    minWidth:     4,
-  },
-});
+export function ModuleGrid({ progress = {}, activeModules }: ModuleGridProps) {
+  const visibleModules = activeModules?.length ? activeModules : (Modules.map((item) => item.id) as ModuleId[]);
+
+  return (
+    <View style={styles.grid}>
+      {visibleModules.map((moduleId) => {
+        const module = Modules.find((item) => item.id === moduleId);
+        if (!module) return null;
+
+        const status = formatModuleStatus(moduleId, progress);
+
+        return (
+          <Pressable
+            key={module.id}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              router.push(module.route as never);
+            }}
+            style={[
+              styles.cell,
+              {
+                borderColor: withOpacity(module.color, 0.18),
+                backgroundColor: Colors.surface1,
+              },
+            ]}
+          >
+            <View style={styles.cellHeader}>
+              <View style={[styles.iconWrap, { backgroundColor: withOpacity(module.color, 0.16) }]}>
+                <Text style={styles.emoji}>{module.emoji}</Text>
+              </View>
+              <Text style={styles.moduleName}>
+                {module.shortName ?? module.name}
+              </Text>
+            </View>
+
+            <Text style={styles.metricValue} numberOfLines={1}>
+              {status.value}
+            </Text>
+            {status.detail ? (
+              <Text style={styles.metricDetail} numberOfLines={1}>
+                {status.detail}
+              </Text>
+            ) : null}
+
+            {status.pct !== null ? (
+              <View style={styles.track}>
+                <View
+                  style={[
+                    styles.fill,
+                    {
+                      width: `${Math.max(8, Math.min(100, status.pct))}%`,
+                      backgroundColor: module.color,
+                    },
+                  ]}
+                />
+              </View>
+            ) : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 export default ModuleGrid;
+
+const styles = StyleSheet.create({
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[3],
+  },
+  cell: {
+    width: '48.4%',
+    minHeight: 88,
+    borderWidth: 1,
+    borderRadius: Radius.xl,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  cellHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  iconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: {
+    fontSize: 12,
+  },
+  moduleName: {
+    flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  metricValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 18,
+    lineHeight: 20,
+    color: Colors.textPrimary,
+  },
+  metricDetail: {
+    fontFamily: FontFamily.regular,
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  track: {
+    marginTop: 4,
+    height: 2,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.white, 0.08),
+    overflow: 'hidden',
+  },
+  fill: {
+    height: '100%',
+    borderRadius: Radius.full,
+  },
+});

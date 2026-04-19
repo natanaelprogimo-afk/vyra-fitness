@@ -63,7 +63,7 @@ export default function FemaleSettingsScreen() {
       if (error) throw error;
       updateProfile({ female_health_enabled: value });
       if (value && !isInCycle) {
-        router.push(Routes.profile.femaleHealth as any);
+        router.push(Routes.profile.femaleHealth as never);
       }
     } catch {
       Alert.alert('No se pudo guardar', 'Intenta de nuevo en unos segundos.');
@@ -76,7 +76,7 @@ export default function FemaleSettingsScreen() {
     <SafeScreen padHorizontal={false} padBottom>
       <Header
         title="Ajustes"
-        subtitle="Configuracion del modulo, privacidad y exportacion del ciclo."
+        subtitle="Configuración del módulo, privacidad y exportación del ciclo."
         showBack
         color={Colors.female}
       />
@@ -85,12 +85,12 @@ export default function FemaleSettingsScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <Card accentColor={Colors.female}>
-          <Text style={styles.sectionTitle}>Configuracion del modulo</Text>
+          <Text style={styles.sectionTitle}>Configuración del módulo</Text>
           <View style={styles.toggleRow}>
             <View style={styles.toggleCopy}>
-              <Text style={styles.toggleTitle}>Modulo activo</Text>
+              <Text style={styles.toggleTitle}>Módulo activo</Text>
               <Text style={styles.toggleText}>
-                Adapta entreno, nutricion y pasos usando tu fase actual.
+                Adapta entreno, nutrición y pasos usando tu fase actual.
               </Text>
             </View>
             <Switch
@@ -106,7 +106,7 @@ export default function FemaleSettingsScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Datos del ciclo</Text>
           <SettingRow
-            label="Ultimo periodo"
+            label="Último periodo"
             value={
               lastPeriodDate
                 ? new Date(`${lastPeriodDate}T00:00:00`).toLocaleDateString('es-ES', {
@@ -116,10 +116,10 @@ export default function FemaleSettingsScreen() {
                 : 'Sin configurar'
             }
           />
-          <SettingRow label="Duracion del ciclo" value={`${cycleLength || 28} dias`} />
-          <SettingRow label="Duracion mens." value={`${femalePeriodDuration} dias`} />
+          <SettingRow label="Duracion del ciclo" value={`${cycleLength || 28} días`} />
+          <SettingRow label="Duracion mens." value={`${femalePeriodDuration} días`} />
           <SettingRow
-            label="Proximo periodo"
+            label="Próximo periodo"
             value={
               nextPeriodDate
                 ? new Date(`${nextPeriodDate}T00:00:00`).toLocaleDateString('es-ES', {
@@ -131,7 +131,7 @@ export default function FemaleSettingsScreen() {
           />
           <Button
             label="Editar datos del ciclo"
-            onPress={() => router.push(Routes.profile.femaleHealth as any)}
+            onPress={() => router.push(Routes.profile.femaleHealth as never)}
             color={Colors.female}
             fullWidth
             style={styles.sectionButton}
@@ -145,7 +145,7 @@ export default function FemaleSettingsScreen() {
             label="Modo estricto"
             value={strictSensitiveMode ? 'Solo en dispositivo' : 'Sincronizacion activa'}
             actionLabel="Abrir"
-            onPress={() => router.push(Routes.settings.privacy as any)}
+            onPress={() => router.push(Routes.settings.privacy as never)}
           />
           <SettingRow
             label="Disclaimer medico"
@@ -156,12 +156,12 @@ export default function FemaleSettingsScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Notificaciones</Text>
           <Text style={styles.sectionText}>
-            Controla avisos del ciclo, proximo periodo y recordatorios desde la configuracion
+            Controla avisos del ciclo, próximo periodo y recordatorios desde la configuración
             general.
           </Text>
           <Button
             label="Abrir notificaciones"
-            onPress={() => router.push(Routes.settings.notificationsSettings as any)}
+            onPress={() => router.push(Routes.settings.notificationsSettings as never)}
             variant="secondary"
             color={Colors.female}
             fullWidth
@@ -172,11 +172,11 @@ export default function FemaleSettingsScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Exportar datos</Text>
           <Text style={styles.sectionText}>
-            PDF de tus ultimos ciclos para compartirlo en una consulta si lo necesitas.
+            PDF de tus últimos ciclos para compartirlo en una consulta si lo necesitas.
           </Text>
           <Button
             label="Generar PDF del historial"
-            onPress={() => router.push(Routes.profile.exportData as any)}
+            onPress={() => router.push(Routes.profile.exportData as never)}
             variant="secondary"
             color={Colors.female}
             fullWidth

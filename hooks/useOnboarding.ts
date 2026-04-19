@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from 'react';
 import { router } from 'expo-router';
+import { Routes } from '@/constants/routes';
 import type { OnboardingData, PrimaryGoal, Gender, ActivityLevel } from '@/types/user';
 
 const DEFAULTS: OnboardingData = {
@@ -40,14 +41,13 @@ export function useOnboarding() {
   const setSleepTime   = useCallback((m: number)            => setData(d => ({ ...d, sleep_time_minutes: m })), []);
   const setProtocol    = useCallback((p: string | null)     => setData(d => ({ ...d, fasting_protocol: p })), []);
 
-  const goToStep = (step: 0 | 1 | 2 | 3 | 4 | 5) => {
+  const goToStep = (step: 0 | 1 | 2 | 3 | 4) => {
     const routes: Record<number, string> = {
-      0: '/(auth)/onboarding/step0-preview',
-      1: '/(auth)/onboarding/step1-goals',
-      2: '/(auth)/onboarding/step2-body',
-      3: '/(auth)/onboarding/step3-activity',
-      4: '/(auth)/onboarding/step4-schedule',
-      5: '/(auth)/onboarding/step5-premium',
+      0: Routes.auth.onboarding.transition,
+      1: Routes.auth.onboarding.goals,
+      2: Routes.auth.onboarding.base,
+      3: Routes.auth.onboarding.modules,
+      4: Routes.auth.onboarding.finish,
     };
     router.push(routes[step] as never);
   };

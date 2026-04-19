@@ -4,8 +4,12 @@ const path = require('path');
 const inPathArg = process.argv[2];
 const outPathArg = process.argv[3];
 
-const inPath = inPathArg ? path.resolve(inPathArg) : path.resolve(__dirname, '..', 'docs', 'vyra_audit_report.html');
-const outPath = outPathArg ? path.resolve(outPathArg) : path.resolve(__dirname, '..', 'docs', 'vyra_audit_actions.txt');
+const inPath = inPathArg
+  ? path.resolve(inPathArg)
+  : path.resolve(__dirname, '..', 'docs', 'vyra_audit_report.html');
+const outPath = outPathArg
+  ? path.resolve(outPathArg)
+  : path.resolve(__dirname, '..', 'docs', 'vyra_audit_actions.txt');
 
 if (!fs.existsSync(inPath)) {
   console.error('Input file not found: ' + inPath);
@@ -13,17 +17,16 @@ if (!fs.existsSync(inPath)) {
 }
 
 let s = fs.readFileSync(inPath, 'utf8');
-// normalize
 s = s.replace(/\r\n/g, '\n');
 
 function findAllWithIndex(regex) {
-  const r = [];
-  let m;
-  while ((m = regex.exec(s)) !== null) {
-    let inner = m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    r.push({ text: inner, index: m.index });
+  const results = [];
+  let match;
+  while ((match = regex.exec(s)) !== null) {
+    const text = match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    results.push({ text, index: match.index });
   }
-  return r;
+  return results;
 }
 
 const stepTitleRegex = /<div[^>]*class=["'][^"']*step-title[^"']*["'][^>]*>([\s\S]*?)<\/div>/g;
@@ -39,22 +42,24 @@ const listItems = findAllWithIndex(liRegex);
 let out = `Acciones recomendadas — extraído de ${inPath}\n\n`;
 
 if (titles.length > 0) {
-  titles.forEach((t, i) => {
-    out += `${i + 1}. ${t.text}\n`;
-    const body = bodies.find(b => b.index > t.index);
-    if (body) out += `   - Detalle: ${body.text}\n`;
+  titles.forEach((title, index) => {
+    out += `${index + 1}. ${title.text}\n`;
+    const body = bodies.find((candidate) => candidate.index > title.index);
+    if (body) {
+      out += `   - Detalle: ${body.text}\n`;
+    }
     out += '\n';
   });
 } else if (headers.length > 0) {
-  headers.forEach((h, i) => {
-    out += `${i + 1}. ${h.text}\n\n`;
+  headers.forEach((header, index) => {
+    out += `${index + 1}. ${header.text}\n\n`;
   });
 }
 
 if (listItems.length > 0) {
   out += '\nListas / puntos detectados:\n';
-  listItems.forEach(li => {
-    out += `- ${li.text}\n`;
+  listItems.forEach((item) => {
+    out += `- ${item.text}\n`;
   });
 }
 

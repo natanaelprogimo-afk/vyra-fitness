@@ -106,13 +106,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     padding: Spacing[5],
     borderWidth: 1,
-    borderColor: `${Colors.coins}44`,
+    borderColor: Colors.actionBorder,
     minWidth: 200,
   },
   lockIcon: {
     fontSize: 28,
     marginBottom: Spacing[2],
-    color: Colors.coins,
+    color: Colors.action,
     fontFamily: FontFamily.bold,
   },
   lockTitle: {
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   lockCta: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.coins,
+    color: Colors.action,
   },
   compact: {
     flexDirection: 'row',

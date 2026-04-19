@@ -11,7 +11,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { addCoins, addXP } from '@/services/supabase/profiles';
 import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
@@ -22,10 +21,10 @@ import {
 } from '@/utils/calculations';
 
 const STEP_MILESTONES = [
-  { steps: 5000,  coins: 5,  xp: 50,  label: '5.000 pasos'  },
-  { steps: 10000, coins: 10, xp: 100, label: '10.000 pasos' },
-  { steps: 15000, coins: 15, xp: 150, label: '15.000 pasos' },
-  { steps: 20000, coins: 20, xp: 200, label: '20.000 pasos' },
+  { steps: 5000,  label: '5.000 pasos'  },
+  { steps: 10000, label: '10.000 pasos' },
+  { steps: 15000, label: '15.000 pasos' },
+  { steps: 20000, label: '20.000 pasos' },
 ];
 
 type ActivityZone = {
@@ -104,9 +103,7 @@ export function useSteps() {
       if (!milestoneHitRef.current.has(m.steps) && total >= m.steps) {
         milestoneHitRef.current.add(m.steps);
         if (userId && isOnline) {
-          addCoins(userId, m.coins, 'step_milestone', `${m.label} alcanzados`).catch(() => {});
-          addXP(userId, m.xp).catch(() => {});
-          showToast(`${m.label} 🚶 +${m.coins} 🪙`, 'coins');
+          showToast(`${m.label} alcanzados`, 'success');
         }
       }
     }
@@ -145,7 +142,7 @@ export function useSteps() {
       subscriptionRef.current = Pedometer.watchStepCount((result) => {
         const reported = Math.max(0, result.steps ?? 0);
         const delta = reported >= lastReportedStepsRef.current
-          ? reported - lastReportedStepsRef.current
+          ?  reported - lastReportedStepsRef.current
           : reported;
         lastReportedStepsRef.current = reported;
         if (delta <= 0) return;

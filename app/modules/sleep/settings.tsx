@@ -47,10 +47,10 @@ export default function SleepSettingsScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Ajustes de sueno" showBack color={Colors.sleep} />
+      <Header title="Ajustes de sueño" showBack color={Colors.sleep} />
       <View style={styles.content}>
         <Card>
-          <Text style={styles.sectionTitle}>Meta de sueno diario</Text>
+          <Text style={styles.sectionTitle}>Meta de sueño díario</Text>
           <View style={styles.rowWrap}>
             {SLEEP_GOALS.map((goal) => {
               const active = goalHours === goal;
@@ -184,3 +184,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+

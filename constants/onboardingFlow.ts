@@ -1,4 +1,4 @@
-﻿import { Routes } from '@/constants/routes';
+import { Routes } from '@/constants/routes';
 import { ONBOARDING_STEP_TOTAL } from '@/lib/onboarding-v2';
 
 export type OnboardingBlockKey = 'setup';
@@ -26,25 +26,19 @@ type StepSeed = {
 };
 
 const STEP_SEEDS: readonly StepSeed[] = [
-  { pathname: Routes.auth.register, stepKey: 'account', label: 'Cuenta', order: 1 },
-  { pathname: Routes.auth.onboarding.goals, stepKey: 'goal', label: 'Objetivo', order: 2 },
-  { pathname: Routes.auth.onboarding.base, stepKey: 'base', label: 'Tu base', order: 3 },
-  { pathname: Routes.auth.onboarding.modules, stepKey: 'modules', label: 'Modulos', order: 4 },
-  { pathname: Routes.auth.onboarding.meta, stepKey: 'meta', label: 'Metas', order: 5 },
-  { pathname: Routes.auth.onboarding.permissions, stepKey: 'permissions', label: 'Permisos', order: 6 },
-  { pathname: Routes.auth.onboarding.legal, stepKey: 'legal', label: 'Legal', order: 7 },
+  { pathname: Routes.auth.onboarding.goals, stepKey: 'goal', label: 'Nombre y objetivo', order: 1 },
+  { pathname: Routes.auth.onboarding.equipment, stepKey: 'equipment', label: 'Equipo', order: 2 },
+  { pathname: Routes.auth.onboarding.modules, stepKey: 'modules', label: 'Modulos', order: 3 },
+  { pathname: Routes.auth.onboarding.ready, stepKey: 'ready', label: 'Todo listo', order: 4 },
 ] as const;
 
 function normalizeOnboardingPath(pathname: string | null | undefined) {
   if (!pathname) return '';
-  const [pathOnly] = pathname.split('?');
-  if (!pathOnly) return '';
-  const trimmed = pathOnly.trim();
+  const trimmed = pathname.trim();
   if (!trimmed) return '';
   const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   const withoutGroups = withLeadingSlash.replace(/\/\([^/]+\)/g, '');
   const collapsed = withoutGroups.replace(/\/{2,}/g, '/');
-  if (!collapsed) return '/';
   return collapsed.length > 1 ? collapsed.replace(/\/$/, '') : collapsed;
 }
 
@@ -71,4 +65,4 @@ export function isOnboardingPath(pathname: string | null | undefined) {
 export function getOnboardingStepMeta(pathname: string | null | undefined): OnboardingStepMeta | null {
   const normalized = normalizeOnboardingPath(pathname);
   return ONBOARDING_STEPS.find((step) => step.pathname === normalized) ?? null;
-}
+}

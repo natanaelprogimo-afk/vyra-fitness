@@ -4,14 +4,18 @@ import { Stack } from 'expo-router';
 export default function OnboardingLayout() {
   return (
     <Stack
-      initialRouteName="step-base"
+      initialRouteName="step-goals"
       screenOptions={{
         headerShown: false,
-        animation: 'slide_from_right',
+        animation: 'fade_from_bottom',
+        animationDuration: 200,
       }}
     >
-      <Stack.Screen name="step-base" />
-      <Stack.Screen name="step-finish" />
+      <Stack.Screen name="setup-transition" />
+      <Stack.Screen name="step-goals" />
+      <Stack.Screen name="step-equipment" />
+      <Stack.Screen name="step-modules" />
+      <Stack.Screen name="step-ready" />
     </Stack>
   );
 }

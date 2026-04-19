@@ -135,9 +135,9 @@ export function useFemaleHealth() {
         setCycleLength(Number.isFinite(cycleLengthValue) ? cycleLengthValue : 28);
         setLastPeriodDate(
           typeof encryptedLastPeriodDate === 'string'
-            ? encryptedLastPeriodDate
+            ?  encryptedLastPeriodDate
             : typeof profile.female_last_period_date === 'string'
-              ? profile.female_last_period_date
+              ?  profile.female_last_period_date
               : null,
         );
       }
@@ -319,7 +319,7 @@ export function useFemaleHealth() {
   }, []);
 
   const { phase, daysInPhase, nextPeriodDate } = lastPeriodDate
-    ? calculatePhase(lastPeriodDate)
+    ?  calculatePhase(lastPeriodDate)
     : { phase: 'follicular' as const, daysInPhase: 0, nextPeriodDate: null };
 
   const phaseGuidance: FemalePhaseGuidance = (() => {
@@ -365,7 +365,7 @@ export function useFemaleHealth() {
     const dayInCycle = daysInPhase;
     const daysToOvulation = dayInCycle <= 14 ? 14 - dayInCycle : cycleLength - dayInCycle + 14;
     const daysToPeriod = nextPeriodDate
-      ? Math.max(
+      ?  Math.max(
           0,
           Math.ceil((new Date(`${nextPeriodDate}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
         )

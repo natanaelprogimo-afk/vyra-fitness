@@ -19,7 +19,7 @@ interface CheckInState {
   motivation: number;
 }
 
-const MOODS = ['😞', '😕', '😐', '🙂', '😄'];
+const MOODS = ['ðŸ˜ž', 'ðŸ˜•', 'ðŸ˜', 'ðŸ™‚', 'ðŸ˜„'];
 
 interface MorningCheckInProps {
   onComplete: () => void;
@@ -44,14 +44,14 @@ export default function MorningCheckIn({ onComplete }: MorningCheckInProps) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.emoji}>🧠</Text>
+        <Text style={styles.emoji}>ðŸ§ </Text>
         <View>
           <Text style={styles.title}>Check-in de hoy</Text>
-          <Text style={styles.subtitle}>1 min · contribuye al Daily Score</Text>
+          <Text style={styles.subtitle}>1 min - aporta al cierre del dia</Text>
         </View>
       </View>
 
-      <Text style={styles.dimensionLabel}>¿Como estas?</Text>
+      <Text style={styles.dimensionLabel}>Como estas hoy?</Text>
       <View style={styles.moodRow}>
         {MOODS.map((emoji, i) => (
           <MoodButton
@@ -78,7 +78,6 @@ export default function MorningCheckIn({ onComplete }: MorningCheckInProps) {
         lowLabel="Relajado"
         highLabel="Al limite"
         color={Colors.workout}
-        inverted
       />
       <SliderRow
         label="Motivacion"
@@ -140,7 +139,6 @@ function SliderRow({
   lowLabel: string;
   highLabel: string;
   color: string;
-  inverted?: boolean;
 }) {
   const dots = Array.from({ length: 10 }, (_, i) => i + 1);
 

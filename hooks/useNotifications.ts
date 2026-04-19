@@ -4,6 +4,10 @@ import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { supabase } from '@/lib/supabase';
 import {
+  buildProfileContextUpdate,
+  getProfileContextMemory,
+} from '@/lib/profile-context';
+import {
   requestNotificationPermissions,
   registerPushToken,
   scheduleWaterReminders,
@@ -95,20 +99,20 @@ function formatLiters(ml: number): string {
   return (ml / 1000).toFixed(1);
 }
 
-type ProfileLike = { coach_memory_json?: unknown } | null | undefined;
+type ProfileLike = {
+  context_memory_json?: unknown;
+  coach_memory_json?: unknown;
+} | null | undefined;
 
 function getProfileMemory(profile: ProfileLike): Record<string, unknown> {
-  if (profile?.coach_memory_json && typeof profile.coach_memory_json === 'object') {
-    return profile.coach_memory_json as Record<string, unknown>;
-  }
-  return {};
+  return getProfileContextMemory(profile);
 }
 
 function parseStoredPrefs(profile: ProfileLike): NotifPreferences {
   const memory = getProfileMemory(profile);
   const raw =
     memory.notification_prefs && typeof memory.notification_prefs === 'object'
-      ? (memory.notification_prefs as Record<string, unknown>)
+      ?  (memory.notification_prefs as Record<string, unknown>)
       : {};
 
   return {
@@ -135,11 +139,9 @@ export function useNotifications() {
   const [prefs, setPrefs] = useState<NotifPreferences>(parseStoredPrefs(profile));
   const [deliveryMode, setDeliveryMode] = useState<'local' | 'remote'>('local');
 
-  const isWorkoutActive =
-    pathname.includes('/modules/workout/session') ||
-    pathname.includes('/modules/workout/active');
+  const isWorkoutActive = pathname.includes('/modules/workout/session');
   const isFastingActive = pathname.includes('/modules/fasting');
-  const isMentalCheckin = pathname.includes('/modules/mental');
+  const isMentalCheckin = pathname.includes('/daily-summary');
 
   const requestPermissions = useCallback(async () => {
     const granted = await requestNotificationPermissions();
@@ -200,7 +202,7 @@ export function useNotifications() {
     }
     setPrefs(parseStoredPrefs(profile));
     setPrefsReady(true);
-  }, [profile?.coach_memory_json, profile?.id, settings.setNotificationsEnabled]);
+  }, [profile?.context_memory_json, profile?.id, settings.setNotificationsEnabled]);
 
   const getPreferredWaterReminderHour = useCallback(async (): Promise<number> => {
     if (!profile?.id) return 11;
@@ -208,10 +210,10 @@ export function useNotifications() {
     const memory = getProfileMemory(profile);
     const ignoredByType =
       memory.notification_ignored_hours && typeof memory.notification_ignored_hours === 'object'
-        ? (memory.notification_ignored_hours as Record<string, unknown>)
+        ?  (memory.notification_ignored_hours as Record<string, unknown>)
         : {};
     const ignoredFromProfile = Array.isArray(ignoredByType.water)
-      ? (ignoredByType.water as unknown[])
+      ?  (ignoredByType.water as unknown[])
           .map((item) => Number(item))
           .filter((value) => Number.isFinite(value))
       : [];
@@ -282,19 +284,19 @@ export function useNotifications() {
     const totalMl = waterRows.reduce((sum, row) => sum + (row.hydration_equivalent_ml ?? 0), 0);
     const lastWaterAt = waterRows[0]?.logged_at ? new Date(waterRows[0].logged_at) : null;
     const hoursSinceWater = lastWaterAt
-      ? Math.max(1, Math.round((Date.now() - lastWaterAt.getTime()) / (1000 * 60 * 60)))
+      ?  Math.max(1, Math.round((Date.now() - lastWaterAt.getTime()) / (1000 * 60 * 60)))
       : null;
 
     const logsToday = logsRes.reduce((sum, result) => sum + (result.count ?? 0), 0);
     const hasNoLogsToday = logsToday === 0;
 
     const waterBody = hoursSinceWater
-      ? `${displayName}, llevás ${hoursSinceWater}h desde tu último registro y hoy vas ${formatLiters(totalMl)}L/${formatLiters(waterGoal)}L.`
+      ?  `${displayName}, llevás ${hoursSinceWater}h desde tu último registro y hoy vas ${formatLiters(totalMl)}L/${formatLiters(waterGoal)}L.`
       : `${displayName}, hoy vas ${formatLiters(totalMl)}L de ${formatLiters(waterGoal)}L. Un vaso más ya cuenta.`;
 
     const streak = Math.max(0, profile?.streak ?? profile?.current_streak ?? 0);
     const streakBody = hasNoLogsToday
-      ? `${displayName}, tu racha de ${streak} días termina hoy. Un log de 10 segundos la salva.`
+      ?  `${displayName}, tu racha de ${streak} días termina hoy. Un log de 10 segundos la salva.`
       : `${displayName}, te falta un último empujón para cerrar tu día y proteger la racha de ${streak} días.`;
 
     return {
@@ -348,14 +350,14 @@ export function useNotifications() {
         const streakHourFromServer = serverPlan?.streak?.hour;
         const streakMinuteFromServer = serverPlan?.streak?.minute;
         const streakHour = Number.isFinite(streakHourFromServer)
-          ? clampHour(streakHourFromServer as number, 21)
+          ?  clampHour(streakHourFromServer as number, 21)
           : pickFirstAllowedHour([21, 20, 19], streakBlocked, 21);
         const streakMinute = Number.isFinite(streakMinuteFromServer)
-          ? toMinute(streakMinuteFromServer, 0)
+          ?  toMinute(streakMinuteFromServer, 0)
           : 0;
         plans.push(() =>
           remoteDeliveryEnabled
-            ? cancelNotifsByType('streak_at_risk')
+            ?  cancelNotifsByType('streak_at_risk')
             : scheduleStreakAtRisk({
                 title: serverPlan?.copy?.streakTitle || copy.streakTitle,
                 body: serverPlan?.copy?.streakBody || copy.streakBody,
@@ -372,14 +374,14 @@ export function useNotifications() {
         const serverSleepHour = serverPlan?.sleep?.hour;
         const serverSleepMinute = serverPlan?.sleep?.minute;
         const sleepHour = Number.isFinite(serverSleepHour)
-          ? clampHour(serverSleepHour as number, preferredSleepHour)
+          ?  clampHour(serverSleepHour as number, preferredSleepHour)
           : pickFirstAllowedHour([preferredSleepHour, 22, 21, 23], sleepBlocked, preferredSleepHour);
         const sleepMinute = Number.isFinite(serverSleepMinute)
-          ? toMinute(serverSleepMinute, sleepMinutes % 60)
+          ?  toMinute(serverSleepMinute, sleepMinutes % 60)
           : sleepMinutes % 60;
         plans.push(() =>
           remoteDeliveryEnabled
-            ? cancelNotifsByType('sleep_bedtime')
+            ?  cancelNotifsByType('sleep_bedtime')
             : scheduleSleepReminder(sleepHour, sleepMinute),
         );
       } else {
@@ -390,14 +392,14 @@ export function useNotifications() {
         const serverSummaryHour = serverPlan?.summary?.hour;
         const serverSummaryMinute = serverPlan?.summary?.minute;
         const summaryHour = Number.isFinite(serverSummaryHour)
-          ? clampHour(serverSummaryHour as number, 21)
+          ?  clampHour(serverSummaryHour as number, 21)
           : pickFirstAllowedHour([21, 20, 19], summaryBlocked, 21);
         const summaryMinute = Number.isFinite(serverSummaryMinute)
-          ? toMinute(serverSummaryMinute, 0)
+          ?  toMinute(serverSummaryMinute, 0)
           : 0;
         plans.push(() =>
           remoteDeliveryEnabled
-            ? cancelNotifsByType('daily_summary')
+            ?  cancelNotifsByType('daily_summary')
             : scheduleDailySummaryReminder(summaryHour, summaryMinute),
         );
       } else {
@@ -409,7 +411,7 @@ export function useNotifications() {
         const serverWaterMinute = serverPlan?.water?.minute;
         plans.push(() =>
           remoteDeliveryEnabled
-            ? cancelNotifsByType('water_reminder')
+            ?  cancelNotifsByType('water_reminder')
             : scheduleWaterReminders(
                 [{
                   hour: Number.isFinite(serverWaterHour) ? clampHour(serverWaterHour as number, waterHour) : waterHour,
@@ -430,17 +432,17 @@ export function useNotifications() {
         const serverMentalMinute = serverPlan?.mental?.minute;
         const mentalHour = pickFirstAllowedHour(
           Number.isFinite(serverMentalHour)
-            ? [clampHour(serverMentalHour as number, wakeHour), wakeHour, Math.min(11, wakeHour + 1), 9, 8]
+            ?  [clampHour(serverMentalHour as number, wakeHour), wakeHour, Math.min(11, wakeHour + 1), 9, 8]
             : [wakeHour, Math.min(11, wakeHour + 1), 9, 8],
           mentalBlocked,
           Number.isFinite(serverMentalHour) ? clampHour(serverMentalHour as number, wakeHour) : wakeHour,
         );
         const mentalMinute = Number.isFinite(serverMentalMinute)
-          ? toMinute(serverMentalMinute, wakeMinute)
+          ?  toMinute(serverMentalMinute, wakeMinute)
           : wakeMinute;
         plans.push(() =>
           remoteDeliveryEnabled
-            ? cancelNotifsByType('mental_checkin')
+            ?  cancelNotifsByType('mental_checkin')
             : scheduleMentalCheckinReminder(mentalHour, mentalMinute),
         );
       } else {
@@ -575,13 +577,13 @@ export function useNotifications() {
       const { error } = await supabase
         .from('profiles')
         .update({
-          coach_memory_json: nextMemory,
+          ...buildProfileContextUpdate({ memory: nextMemory }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', profile.id);
 
       if (error) throw error;
-      updateProfile({ coach_memory_json: nextMemory as Record<string, unknown> });
+      updateProfile(buildProfileContextUpdate({ memory: nextMemory }));
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), {
         action: 'useNotifications.savePrefs',
@@ -615,13 +617,13 @@ export function useNotifications() {
       const { error } = await supabase
         .from('profiles')
         .update({
-          coach_memory_json: nextMemory,
+          ...buildProfileContextUpdate({ memory: nextMemory }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', profile.id);
 
       if (!error) {
-        updateProfile({ coach_memory_json: nextMemory as Record<string, unknown> });
+        updateProfile(buildProfileContextUpdate({ memory: nextMemory }));
       }
     } catch {}
   }, [profile, settings, updateProfile]);
@@ -640,3 +642,4 @@ export function useNotifications() {
     deliveryMode,
   };
 }
+

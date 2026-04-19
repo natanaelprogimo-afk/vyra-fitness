@@ -1,127 +1,161 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { DEFAULT_ACTIVE_MODULES, ONBOARDING_MODULES } from '@/lib/onboarding-v2';
-import { loadOnboardingProgress, saveOnboardingProgress, type OnboardingDraft } from '@/lib/onboarding-storage';
-import type { ModuleId } from '@/constants/modules';
-import { router } from 'expo-router';
+import {
+  loadOnboardingProgress,
+  saveOnboardingProgress,
+  type OnboardingDraft,
+} from '@/lib/onboarding-storage';
+
+type PrimaryFocus = 'workout' | 'nutrition' | 'steps' | 'sleep';
+
+const PRIMARY_OPTIONS: Array<{
+  id: PrimaryFocus;
+  emoji: string;
+  title: string;
+  subtitle: string;
+}> = [
+  { id: 'workout', emoji: '🏋️', title: 'Entrenar y ganar fuerza', subtitle: 'Rutinas, sesiones y progreso real' },
+  { id: 'nutrition', emoji: '🥗', title: 'Mejorar mi alimentacion', subtitle: 'Log simple de comidas y macros' },
+  { id: 'steps', emoji: '🚶', title: 'Moverme mas cada dia', subtitle: 'Pasos, meta diaria y consistencia' },
+  { id: 'sleep', emoji: '🌙', title: 'Mejorar mi sueno y rutina', subtitle: 'Dormir mejor para sostener el habito' },
+] as const;
+
+const SECONDARY_OPTIONS = [
+  { id: 'fasting', label: 'Ayuno' },
+  { id: 'female', label: 'Seguimiento femenino' },
+  { id: 'water', label: 'Agua' },
+  { id: 'nutrition', label: 'Nutricion' },
+  { id: 'steps', label: 'Pasos' },
+  { id: 'sleep', label: 'Sueno' },
+  { id: 'workout', label: 'Workout' },
+] as const;
 
 export default function StepModulesScreen() {
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
-  const [selected, setSelected] = useState<ModuleId[]>(DEFAULT_ACTIVE_MODULES);
-  const [femaleEnabled, setFemaleEnabled] = useState(false);
+  const [primaryFocus, setPrimaryFocus] = useState<PrimaryFocus | null>(null);
+  const [secondary, setSecondary] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
+
     void (async () => {
       const progress = await loadOnboardingProgress();
       if (!active) return;
-      const data = progress.data ?? {};
-      setDraft(data);
-      const shouldReuseExistingModules = ![
-        Routes.auth.register,
-        Routes.auth.onboarding.transition,
-        Routes.auth.onboarding.goals,
-        Routes.auth.onboarding.base,
-        Routes.auth.onboarding.modules,
-      ].includes((progress.step || '') as any);
-      const nextModules = shouldReuseExistingModules && Array.isArray(data.active_modules) && data.active_modules.length > 0
-        ? (data.active_modules.filter((value): value is ModuleId => value !== 'female') as ModuleId[])
-        : DEFAULT_ACTIVE_MODULES;
-      setSelected(nextModules);
-      setFemaleEnabled(shouldReuseExistingModules ? Boolean(data.female_health_enabled || data.active_modules?.includes('female')) : false);
+      const nextDraft = progress.data ?? null;
+      const existingModules = Array.isArray(nextDraft?.active_modules) ? nextDraft.active_modules : [];
+      const detectedPrimary = PRIMARY_OPTIONS.find((item) => existingModules.includes(item.id))?.id ?? 'workout';
+      const detectedSecondary = existingModules.filter((item) => item !== detectedPrimary);
+
+      setDraft(nextDraft);
+      setPrimaryFocus(detectedPrimary);
+      setSecondary(detectedSecondary);
     })();
+
     return () => {
       active = false;
     };
   }, []);
 
-  const visibleCount = selected.length + (femaleEnabled ? 1 : 0);
-  const payloadModules = useMemo(() => (femaleEnabled ? [...selected, 'female'] : selected), [femaleEnabled, selected]);
+  const availableSecondary = useMemo(
+    () => SECONDARY_OPTIONS.filter((item) => item.id !== primaryFocus),
+    [primaryFocus],
+  );
 
-  const toggleModule = (id: ModuleId) => {
-    setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+  const toggleSecondary = (moduleId: string) => {
+    setSecondary((current) =>
+      current.includes(moduleId)
+        ? current.filter((item) => item !== moduleId)
+        : [...current, moduleId],
+    );
+  };
+
+  const persistAndContinue = async (modules: string[]) => {
+    if (!primaryFocus) return;
+
+    await saveOnboardingProgress(Routes.auth.onboarding.ready, {
+      ...(draft ?? {}),
+      active_modules: modules,
+    });
+
+    router.push(Routes.auth.onboarding.ready as never);
   };
 
   const handleContinue = async () => {
-    await saveOnboardingProgress(Routes.auth.onboarding.meta, {
-      ...(draft ?? {}),
-      active_modules: payloadModules,
-      female_health_enabled: femaleEnabled,
-    });
-    router.push(Routes.auth.onboarding.meta as any);
+    if (!primaryFocus) return;
+    await persistAndContinue([primaryFocus, ...secondary.filter((item) => item !== primaryFocus)]);
+  };
+
+  const handlePrimaryOnly = async () => {
+    if (!primaryFocus) return;
+    setSecondary([]);
+    await persistAndContinue([primaryFocus]);
   };
 
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.modules}
-      eyebrow="Tu tablero"
+      eyebrow="Paso 3 de 4"
       title={
         <View>
-          <Text style={styles.title}>Activá lo</Text>
-          <Text style={styles.title}>que usás.</Text>
+          <Text style={styles.title}>Cual es tu foco principal?</Text>
         </View>
       }
-      subtitle="Solo lo importante para empezar claro."
+      subtitle="Elegimos una sola prioridad y luego, si quieres, sumamos apoyo."
       footer={
-        <Button
-          variant="primary"
-          fullWidth
-          size="lg"
-          onPress={handleContinue}
-          icon={<Ionicons name="arrow-forward" size={18} color={Colors.white} />}
-          iconRight
-        >
-          Continuar
-        </Button>
+        <View style={styles.footer}>
+          <Button onPress={handleContinue} disabled={!primaryFocus} fullWidth size="lg" haptic="medium">
+            Continuar
+          </Button>
+          <Button onPress={handlePrimaryOnly} variant="ghost" fullWidth disabled={!primaryFocus}>
+            Solo el foco principal
+          </Button>
+        </View>
       }
     >
-      <Text style={styles.summary}>{visibleCount} módulos listos hoy.</Text>
-
-      <View style={styles.grid}>
-        {ONBOARDING_MODULES.map((module) => {
-          const active = selected.includes(module.id as ModuleId);
+      <View style={styles.stack}>
+        {PRIMARY_OPTIONS.map((option) => {
+          const selected = option.id === primaryFocus;
           return (
             <Pressable
-              key={module.id}
-              onPress={() => toggleModule(module.id as ModuleId)}
-              style={[
-                styles.moduleCard,
-                active && {
-                  borderColor: withOpacity(module.color, 0.48),
-                  backgroundColor: withOpacity(module.color, 0.14),
-                },
-              ]}
+              key={option.id}
+              onPress={() => setPrimaryFocus(option.id)}
+              style={[styles.primaryCard, selected && styles.primaryCardActive]}
             >
-              <View style={styles.moduleTop}>
-                <Text style={styles.moduleEmoji}>{module.emoji}</Text>
-                <View style={[styles.switchTrack, active && styles.switchTrackActive]}>
-                  <View style={[styles.switchKnob, active && styles.switchKnobActive]} />
-                </View>
+              <Text style={styles.primaryEmoji}>{option.emoji}</Text>
+              <View style={styles.primaryCopy}>
+                <Text style={styles.primaryTitle}>{option.title}</Text>
+                <Text style={styles.primarySubtitle}>{option.subtitle}</Text>
               </View>
-              <Text style={styles.moduleTitle}>{module.name}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Card style={styles.specialCard} shadow={false}>
-        <View style={styles.specialRow}>
-          <View style={styles.specialCopy}>
-            <Text style={styles.specialTitle}>Salud femenina</Text>
-            <Text style={styles.specialText}>Ciclo, recovery y agua</Text>
-          </View>
-          <Pressable onPress={() => setFemaleEnabled((value) => !value)} style={[styles.switchTrack, femaleEnabled && styles.switchTrackActive]}>
-            <View style={[styles.switchKnob, femaleEnabled && styles.switchKnobActive]} />
-          </Pressable>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Anadir algo mas?</Text>
+        <View style={styles.secondaryWrap}>
+          {availableSecondary.map((option) => {
+            const active = secondary.includes(option.id);
+            return (
+              <Pressable
+                key={option.id}
+                onPress={() => toggleSecondary(option.id)}
+                style={[styles.secondaryChip, active && styles.secondaryChipActive]}
+              >
+                <Text style={[styles.secondaryChipText, active && styles.secondaryChipTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
-      </Card>
+      </View>
     </OnboardingShell>
   );
 }
@@ -129,91 +163,83 @@ export default function StepModulesScreen() {
 const styles = StyleSheet.create({
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 36,
-    lineHeight: 38,
+    fontSize: 32,
+    lineHeight: 36,
     color: Colors.textPrimary,
-    letterSpacing: -1,
+    letterSpacing: -1.5,
   },
-  summary: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+  footer: {
+    gap: Spacing[2],
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  stack: {
     gap: Spacing[3],
   },
-  moduleCard: {
-    width: '47.5%',
-    minHeight: 108,
-    borderRadius: Radius.xl,
+  primaryCard: {
+    minHeight: 84,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: withOpacity(Colors.surface1, 0.96),
-    padding: Spacing[3],
-    gap: Spacing[3],
-  },
-  moduleTop: {
+    borderColor: withOpacity(Colors.white, 0.06),
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[4],
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  moduleEmoji: {
-    fontFamily: FontFamily.bold,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  moduleTitle: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  switchTrack: {
-    width: 42,
-    height: 24,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.1),
-    backgroundColor: withOpacity(Colors.white, 0.04),
-    padding: 2,
-    justifyContent: 'center',
-  },
-  switchTrackActive: {
-    borderColor: withOpacity(Colors.brand, 0.4),
-    backgroundColor: withOpacity(Colors.brand, 0.38),
-  },
-  switchKnob: {
-    width: 18,
-    height: 18,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.white,
-  },
-  switchKnobActive: {
-    alignSelf: 'flex-end',
-    backgroundColor: Colors.brandLight,
-  },
-  specialCard: {
-    backgroundColor: withOpacity(Colors.surface1, 0.96),
-  },
-  specialRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing[3],
+    alignItems: 'center',
   },
-  specialCopy: {
+  primaryCardActive: {
+    borderColor: Colors.actionBorder,
+    backgroundColor: withOpacity(Colors.action, 0.1),
+  },
+  primaryEmoji: {
+    fontSize: 24,
+  },
+  primaryCopy: {
+    flex: 1,
     gap: 4,
   },
-  specialTitle: {
+  primaryTitle: {
     fontFamily: FontFamily.semibold,
-    fontSize: FontSize.base,
+    fontSize: FontSize.md,
     color: Colors.textPrimary,
   },
-  specialText: {
+  primarySubtitle: {
     fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  section: {
+    gap: Spacing[3],
+  },
+  sectionLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  secondaryWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  secondaryChip: {
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+  },
+  secondaryChipActive: {
+    backgroundColor: withOpacity(Colors.action, 0.1),
+    borderColor: Colors.actionBorder,
+  },
+  secondaryChipText: {
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
   },
+  secondaryChipTextActive: {
+    color: Colors.textPrimary,
+  },
 });
-

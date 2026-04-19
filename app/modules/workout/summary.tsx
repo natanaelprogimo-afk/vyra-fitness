@@ -1,34 +1,196 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withDelay,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
-import LottieView from 'lottie-react-native';
-import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import Svg, { Circle, Rect } from 'react-native-svg';
+import AnimatedNumber from '@/components/ui/AnimatedNumber';
+import Button from '@/components/ui/Button';
 import SafeScreen from '@/components/ui/SafeScreen';
-import { RewardedAdButton } from '@/components/ui/RewardedAdButton';
-import { Colors } from '@/constants/colors';
-import { Spacing, Radius, FontFamily } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { useUIStore } from '@/stores/uiStore';
-import { captureError } from '@/lib/sentry';
+import { useWorkout } from '@/hooks/useWorkout';
 
-const BASE_WORKOUT_XP = 50;
-const PR_XP_BONUS = 100;
+function dayDiff(fromIso: string, toIso: string) {
+  const from = new Date(fromIso);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(toIso);
+  to.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((to.getTime() - from.getTime()) / 86400000));
+}
 
-export default function WorkoutSummaryScreen() {
+function wasFreezeUsedYesterday(iso: string | null | undefined) {
+  if (!iso) return false;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+  const used = new Date(iso);
+  used.setHours(0, 0, 0, 0);
+  return used.getTime() === yesterday.getTime();
+}
+
+function buildDoneCopy({
+  streak,
+  sessionCount,
+  duration,
+  prs,
+  prExerciseName,
+  previousSessionStartedAt,
+  currentSessionStartedAt,
+  isHardestSessionThisWeek,
+  freezeUsedYesterday,
+}: {
+  streak: number;
+  sessionCount: number;
+  duration: number;
+  prs: number;
+  prExerciseName: string | null;
+  previousSessionStartedAt: string | null;
+  currentSessionStartedAt: string | null;
+  isHardestSessionThisWeek: boolean;
+  freezeUsedYesterday: boolean;
+}) {
+  if (freezeUsedYesterday) {
+    return { title: 'Racha protegida.', subtitle: 'Usaste tu comodin. La racha sigue. Hoy la refuerzas.' };
+  }
+
+  if (sessionCount <= 1) {
+    return { title: 'Lo hiciste.', subtitle: 'Tu primer entrenamiento. Asi empieza todo.' };
+  }
+
+  if (prs > 0) {
+    return {
+      title: 'Nuevo record.',
+      subtitle: prExerciseName
+        ? `Record en ${prExerciseName}. Te estas volviendo mas fuerte.`
+        : 'Te estas volviendo mas fuerte.',
+    };
+  }
+
+  if (streak >= 30) {
+    return { title: '30 dias.', subtitle: '30 dias consecutivos. Eres otra persona.' };
+  }
+  if (streak >= 14) {
+    return { title: '14 dias.', subtitle: 'Ya no necesitas motivacion. Tienes habito.' };
+  }
+  if (streak >= 7) {
+    return { title: 'Una semana.', subtitle: '7 dias completos. Ya no es casualidad, es decision.' };
+  }
+  if (streak >= 3) {
+    return { title: 'Lo hiciste.', subtitle: `${streak} dias seguidos. El habito se esta formando.` };
+  }
+
+  if (previousSessionStartedAt && currentSessionStartedAt) {
+    const daysAway = dayDiff(previousSessionStartedAt, currentSessionStartedAt) - 1;
+    if (daysAway >= 7) {
+      return { title: 'Volviste.', subtitle: 'Volviste. Eso es lo mas dificil. Ya esta hecho.' };
+    }
+    if (daysAway >= 3) {
+      return { title: 'Volviste.', subtitle: `Estuviste ${daysAway} dias. Ya esta. Eso es lo mas dificil.` };
+    }
+  }
+
+  if (duration >= 60) {
+    return { title: 'Una hora.', subtitle: 'Tu primera sesion de mas de una hora. A por mas.' };
+  }
+
+  if (isHardestSessionThisWeek) {
+    return { title: 'Lo hiciste.', subtitle: 'Esa era la sesion mas dura de la semana. La hiciste.' };
+  }
+
+  return { title: 'Lo hiciste.', subtitle: 'Otro dia entrenado. Asi se construye esto.' };
+}
+
+function normalizeMuscles(musclesWorked: string[]) {
+  const lower = musclesWorked.map((item) => item.toLowerCase());
+  return {
+    chest: lower.some((item) => item.includes('pecho')),
+    back: lower.some((item) => item.includes('espalda') || item.includes('dorsal')),
+    shoulders: lower.some((item) => item.includes('hombro')),
+    arms: lower.some((item) => item.includes('brazo') || item.includes('biceps') || item.includes('triceps')),
+    legs: lower.some((item) => item.includes('pierna') || item.includes('cuadr') || item.includes('gluteo') || item.includes('femoral')),
+    core: lower.some((item) => item.includes('core') || item.includes('abd')),
+  };
+}
+
+function MuscleSilhouette({ musclesWorked }: { musclesWorked: string[] }) {
+  const zones = normalizeMuscles(musclesWorked);
+  const active = withOpacity(Colors.action, 0.42);
+  const base = Colors.bgElevated;
+
+  return (
+    <View style={styles.silhouetteWrap}>
+      <Svg width={220} height={92} viewBox="0 0 220 92">
+        <Circle cx={46} cy={16} r={10} fill={base} />
+        <Rect x={36} y={28} width={20} height={18} rx={8} fill={zones.chest ? active : base} />
+        <Rect x={30} y={48} width={32} height={14} rx={7} fill={zones.core ? active : base} />
+        <Rect x={18} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
+        <Rect x={64} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
+        <Rect x={32} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
+        <Rect x={48} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
+        <Rect x={30} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
+        <Rect x={50} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
+
+        <Circle cx={174} cy={16} r={10} fill={base} />
+        <Rect x={164} y={28} width={20} height={18} rx={8} fill={zones.back ? active : base} />
+        <Rect x={158} y={48} width={32} height={14} rx={7} fill={zones.core ? active : base} />
+        <Rect x={146} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
+        <Rect x={192} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
+        <Rect x={160} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
+        <Rect x={176} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
+        <Rect x={158} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
+        <Rect x={178} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
+      </Svg>
+    </View>
+  );
+}
+
+function buildShareCardHtml(input: {
+  name: string;
+  userName: string;
+  dateLabel: string;
+  duration: number;
+  sets: number;
+  volume: number;
+  streak: number;
+}) {
+  return `
+    <html>
+      <body style="margin:0;padding:24px;background:#09090B;color:#F0F0F3;font-family:Inter,Arial,sans-serif;">
+        <div style="border:1px solid rgba(255,255,255,.08);border-radius:24px;background:#111115;padding:28px;">
+          <div style="height:4px;background:#FF4500;border-radius:999px;margin-bottom:24px;"></div>
+          <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:#9090A0;">VYRA</div>
+          <div style="font-size:32px;font-weight:800;margin-top:8px;">${input.name}</div>
+          <div style="font-size:15px;color:#9090A0;margin-top:8px;">${input.userName} · ${input.dateLabel}</div>
+          <div style="display:flex;gap:16px;margin-top:28px;">
+            <div style="flex:1;">
+              <div style="font-size:28px;font-weight:700;">${input.duration} min</div>
+              <div style="font-size:13px;color:#9090A0;">Duracion</div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:28px;font-weight:700;">${input.sets}</div>
+              <div style="font-size:13px;color:#9090A0;">Series</div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:28px;font-weight:700;">${Math.round(input.volume).toLocaleString('es-UY')} kg</div>
+              <div style="font-size:13px;color:#9090A0;">Volumen</div>
+            </div>
+          </div>
+          <div style="margin-top:28px;padding:16px;border-radius:16px;background:#18181D;">
+            <div style="font-size:12px;color:#9090A0;text-transform:uppercase;letter-spacing:1.2px;">Racha</div>
+            <div style="font-size:24px;font-weight:700;margin-top:6px;">${input.streak} dias seguidos</div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+export default function WorkoutDoneScreen() {
+  const [isSharing, setIsSharing] = useState(false);
   const params = useLocalSearchParams<{
     sessionId?: string;
     duration?: string;
@@ -37,227 +199,166 @@ export default function WorkoutSummaryScreen() {
     prs?: string;
     name?: string;
   }>();
+  const profile = useAuthStore((state) => state.profile);
+  const { history, getConsistencyStats, getSessionDetail } = useWorkout();
 
-  const userId = useAuthStore((state) => state.profile?.id ?? null);
-  const updateProfile = useAuthStore((state) => state.updateProfile);
-  const showToast = useUIStore((state) => state.showToast);
+  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
+  const duration = Number(params.duration ?? 0) || 0;
+  const volume = Number(params.volume ?? 0) || 0;
+  const sets = Number(params.sets ?? 0) || 0;
+  const prs = Number(params.prs ?? 0) || 0;
+  const name = typeof params.name === 'string' ? params.name : 'Entrenamiento';
+  const streak = Number(profile?.current_streak ?? profile?.streak ?? getConsistencyStats().currentStreak ?? 0);
+  const detail = sessionId ? getSessionDetail(sessionId) : null;
+  const musclesWorked = detail?.session?.muscles_worked ?? [];
+  const previousSession = history.find((entry) => entry.id !== sessionId) ?? null;
+  const currentSessionStartedAt =
+    detail?.session?.started_at ?? history.find((entry) => entry.id === sessionId)?.started_at ?? null;
+  const prExerciseName = detail?.sets.find((set) => set.is_pr)?.exercise_name ?? null;
+  const freezeUsedYesterday = wasFreezeUsedYesterday(profile?.streak_freeze_last_used_at ?? null);
 
-  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
-  const duration = parseInt(params.duration ?? '0', 10) || 0;
-  const volume = parseInt(params.volume ?? '0', 10) || 0;
-  const sets = parseInt(params.sets ?? '0', 10) || 0;
-  const prs = parseInt(params.prs ?? '0', 10) || 0;
-  const name = params.name ?? 'Entreno';
+  const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const currentVolume = Math.round(volume);
+  const isHardestSessionThisWeek = history
+    .filter((entry) => new Date(entry.started_at).getTime() >= weekCutoff)
+    .every((entry) => entry.id === sessionId || Number(entry.total_volume_kg ?? 0) <= currentVolume);
 
-  const rewardXp = useMemo(() => BASE_WORKOUT_XP + (prs * PR_XP_BONUS), [prs]);
-  const rewardContext = sessionId ? `post_workout_2x_xp:${sessionId}` : null;
+  const copy = buildDoneCopy({
+    streak,
+    sessionCount: history.length,
+    duration,
+    prs,
+    prExerciseName,
+    previousSessionStartedAt: previousSession?.started_at ?? null,
+    currentSessionStartedAt,
+    isHardestSessionThisWeek,
+    freezeUsedYesterday,
+  });
 
-  const [claimingXp, setClaimingXp] = useState(false);
-  const [xpBoostClaimed, setXpBoostClaimed] = useState(false);
+  const dateLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat('es-UY', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }).format(new Date()),
+    [],
+  );
 
-  const titleScale = useSharedValue(0);
-  const statsOpacity = useSharedValue(0);
-  const badgeScale = useSharedValue(0);
+  const handleShare = useCallback(async () => {
+    const userName = profile?.name?.trim() || 'Usuario';
+    setIsSharing(true);
 
-  const titleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: titleScale.value }],
-  }));
-  const statsStyle = useAnimatedStyle(() => ({
-    opacity: statsOpacity.value,
-    transform: [{ translateY: (1 - statsOpacity.value) * 20 }],
-  }));
-  const badgeStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: badgeScale.value }],
-  }));
-
-  useEffect(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-    titleScale.value = withSpring(1, { damping: 8, stiffness: 100 });
-    statsOpacity.value = withDelay(300, withTiming(1, { duration: 600 }));
-
-    if (prs > 0) {
-      badgeScale.value = withDelay(600, withSpring(1, { damping: 6, stiffness: 90 }));
-    }
-  }, [badgeScale, prs, statsOpacity, titleScale]);
-
-  useEffect(() => {
-    if (!userId || !rewardContext) return;
-
-    let mounted = true;
-
-    void supabase
-      .from('ad_interactions')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('ad_type', 'rewarded')
-      .eq('context', rewardContext)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!mounted) return;
-        if (error) {
-          captureError(new Error(error.message), {
-            action: 'WorkoutSummaryScreen.checkXpBoost',
-            rewardContext,
-          });
-          return;
-        }
-        setXpBoostClaimed(Boolean(data?.id));
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [rewardContext, userId]);
-
-  const handleXpBoostReward = useCallback(async () => {
-    if (!userId || !sessionId || rewardXp <= 0 || claimingXp) return;
-
-    setClaimingXp(true);
     try {
-      const { data, error } = await supabase.rpc('claim_rewarded_workout_bonus', {
-        p_user_id: userId,
-        p_session_id: sessionId,
-        p_bonus_xp: rewardXp,
+      const html = buildShareCardHtml({
+        name,
+        userName,
+        dateLabel,
+        duration,
+        sets,
+        volume,
+        streak,
       });
 
-      if (error) {
-        throw error;
+      const file = await Print.printToFileAsync({ html });
+      const canShareFile = await Sharing.isAvailableAsync();
+
+      if (canShareFile) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Compartir entrenamiento',
+        });
+        return;
       }
 
-      const payload = Array.isArray(data) ? data[0] : data;
-      if (!payload || payload.success !== true) {
-        if (payload?.already_claimed) {
-          setXpBoostClaimed(true);
-          showToast('El bonus de XP de este entreno ya fue reclamado.', 'info');
-          return;
-        }
-        throw new Error(payload?.error ?? 'No se pudo aplicar el bonus de XP.');
-      }
-
-      setXpBoostClaimed(true);
-      const nextProfilePatch: { xp?: number; level?: number } = {};
-      if (typeof payload.new_xp === 'number') {
-        nextProfilePatch.xp = payload.new_xp;
-      }
-      if (typeof payload.new_level === 'number') {
-        nextProfilePatch.level = payload.new_level;
-      }
-      updateProfile(nextProfilePatch);
-      showToast(`XP duplicado: +${rewardXp} XP`, 'success');
-    } catch (error) {
-      captureError(error instanceof Error ? error : new Error(String(error)), {
-        action: 'WorkoutSummaryScreen.handleXpBoostReward',
-        sessionId,
+      await Share.share({
+        title: 'Compartir entrenamiento',
+        message: `${name}\n${duration} min - ${sets} series - ${Math.round(volume).toLocaleString('es-UY')} kg\nRacha actual: ${streak} dias\nVYRA`,
       });
-      showToast('No pudimos aplicar el bonus de XP.', 'error');
     } finally {
-      setClaimingXp(false);
+      setIsSharing(false);
     }
-  }, [claimingXp, rewardXp, sessionId, showToast, updateProfile, userId]);
+  }, [dateLabel, duration, name, profile?.name, sets, streak, volume]);
 
   return (
-    <SafeScreen padHorizontal={false} padBottom>
-      <LottieView
-        source={require('@/assets/lottie/confetti.json')}
-        autoPlay
-        loop={false}
-        style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-      />
-
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View style={[styles.titleSection, titleStyle]}>
-          <Text style={styles.emoji}>DONE</Text>
-          <Text style={styles.title}>Entreno completado</Text>
-          <Text style={styles.sessionName}>{name}</Text>
-        </Animated.View>
-
-        {prs > 0 && (
-          <Animated.View style={[styles.prBanner, badgeStyle]}>
-            <Text style={styles.prBannerText}>
-              {prs} nuevo{prs > 1 ? 's' : ''} record{prs > 1 ? 's' : ''} personal{prs > 1 ? 'es' : ''}
-            </Text>
-          </Animated.View>
-        )}
-
-        <Animated.View style={[styles.statsGrid, statsStyle]}>
-          <StatCard icon="TIME" label="Duracion" value={`${duration} min`} />
-          <StatCard icon="VOL" label="Volumen total" value={`${volume.toLocaleString()} kg`} />
-          <StatCard icon="SETS" label="Sets completados" value={`${sets}`} />
-          <StatCard
-            icon="PR"
-            label="Records"
-            value={prs > 0 ? `${prs} PR` : '-'}
-            highlight={prs > 0}
-          />
-        </Animated.View>
-
-        <View style={styles.rewardsCard}>
-          <Text style={styles.rewardLine}>+25 coins por completar el entreno</Text>
-          <Text style={styles.rewardLine}>+{BASE_WORKOUT_XP} XP por completar el entreno</Text>
-          {prs > 0 && (
-            <>
-              <Text style={styles.rewardLine}>+{prs * 50} coins por records personales</Text>
-              <Text style={styles.rewardLine}>+{prs * PR_XP_BONUS} XP por records personales</Text>
-            </>
-          )}
+    <SafeScreen padHorizontal={false} padBottom={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.closeRow}>
+          <Pressable onPress={() => router.replace(Routes.tabs.home as never)} style={styles.closeButton}>
+            <Ionicons name="close" size={16} color={Colors.textMuted} />
+          </Pressable>
         </View>
 
-        {sessionId && rewardXp > 0 && !xpBoostClaimed ? (
-          <RewardedAdButton
-            context="post_workout_2x_xp"
-            label={claimingXp ? 'Aplicando bonus...' : `Ver anuncio para duplicar XP (+${rewardXp} XP)`}
-            coins={0}
-            onReward={handleXpBoostReward}
-          />
-        ) : null}
-
-        {xpBoostClaimed ? (
-          <View style={styles.xpClaimedCard}>
-            <Text style={styles.xpClaimedText}>Bonus de XP reclamado para este entreno.</Text>
+        <View style={styles.checkWrap}>
+          <View style={styles.checkCircle}>
+            <Ionicons name="checkmark" size={42} color={Colors.white} />
           </View>
-        ) : null}
+        </View>
+
+        <View style={styles.header}>
+          <Text style={styles.title}>{copy.title}</Text>
+          <Text style={styles.subtitle}>{copy.subtitle}</Text>
+        </View>
+
+        <View style={styles.statsRow}>
+          <Stat label="Duracion" value={duration} suffix=" min" delay={0} />
+          <Stat label="Series" value={sets} delay={100} />
+          <Stat
+            label="Volumen"
+            value={Math.round(volume)}
+            suffix=" kg"
+            delay={200}
+            formatFn={(value) => Math.round(value).toLocaleString('es-UY')}
+          />
+        </View>
+
+        <MuscleSilhouette musclesWorked={musclesWorked} />
+
+        <View style={styles.streakRow}>
+          {Array.from({ length: 7 }, (_, index) => {
+            const active = index < Math.min(7, streak);
+            return <View key={index} style={[styles.streakDot, active && styles.streakDotActive]} />;
+          })}
+        </View>
 
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.homeBtn}
-            onPress={() => router.replace('/(tabs)' as any)}
-          >
-            <Text style={styles.homeBtnText}>Volver al inicio</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.historyBtn}
-            onPress={() => router.replace('/modules/workout/history' as any)}
-          >
-            <Text style={styles.historyBtnText}>Ver historial</Text>
-          </TouchableOpacity>
+          <Button onPress={() => router.push(Routes.tabs.progress as never)} fullWidth size="lg" haptic="medium">
+            Ver mi progreso
+          </Button>
+          <Button onPress={() => void handleShare()} variant="secondary" fullWidth loading={isSharing}>
+            Compartir entrenamiento
+          </Button>
+          <Button onPress={() => router.replace(Routes.tabs.home as never)} variant="ghost" fullWidth>
+            Volver al inicio
+          </Button>
         </View>
       </ScrollView>
     </SafeScreen>
   );
 }
 
-function StatCard({
-  icon,
+function Stat({
   label,
   value,
-  highlight = false,
+  suffix = '',
+  delay = 0,
+  formatFn,
 }: {
-  icon: string;
   label: string;
-  value: string;
-  highlight?: boolean;
+  value: number;
+  suffix?: string;
+  delay?: number;
+  formatFn?: (value: number) => string;
 }) {
   return (
-    <View style={[styles.statCard, highlight && styles.statCardHighlight]}>
-      <Text style={styles.statIcon}>{icon}</Text>
-      <Text style={[styles.statValue, highlight && styles.statValueHighlight]}>
-        {value}
-      </Text>
+    <View style={styles.statItem}>
+      <AnimatedNumber
+        value={value}
+        duration={800 + delay}
+        suffix={suffix}
+        formatFn={formatFn}
+        style={styles.statValue}
+      />
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
@@ -266,141 +367,92 @@ function StatCard({
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
-    paddingBottom: Spacing[12],
-    paddingTop: Spacing[10],
+    paddingTop: Spacing[5],
+    paddingBottom: Spacing[10],
     gap: Spacing[6],
-    alignItems: 'center',
   },
-  titleSection: {
+  closeRow: {
+    alignItems: 'flex-end',
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkWrap: {
+    alignItems: 'center',
+    marginTop: Spacing[5],
+  },
+  checkCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.action,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  header: {
     alignItems: 'center',
     gap: Spacing[2],
   },
-  emoji: {
-    fontSize: 16,
-    letterSpacing: 2,
-    color: Colors.textSecondary,
-    fontFamily: FontFamily.bold,
-  },
   title: {
-    fontFamily: FontFamily.bold,
-    fontSize: 30,
+    fontFamily: FontFamily.display,
+    fontSize: 48,
+    lineHeight: 50,
     color: Colors.textPrimary,
+    letterSpacing: -2,
     textAlign: 'center',
   },
-  sessionName: {
-    fontFamily: FontFamily.medium,
+  subtitle: {
+    fontFamily: FontFamily.regular,
     fontSize: 18,
     color: Colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 24,
   },
-  prBanner: {
-    backgroundColor: `${Colors.coins}22`,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing[6],
-    paddingVertical: Spacing[3],
-    borderWidth: 2,
-    borderColor: Colors.coins,
-  },
-  prBannerText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 18,
-    color: Colors.coins,
-    textAlign: 'center',
-  },
-  statsGrid: {
+  statsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     gap: Spacing[3],
-    width: '100%',
   },
-  statCard: {
+  statItem: {
     flex: 1,
-    minWidth: '44%',
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.xl,
-    padding: Spacing[4],
     alignItems: 'center',
-    gap: Spacing[1],
-  },
-  statCardHighlight: {
-    backgroundColor: `${Colors.coins}15`,
-    borderWidth: 1,
-    borderColor: Colors.coins,
-  },
-  statIcon: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontFamily: FontFamily.bold,
+    gap: 4,
   },
   statValue: {
     fontFamily: FontFamily.bold,
-    fontSize: 22,
-    color: Colors.workout,
-  },
-  statValueHighlight: {
-    color: Colors.coins,
+    fontSize: 36,
+    color: Colors.textPrimary,
+    textAlign: 'center',
   },
   statLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textSecondary,
+    fontFamily: FontFamily.semibold,
+    fontSize: 13,
+    color: Colors.textMuted,
+    letterSpacing: 0.5,
     textAlign: 'center',
   },
-  rewardsCard: {
-    backgroundColor: `${Colors.coins}15`,
-    borderRadius: Radius.xl,
-    padding: Spacing[4],
-    width: '100%',
-    gap: Spacing[1],
-    borderWidth: 1,
-    borderColor: `${Colors.coins}40`,
+  silhouetteWrap: {
+    alignItems: 'center',
   },
-  rewardLine: {
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
-    color: Colors.coins,
+  streakRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: Spacing[2],
   },
-  xpClaimedCard: {
-    width: '100%',
-    backgroundColor: `${Colors.success}15`,
-    borderRadius: Radius.xl,
-    paddingHorizontal: Spacing[4],
-    paddingVertical: Spacing[3],
-    borderWidth: 1,
-    borderColor: `${Colors.success}40`,
+  streakDot: {
+    width: 14,
+    height: 14,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
   },
-  xpClaimedText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 14,
-    color: Colors.success,
-    textAlign: 'center',
+  streakDotActive: {
+    backgroundColor: Colors.action,
   },
   actions: {
-    width: '100%',
-    gap: Spacing[3],
-  },
-  homeBtn: {
-    backgroundColor: Colors.workout,
-    borderRadius: Radius.xl,
-    paddingVertical: Spacing[4],
-    alignItems: 'center',
-  },
-  homeBtnText: {
-    color: Colors.white,
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
-  },
-  historyBtn: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.xl,
-    paddingVertical: Spacing[4],
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  historyBtnText: {
-    color: Colors.textPrimary,
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
+    gap: Spacing[2],
   },
 });

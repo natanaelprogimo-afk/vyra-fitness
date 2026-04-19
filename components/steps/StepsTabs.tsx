@@ -6,11 +6,10 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type StepsRouteKey = 'index' | 'cardio' | 'history' | 'settings' | 'week';
+export type StepsRouteKey = 'index' | 'history' | 'settings' | 'week';
 
 const TABS: Array<{ key: StepsRouteKey; label: string; route: string }> = [
   { key: 'index', label: 'Hoy', route: Routes.steps.index },
-  { key: 'cardio', label: 'GPS', route: Routes.steps.cardio },
   { key: 'history', label: 'Historial', route: Routes.steps.history },
   { key: 'settings', label: 'Ajustes', route: Routes.steps.settings },
   { key: 'week', label: 'Semana', route: Routes.steps.week },
@@ -44,7 +43,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -Spacing[5],
   },
   row: {
-    gap: 8,
+    gap: Spacing[2],
     paddingHorizontal: Spacing[5],
   },
   tab: {
@@ -52,19 +51,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: 'rgba(249, 142, 45, 0.12)',
-    backgroundColor: '#1f2416',
+    borderColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
   },
   tabActive: {
-    borderColor: withOpacity(Colors.fasting, 0.36),
-    backgroundColor: withOpacity(Colors.fasting, 0.18),
+    borderColor: withOpacity(Colors.steps, 0.36),
+    backgroundColor: withOpacity(Colors.steps, 0.18),
   },
   tabText: {
-    color: '#b2b994',
+    color: Colors.textSecondary,
     fontFamily: FontFamily.medium,
     fontSize: FontSize.sm,
   },
   tabTextActive: {
-    color: '#ffd19b',
+    color: Colors.steps,
   },
 });

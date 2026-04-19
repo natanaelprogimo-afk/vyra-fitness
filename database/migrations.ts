@@ -2,7 +2,7 @@
 // VYRA FITNESS - WatermelonDB migrations
 // ============================================================
 
-import { schemaMigrations, createTable, addColumns } from '@nozbe/watermelondb/Schema/migrations';
+import { schemaMigrations, createTable, addColumns, unsafeExecuteSql } from '@nozbe/watermelondb/Schema/migrations';
 
 export const migrations = schemaMigrations({
   migrations: [
@@ -399,6 +399,42 @@ export const migrations = schemaMigrations({
             { name: 'exercises', type: 'string', isOptional: true },
           ],
         }),
+      ],
+    },
+    {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: 'water_logs',
+          columns: [
+            { name: 'logged_date', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 7,
+      steps: [
+        unsafeExecuteSql('DROP TABLE IF EXISTS recovery_logs;'),
+        unsafeExecuteSql('DROP TABLE IF EXISTS exercise_prs;'),
+        unsafeExecuteSql('DROP TABLE IF EXISTS nutrition_logs;'),
+        unsafeExecuteSql('DROP TABLE IF EXISTS female_cycle_logs;'),
+        unsafeExecuteSql('DROP TABLE IF EXISTS gamification;'),
+        unsafeExecuteSql('DROP TABLE IF EXISTS user_profile;'),
+      ],
+    },
+    {
+      toVersion: 8,
+      steps: [
+        addColumns({
+          table: 'profiles',
+          columns: [{ name: 'updated_at', type: 'number' }],
+        }),
+        unsafeExecuteSql(
+          `UPDATE profiles
+           SET updated_at = COALESCE(updated_at, created_at, CAST(strftime('%s','now') AS INTEGER) * 1000)
+           WHERE updated_at IS NULL;`
+        ),
       ],
     },
   ],

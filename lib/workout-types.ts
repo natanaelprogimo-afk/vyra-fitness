@@ -82,6 +82,7 @@ export interface ActiveSession {
   exercises: RoutineExercise[];
   currentExerciseIndex: number;
   notes?: string | null;
+  exerciseNotes?: Record<string, string>;
   isQuickSession?: boolean;
 }
 
@@ -199,6 +200,7 @@ export interface WorkoutSessionDetail {
     prs: number;
   }>;
   durationMin: number;
+  exerciseNotes?: Record<string, string>;
 }
 
 export interface WorkoutSummaryData {
@@ -228,6 +230,7 @@ export interface WorkoutSettings {
   keepScreenAwake: boolean;
   hapticsEnabled: boolean;
   showHints: boolean;
+  restAlertMode: 'soft' | 'strong' | 'sound' | 'silent';
   units: 'kg';
   restPresets: number[];
 }

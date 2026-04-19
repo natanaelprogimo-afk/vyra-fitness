@@ -66,6 +66,7 @@ export function useWorkout() {
   const finishSession = useWorkoutStore((state) => state.finishSession);
   const cancelSession = useWorkoutStore((state) => state.cancelSession);
   const updateSessionNotes = useWorkoutStore((state) => state.updateSessionNotes);
+  const updateExerciseNote = useWorkoutStore((state) => state.updateExerciseNote);
   const deleteSessionRecord = useWorkoutStore((state) => state.deleteSessionRecord);
   const createRoutine = useWorkoutStore((state) => state.createRoutine);
   const updateRoutine = useWorkoutStore((state) => state.updateRoutine);
@@ -116,6 +117,7 @@ export function useWorkout() {
     finishSession,
     cancelSession,
     updateSessionNotes,
+    updateExerciseNote,
     deleteSessionRecord,
     getActiveProgram,
     getProgramPhase,

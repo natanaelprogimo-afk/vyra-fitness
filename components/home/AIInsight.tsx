@@ -1,26 +1,33 @@
 // ============================================================
-// VYRA FITNESS — AIInsight
-// Card con insight del coach IA basado en datos del día
+// VYRA FITNESS - AIInsight
+// Card con lectura contextual basada en datos del dia.
 // ============================================================
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 
 interface AIInsightProps {
   insight?: string | null;
+  onPress?: () => void;
+  actionLabel?: string;
 }
 
-export const AIInsight = ({ insight }: AIInsightProps) => {
+export const AIInsight = ({ insight, onPress, actionLabel = 'Ver contexto' }: AIInsightProps) => {
   if (!insight) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>💡 Coach IA</Text>
+      <Text style={styles.header}>Lectura contextual</Text>
       <Text style={styles.text}>{insight}</Text>
+      {onPress ? (
+        <Pressable onPress={onPress} style={styles.button}>
+          <Text style={styles.buttonText}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 };
@@ -29,24 +36,38 @@ export default AIInsight;
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.lg,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.xl,
     padding: Spacing[4],
     marginBottom: Spacing[4],
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.brand,
+    borderWidth: 1,
+    borderColor: `${Colors.info}35`,
   },
   header: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.info,
     marginBottom: Spacing[2],
     textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   text: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
     lineHeight: 20,
+  },
+  button: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing[3],
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.full,
+    backgroundColor: `${Colors.info}18`,
+  },
+  buttonText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.info,
   },
 });

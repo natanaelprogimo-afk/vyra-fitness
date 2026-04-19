@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -10,6 +10,7 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useWorkout, type RoutineExercise } from '@/hooks/useWorkout';
+import type { Routine } from '@/lib/workout-types';
 import { estimateRoutineCalories } from '@/lib/workout-metrics';
 import { useAuthStore } from '@/stores/authStore';
 import { formatNumber } from '@/utils/formatters';
@@ -85,11 +86,15 @@ export default function WorkoutRoutineEditorScreen() {
       (sum, item) => sum + (item.weight_suggestion_kg ?? 0) * item.reps_target * item.sets_target,
       0,
     );
-    const estimate = estimateRoutineCalories(
-      { ...routine!, exercises: selected, estimated_duration_min: Number(duration) || 45, name: name.trim() } as any,
-      exercises,
-      profile,
-    );
+    const routineForEstimate: Routine | null = routine
+      ?  {
+          ...routine,
+          exercises: selected,
+          estimated_duration_min: Number(duration) || 45,
+          name: name.trim(),
+        }
+      : null;
+    const estimate = estimateRoutineCalories(routineForEstimate, exercises, profile);
     return {
       totalSets,
       totalVolume,
@@ -442,3 +447,4 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
 });
+

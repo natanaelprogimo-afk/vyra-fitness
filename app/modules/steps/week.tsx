@@ -11,7 +11,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 const SCREEN_BG = '#171a0f';
 const CARD_BG = '#1d2114';
-const TILE_BG = '#232818';
 const BORDER = 'rgba(249, 142, 45, 0.14)';
 
 function formatDistance(valueKm: number, unit: 'km' | 'mi') {
@@ -37,9 +36,9 @@ export default function StepsWeekScreen() {
 
   const topRoutes = storedRoutes.slice(0, 2);
   const insight = distribution.low >= 3
-    ? 'Los días suaves todavía pesan demasiado. Una caminata corta el lunes te cambia la semana.'
+    ?  'Los días suaves todavía pesan demasiado. Una caminata corta el lunes te cambia la semana.'
     : delta >= 0
-      ? 'Venís arriba de la semana anterior. Repetir tu ruta más larga una vez más te deja mejor parado.'
+      ?  'Venís arriba de la semana anterior. Repetir tu ruta más larga una vez más te deja mejor parado.'
       : 'La semana bajó un poco. Recuperala con una salida breve antes de que cierre el día.';
 
   return (

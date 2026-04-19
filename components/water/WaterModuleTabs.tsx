@@ -6,14 +6,12 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type WaterTabKey = 'home' | 'log' | 'week' | 'settings' | 'reminders';
+export type WaterTabKey = 'home' | 'week' | 'settings';
 
 const TABS: Array<{ key: WaterTabKey; label: string; route: string }> = [
   { key: 'home', label: 'Hoy', route: Routes.water.index },
-  { key: 'log', label: 'Registrar', route: Routes.water.custom },
   { key: 'week', label: 'Tu semana', route: Routes.water.history },
   { key: 'settings', label: 'Ajustes', route: Routes.water.settings },
-  { key: 'reminders', label: 'Avisos', route: Routes.water.reminders },
 ];
 
 export default function WaterModuleTabs({ active }: { active: WaterTabKey }) {
@@ -44,14 +42,14 @@ const styles = StyleSheet.create({
     marginHorizontal: -Spacing[5],
   },
   row: {
-    gap: 8,
+    gap: Spacing[2],
     paddingHorizontal: Spacing[5],
   },
   pill: {
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: 'rgba(110, 192, 255, 0.12)',
-    backgroundColor: '#13283d',
+    borderColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
     paddingHorizontal: Spacing[3],
     paddingVertical: 10,
   },
@@ -62,9 +60,9 @@ const styles = StyleSheet.create({
   pillText: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: '#9ab8d1',
+    color: Colors.textSecondary,
   },
   pillTextActive: {
-    color: '#d7efff',
+    color: Colors.water,
   },
 });

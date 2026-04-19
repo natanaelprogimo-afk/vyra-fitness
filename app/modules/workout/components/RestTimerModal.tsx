@@ -5,13 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
+  Vibration,
 } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { Colors } from '@/constants/colors';
@@ -23,12 +18,14 @@ interface RestTimerModalProps {
   visible: boolean;
   onClose: () => void;
   defaultSeconds?: number;
+  alertMode?: 'soft' | 'strong' | 'sound' | 'silent';
 }
 
 export function RestTimerModal({
   visible,
   onClose,
   defaultSeconds = DEFAULT_REST,
+  alertMode = 'soft',
 }: RestTimerModalProps) {
   const [timeLeft, setTimeLeft] = useState(defaultSeconds);
   const [total, setTotal] = useState(defaultSeconds);
@@ -37,8 +34,23 @@ export function RestTimerModal({
   // SVG círculo
   const RADIUS = 80;
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-  const progress = timeLeft / total;
+  const progress = 1 - timeLeft / total;
   const strokeDashoffset = CIRCUMFERENCE * (1 - progress);
+
+  function triggerFinishAlert() {
+    if (alertMode === 'silent') return;
+    if (alertMode === 'soft') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      return;
+    }
+    if (alertMode === 'strong') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Vibration.vibrate([0, 180, 80, 180]);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Vibration.vibrate([0, 220, 60, 220, 60, 220]);
+  }
 
   useEffect(() => {
     if (visible) {
@@ -48,10 +60,10 @@ export function RestTimerModal({
         setTimeLeft((prev) => {
           if (prev <= 1) {
             clearInterval(intervalRef.current!);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            triggerFinishAlert();
             return 0;
           }
-          if (prev <= 4) {
+          if (prev <= 4 && alertMode !== 'silent') {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
           return prev - 1;
@@ -63,7 +75,7 @@ export function RestTimerModal({
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [visible, defaultSeconds]);
+  }, [alertMode, defaultSeconds, visible]);
 
   const adjust = (delta: number) => {
     setTimeLeft((prev) => Math.max(5, Math.min(300, prev + delta)));

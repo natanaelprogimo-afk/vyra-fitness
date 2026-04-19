@@ -96,7 +96,7 @@ try {
     process.exit(0);
   }
 
-  console.log('[Vyra] postinstall: Unity Ads local package ready');
+  console.log('[Vyra] postinstall: native patch checks ready');
 } catch (error) {
   console.warn('[Vyra] postinstall warning:', error instanceof Error ? error.message : String(error));
 }

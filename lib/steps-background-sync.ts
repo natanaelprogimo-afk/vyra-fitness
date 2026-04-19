@@ -41,7 +41,7 @@ async function getCurrentNativeStepTotal(): Promise<number | null> {
 
   const pedometerApi = Pedometer as PedometerPermissionsApi;
   const permission = pedometerApi.getPermissionsAsync
-    ? await pedometerApi.getPermissionsAsync().catch(() => null)
+    ?  await pedometerApi.getPermissionsAsync().catch(() => null)
     : null;
 
   if (permission && !permission.granted) return null;
@@ -118,7 +118,7 @@ if (!TaskManager.isTaskDefined(STEPS_BG_TASK)) {
     try {
       const snapshot = await captureStepsBackgroundSnapshotNow();
       return snapshot
-        ? BackgroundFetch.BackgroundFetchResult.NewData
+        ?  BackgroundFetch.BackgroundFetchResult.NewData
         : BackgroundFetch.BackgroundFetchResult.NoData;
     } catch {
       return BackgroundFetch.BackgroundFetchResult.Failed;

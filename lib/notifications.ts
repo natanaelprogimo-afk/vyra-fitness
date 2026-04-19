@@ -2,6 +2,11 @@ import * as Notifications from 'expo-notifications';
 // import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  buildProfileContextUpdate,
+  getProfileContextMemory,
+  PROFILE_CONTEXT_MEMORY_SELECT,
+} from '@/lib/profile-context';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
 
@@ -26,7 +31,7 @@ export type NotifType =
   | 'mental_checkin'
   | 'daily_summary'
   | 'streak_at_risk'
-  | 'coach_proactive'
+  | 'context_proactive'
   | 'supplement_reminder'
   | 'workout_reminder';
 
@@ -39,7 +44,7 @@ const NOTIF_TYPE_SET = new Set<NotifType>([
   'mental_checkin',
   'daily_summary',
   'streak_at_risk',
-  'coach_proactive',
+  'context_proactive',
   'supplement_reminder',
   'workout_reminder',
 ]);
@@ -62,6 +67,7 @@ type EngagementKind = 'scheduled' | 'opened' | 'actioned';
 type HourBucket = Record<string, { scheduled: number; opened: number; actioned: number }>;
 type NotifEngagementStore = Partial<Record<NotifType, HourBucket>>;
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+const IOS_NOTIFICATION_SOUND = Platform.OS === 'ios' ? 'default' : undefined;
 
 function getCurrentUtcOffsetMinutes(): number {
   return -new Date().getTimezoneOffset();
@@ -69,11 +75,84 @@ function getCurrentUtcOffsetMinutes(): number {
 
 function resolveAndroidChannelId(type: NotifType): string {
   if (type === 'fasting_phase' || type === 'fasting_complete') return 'vyra-fasting';
-  if (type === 'streak_at_risk' || type === 'coach_proactive') return 'vyra-important';
+  if (type === 'context_proactive') return 'vyra-context';
+  if (type === 'streak_at_risk') return 'vyra-important';
   return 'vyra-reminders';
 }
 
+function sanitizeNotificationData(
+  data?: Record<string, unknown>,
+): Record<string, string | number | boolean | null> | undefined {
+  if (!data) return undefined;
+
+  const sanitized: Record<string, string | number | boolean | null> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      sanitized[key] = value;
+      continue;
+    }
+
+    if (value instanceof Date) {
+      sanitized[key] = value.toISOString();
+      continue;
+    }
+
+    try {
+      sanitized[key] = JSON.stringify(value);
+    } catch {
+      sanitized[key] = String(value);
+    }
+  }
+
+  return sanitized;
+}
+
+function normalizeTriggerInput(
+  trigger: Notifications.NotificationTriggerInput,
+  channelId?: string,
+): Notifications.NotificationTriggerInput {
+  const androidChannel = Platform.OS === 'android' ? channelId : undefined;
+
+  const buildDateTrigger = (value: unknown): Notifications.NotificationTriggerInput => {
+    const parsed = value instanceof Date ? value : new Date(value as string | number);
+    if (Number.isNaN(parsed.getTime())) return trigger;
+    return {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: parsed,
+      ...(androidChannel ? { channelId: androidChannel } : {}),
+    } as Notifications.NotificationTriggerInput;
+  };
+
+  if (trigger instanceof Date || typeof trigger === 'number') {
+    return buildDateTrigger(trigger);
+  }
+
+  if (!trigger || typeof trigger !== 'object') return trigger;
+
+  if ('date' in trigger && !('type' in trigger)) {
+    return buildDateTrigger((trigger as { date: unknown }).date);
+  }
+
+  if ('type' in trigger && androidChannel && !('channelId' in trigger)) {
+    return {
+      ...(trigger as Record<string, unknown>),
+      channelId: androidChannel,
+    } as Notifications.NotificationTriggerInput;
+  }
+
+  return trigger;
+}
+
 function extractTriggerHour(trigger: Notifications.NotificationTriggerInput): number | null {
+  if (trigger instanceof Date) {
+    return Number.isNaN(trigger.getTime()) ? null : trigger.getHours();
+  }
   if (!trigger || typeof trigger !== 'object') return null;
   if ('type' in trigger && (trigger as any).type === 'daily') {
     const hour = Number((trigger as any).hour);
@@ -93,7 +172,7 @@ async function readEngagementStore(): Promise<NotifEngagementStore> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     return parsed && typeof parsed === 'object'
-      ? (parsed as NotifEngagementStore)
+      ?  (parsed as NotifEngagementStore)
       : {};
   } catch {
     return {};
@@ -292,7 +371,6 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#7C3AED',
-      sound:      'default',
     });
 
     await Notifications.setNotificationChannelAsync('vyra-fasting', {
@@ -300,21 +378,24 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 500],
       lightColor: '#F59E0B',
-      sound:      'default',
     });
 
     await Notifications.setNotificationChannelAsync('vyra-reminders', {
       name:       'Vyra - Recordatorios',
       importance: Notifications.AndroidImportance.DEFAULT,
-      sound:      'default',
     });
 
     await Notifications.setNotificationChannelAsync('vyra-important', {
       name:       'Vyra - Alertas importantes',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 300, 200, 300],
-      sound:      'default',
       bypassDnd:  false,
+    });
+
+    await Notifications.setNotificationChannelAsync('vyra-context', {
+      name:       'Vyra - Contexto',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 180, 120, 180],
     });
   }
 
@@ -333,24 +414,23 @@ export async function registerPushToken(userId: string): Promise<void> {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('coach_memory_json')
+      .select(PROFILE_CONTEXT_MEMORY_SELECT)
       .eq('id', userId)
       .single();
 
-    const coachMemory =
-      profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
-        ? (profile.coach_memory_json as Record<string, unknown>)
-        : {};
+    const coachMemory = getProfileContextMemory(profile);
 
-    // Guardar token en coach_memory_json para mantener compatibilidad con el schema consolidado.
+    // Guardar el token en la memoria contextual y espejar al alias legacy mientras termina la migracion.
     await supabase
       .from('profiles')
       .update({
-        coach_memory_json: {
+        ...buildProfileContextUpdate({
+          memory: {
           ...coachMemory,
           push_token: token,
           notification_utc_offset_minutes: getCurrentUtcOffsetMinutes(),
-        },
+          },
+        }),
       })
       .eq('id', userId);
   } catch (err) {
@@ -362,20 +442,22 @@ export async function registerPushToken(userId: string): Promise<void> {
 export async function scheduleNotif(notif: ScheduledNotif): Promise<string | null> {
   try {
     const androidChannelId = resolveAndroidChannelId(notif.type);
+    const safeData = sanitizeNotificationData(notif.data);
+    const normalizedTrigger = normalizeTriggerInput(notif.trigger, androidChannelId);
     const id = await Notifications.scheduleNotificationAsync({
       identifier: notif.id,
       content: {
         title:    notif.title,
         body:     notif.body,
-        data:     { type: notif.type, ...(notif.data ?? {}) },
-        sound:    'default',
+        data:     { type: notif.type, ...(safeData ?? {}) },
+        ...(IOS_NOTIFICATION_SOUND ? { sound: IOS_NOTIFICATION_SOUND } : {}),
         categoryIdentifier: notif.type,
         channelId: androidChannelId,
       } as any,
-      trigger: notif.trigger,
+      trigger: normalizedTrigger,
     });
 
-    const triggerHour = extractTriggerHour(notif.trigger);
+    const triggerHour = extractTriggerHour(normalizedTrigger);
     if (triggerHour !== null) {
       await recordEngagement(notif.type, 'scheduled', triggerHour, {
         notificationId: id,
@@ -464,7 +546,7 @@ export async function scheduleMentalCheckinReminder(hour = 8, minute = 30): Prom
   await scheduleNotif({
     id:    'mental_checkin_morning',
     type:  'mental_checkin',
-    title: '🧠 ¿Cómo arrancás el día?',
+    title: '🧠 ¿Cómo arrancás el día??',
     body:  'Hacé tu check-in mental de hoy en Vyra. Son 2 minutos.',
     trigger: {
       type:    'daily',
@@ -482,7 +564,7 @@ export async function scheduleDailySummaryReminder(hour = 21, minute = 0): Promi
     id:    'daily_summary_evening',
     type:  'daily_summary',
     title: '📊 Resumen del día',
-    body:  '¡Mirá cómo cerraste el día! Tu readiness score y lo que lograste.',
+    body:  '¡Mirá cómo cerraste el día! Tu estado del día y lo que lograste.',
     trigger: {
       type:    'daily',
       hour,
@@ -564,7 +646,7 @@ export async function scheduleOnboardingWelcomeReminder(triggerDate: Date, displ
   const safeName = displayName && displayName.trim().length > 0 ? displayName.trim() : 'Tu racha';
   await scheduleNotif({
     id: 'onboarding_welcome_24h',
-    type: 'coach_proactive',
+    type: 'context_proactive',
     title: 'Tu racha empieza hoy',
     body: `${safeName}, un log de agua de 10 segundos alcanza para arrancar fuerte.`,
     trigger: { date: triggerDate } as any,
@@ -581,13 +663,13 @@ export function setupNotificationResponseListener(
     const maybeType =
       notification.request.content.categoryIdentifier ||
       (typeof notification.request.content.data?.type === 'string'
-        ? String(notification.request.content.data.type)
+        ?  String(notification.request.content.data.type)
         : '');
     if (typeof maybeType === 'string' && isNotifType(maybeType)) {
       const actionIdentifier = response.actionIdentifier;
       const kind: EngagementKind =
         actionIdentifier && actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
-          ? 'actioned'
+          ?  'actioned'
           : 'opened';
       void recordEngagement(maybeType, kind, new Date().getHours(), {
         notificationId: notification.request.identifier,

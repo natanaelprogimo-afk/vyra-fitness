@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { getProfileContextMemory } from '@/lib/profile-context';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
@@ -48,10 +49,7 @@ export interface WeightStats {
 export function useWeight() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
-  const coachMemory =
-    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
-      ? (profile.coach_memory_json as Record<string, unknown>)
-      : {};
+  const coachMemory = getProfileContextMemory(profile);
   const strictSensitiveMode = Boolean(coachMemory.privacy_strict_sensitive_mode);
 
   const [logs, setLogs] = useState<WeightLog[]>([]);
@@ -85,7 +83,7 @@ export function useWeight() {
         .select('*')
         .eq('user_id', userId)
         .order('logged_at', { ascending: false })
-        .limit(90);
+        .limit(365);
 
       if (error) throw error;
       const normalized = await Promise.all(
@@ -104,9 +102,9 @@ export function useWeight() {
             weight_kg: decryptedWeight ?? Number(entry.weight_kg ?? 0),
             body_fat_pct:
               decryptedBodyFat !== null
-                ? decryptedBodyFat
+                ?  decryptedBodyFat
                 : entry.body_fat_pct !== null && entry.body_fat_pct !== undefined
-                  ? Number(entry.body_fat_pct)
+                  ?  Number(entry.body_fat_pct)
                   : null,
             note: decryptedNote,
           };
@@ -132,20 +130,20 @@ export function useWeight() {
     const previous = data[1]?.weight_kg ?? null;
     const dailyDelta =
       current !== null && previous !== null
-        ? Math.round((current - previous) * 10) / 10
+        ?  Math.round((current - previous) * 10) / 10
         : null;
 
     const currentWeekValues = data.slice(0, 7).map((item) => item.weight_kg);
     const previousWeekValues = data.slice(7, 14).map((item) => item.weight_kg);
     const weeklyAverageCurrent = currentWeekValues.length
-      ? Math.round((currentWeekValues.reduce((sum, val) => sum + val, 0) / currentWeekValues.length) * 10) / 10
+      ?  Math.round((currentWeekValues.reduce((sum, val) => sum + val, 0) / currentWeekValues.length) * 10) / 10
       : current;
     const weeklyAveragePrevious = previousWeekValues.length
-      ? Math.round((previousWeekValues.reduce((sum, val) => sum + val, 0) / previousWeekValues.length) * 10) / 10
+      ?  Math.round((previousWeekValues.reduce((sum, val) => sum + val, 0) / previousWeekValues.length) * 10) / 10
       : null;
     const weeklyDelta =
       weeklyAverageCurrent !== null && weeklyAveragePrevious !== null
-        ? Math.round((weeklyAverageCurrent - weeklyAveragePrevious) * 10) / 10
+        ?  Math.round((weeklyAverageCurrent - weeklyAveragePrevious) * 10) / 10
         : null;
 
     const bmi = current ? Math.round((current / (heightM * heightM)) * 10) / 10 : null;
@@ -190,7 +188,7 @@ export function useWeight() {
       Math.max(...recent21) - Math.min(...recent21) <= 0.3 &&
       (profile.goal === 'lose_fat' || (toGoal !== null && toGoal > 0));
     const plateauMessage = plateauDetected
-      ? 'Tu peso viene estable hace ~3 semanas. Probemos ajustar calorias, pasos o carga de entrenamiento para destrabar.'
+      ?  'Tu peso viene estable hace ~3 semanas. Probemos ajustar calorias, pasos o carga de entrenamiento para destrabar.'
       : null;
 
     // Nuevo mínimo histórico
@@ -237,7 +235,7 @@ export function useWeight() {
         const encryptedWeight = await encryptSensitiveText(String(weightKg));
         const encryptedBodyFat =
           bodyFatPct !== undefined && bodyFatPct !== null
-            ? await encryptSensitiveText(String(bodyFatPct))
+            ?  await encryptSensitiveText(String(bodyFatPct))
             : null;
 
         const analyticsWeight = roundForAnalytics(weightKg, strictSensitiveMode ? 2 : 0.5);
@@ -318,7 +316,7 @@ export function useWeight() {
   );
 
   // Datos para gráfico de línea (últimos N días)
-  function getChartData(days: 30 | 60 | 90 = 30): { date: string; weight: number }[] {
+  function getChartData(days = 30): { date: string; weight: number }[] {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     return logs

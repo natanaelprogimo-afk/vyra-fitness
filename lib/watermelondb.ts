@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // VYRA FITNESS - WatermelonDB facade
 // Exposes the local DB instance and validates required tables.
 // ============================================================
@@ -20,8 +20,11 @@ export const REQUIRED_OFFLINE_TABLES = [
 export type RequiredOfflineTable = (typeof REQUIRED_OFFLINE_TABLES)[number];
 
 export function assertRequiredTables(): { ok: boolean; missing: string[] } {
+  const rawTables = (schema as any).tables ?? [];
   const schemaTables = new Set(
-    Object.keys((schema as any).tables ?? {})
+    Array.isArray(rawTables)
+      ? rawTables.map((table: any) => table?.name).filter(Boolean)
+      : Object.keys(rawTables),
   );
   const missing = REQUIRED_OFFLINE_TABLES.filter((table) => !schemaTables.has(table));
 

@@ -19,9 +19,9 @@ export async function resolveFemalePhaseFromRecord(
 
   const encrypted =
     typeof record?.phase_encrypted === 'string'
-      ? record.phase_encrypted
+      ?  record.phase_encrypted
       : typeof record?.phase_override_encrypted === 'string'
-        ? record.phase_override_encrypted
+        ?  record.phase_override_encrypted
         : null;
 
   const decrypted = await decryptSensitiveText(encrypted);

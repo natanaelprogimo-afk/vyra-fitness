@@ -1,3 +1,4 @@
+import { getProfileContextMemory } from '@/lib/profile-context';
 import type { UserProfile } from '@/types/user';
 
 export type NutritionMode = 'athlete' | 'competition' | 'simple' | 'awareness';
@@ -37,10 +38,7 @@ export const NUTRITION_MODE_OPTIONS: NutritionModeOption[] = [
 ];
 
 function getCoachMemory(profile: UserProfile | null): Record<string, unknown> {
-  if (profile?.coach_memory_json && typeof profile.coach_memory_json === 'object') {
-    return profile.coach_memory_json as Record<string, unknown>;
-  }
-  return {};
+  return getProfileContextMemory(profile);
 }
 
 function inferModeFromGoal(profile: UserProfile | null): NutritionMode {

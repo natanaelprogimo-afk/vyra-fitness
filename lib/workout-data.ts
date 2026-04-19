@@ -61,6 +61,7 @@ export const WORKOUT_DEFAULT_SETTINGS: WorkoutSettings = {
   keepScreenAwake: true,
   hapticsEnabled: true,
   showHints: true,
+  restAlertMode: 'soft',
   units: 'kg',
   restPresets: [45, 60, 90, 120],
 };

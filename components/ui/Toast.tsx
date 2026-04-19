@@ -1,117 +1,117 @@
-// ============================================================
-// VYRA FITNESS — Toast System
-// Notificaciones in-app con animación y auto-dismiss
-// ============================================================
-
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React from 'react';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import Animated, {
-  useSharedValue,
+  runOnJS,
   useAnimatedStyle,
-  withSpring,
+  useSharedValue,
   withTiming,
-  withSequence,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useUIStore, type ToastType } from '@/stores/uiStore';
 
-// ─── Toast individual ────────────────────────────────────────
-
-interface ToastItemProps {
-  message: string;
-  type:    ToastType;
-}
-
-const toastConfig: Record<ToastType, { bg: string; icon: string; border: string }> = {
-  success: { bg: Colors.successBg, icon: '✅', border: Colors.success },
-  error:   { bg: Colors.errorBg,   icon: '❌', border: Colors.error   },
-  warning: { bg: Colors.warningBg, icon: '⚠️', border: Colors.warning },
-  info:    { bg: Colors.infoBg,    icon: 'ℹ️', border: Colors.info    },
-  coins:   { bg: Colors.coinsBg,   icon: '🪙', border: Colors.coins   },
+const TOAST_BORDER: Record<ToastType, string> = {
+  success: Colors.success,
+  error: Colors.error,
+  warning: Colors.warning,
+  info: Colors.brand,
 };
 
-function ToastItem({ message, type }: ToastItemProps) {
-  const translateY = useSharedValue(-80);
-  const opacity    = useSharedValue(0);
+function ToastItem({
+  id,
+  message,
+  type,
+}: {
+  id: string;
+  message: string;
+  type: ToastType;
+}) {
+  const dismissToast = useUIStore((state) => state.dismissToast);
+  const translateY = useSharedValue(-24);
+  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(0);
 
-  useEffect(() => {
-    translateY.value = withSpring(0, { damping: 18, stiffness: 200 });
-    opacity.value    = withTiming(1, { duration: 180 });
-  }, []);
+  React.useEffect(() => {
+    translateY.value = withTiming(0, { duration: 220 });
+    opacity.value = withTiming(1, { duration: 180 });
+  }, [opacity, translateY]);
 
   const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-    opacity:   opacity.value,
+    transform: [{ translateY: translateY.value }, { translateX: translateX.value }],
+    opacity: opacity.value,
   }));
 
-  const config = toastConfig[type];
+  const dismiss = React.useCallback(() => {
+    opacity.value = withTiming(0, { duration: 140 });
+    translateY.value = withTiming(-18, { duration: 140 });
+    translateX.value = withTiming(0, { duration: 140 });
+    dismissToast(id);
+  }, [dismissToast, id, opacity, translateX, translateY]);
+
+  const gesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .onUpdate((event) => {
+      translateX.value = event.translationX;
+      opacity.value = Math.max(0.35, 1 - Math.abs(event.translationX) / 180);
+    })
+    .onEnd((event) => {
+      if (Math.abs(event.translationX) > 72 || Math.abs(event.velocityX) > 700) {
+        runOnJS(dismissToast)(id);
+        return;
+      }
+      translateX.value = withTiming(0, { duration: 180 });
+      opacity.value = withTiming(1, { duration: 180 });
+    });
 
   return (
-    <Animated.View
-      style={[
-        styles.toast,
-        {
-          backgroundColor: config.bg,
-          borderLeftColor: config.border,
-        },
-        animStyle,
-      ]}
-    >
-      <Text style={styles.icon}>{config.icon}</Text>
-      <Text style={styles.message} numberOfLines={2}>{message}</Text>
-    </Animated.View>
+    <GestureDetector gesture={gesture}>
+      <Animated.View style={animStyle}>
+        <Pressable onPress={dismiss} style={[styles.toast, { borderLeftColor: TOAST_BORDER[type] }]}>
+          <Text style={styles.message} numberOfLines={2}>
+            {message}
+          </Text>
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
-// ─── Container global — montar en _layout.tsx ────────────────
-
 export default function ToastContainer() {
-  const toasts = useUIStore((s) => s.toasts);
+  const toasts = useUIStore((state) => state.toasts);
   const insets = useSafeAreaInsets();
+  const firstToast = toasts[0];
+
+  if (!firstToast) return null;
 
   return (
-    <View
-      style={[styles.container, { top: insets.top + Spacing[4] }]}
-      pointerEvents="none"
-    >
-      {toasts.map((t) => (
-        <ToastItem key={t.id} message={t.message} type={t.type} />
-      ))}
-    </View>
+    <Animated.View style={[styles.container, { top: insets.top + Spacing[4] }]}>
+      <ToastItem id={firstToast.id} message={firstToast.message} type={firstToast.type} />
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    left:     Spacing[4],
-    right:    Spacing[4],
-    zIndex:   99,
-    gap:      Spacing[2],
+    left: Spacing[4],
+    right: Spacing[4],
+    zIndex: 99,
   },
   toast: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    borderRadius:   Radius.xl,
-    paddingVertical:   Spacing[3],
-    paddingHorizontal: Spacing[4],
-    borderLeftWidth:   4,
-    gap:            Spacing[2.5],
-    shadowColor:    '#000',
-    shadowOffset:   { width: 0, height: 4 },
-    shadowOpacity:  0.3,
-    shadowRadius:   8,
-    elevation:      8,
-  },
-  icon: {
-    fontSize: FontSize.base,
+    borderRadius: Radius.sm,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing[5],
+    backgroundColor: Colors.surface2,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+    borderLeftWidth: 4,
   },
   message: {
-    flex:       1,
     fontFamily: FontFamily.medium,
-    fontSize:   FontSize.sm,
-    color:      Colors.textPrimary,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textPrimary,
   },
 });

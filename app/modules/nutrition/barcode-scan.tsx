@@ -8,7 +8,12 @@ import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import BarcodeScannerModal from '@/components/ui/BarcodeScannerModal';
-import { useNutrition, MEAL_TYPES, type MealType } from '@/hooks/useNutrition';
+import {
+  useNutrition,
+  MEAL_TYPES,
+  type FoodItem,
+  type MealType,
+} from '@/hooks/useNutrition';
 import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
@@ -21,7 +26,7 @@ export default function BarcodeNutritionScreen() {
   const { searchByBarcode, logMeal, isLogging } = useNutrition();
 
   const [showScanner, setShowScanner] = useState(true);
-  const [foundFood, setFoundFood] = useState<any | null>(null);
+  const [foundFood, setFoundFood] = useState<FoodItem | null>(null);
   const [amount, setAmount] = useState('100');
 
   const handleBarcodeScanned = async (barcode: string) => {
@@ -46,12 +51,12 @@ export default function BarcodeNutritionScreen() {
       );
     } catch (error) {
       const message = error instanceof Error
-        ? error.message
+        ?  error.message
         : 'No pudimos procesar el código. Intenta de nuevo.';
 
       Alert.alert(
         message.toLowerCase().includes('limite') || message.toLowerCase().includes('límite')
-          ? 'Límite alcanzado'
+          ?  'Límite alcanzado'
           : 'Error',
         message,
         [{ text: 'Reintentar', onPress: () => setShowScanner(true) }],
@@ -310,3 +315,5 @@ const styles = StyleSheet.create({
     marginTop: Spacing[1],
   },
 });
+
+

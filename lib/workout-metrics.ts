@@ -60,7 +60,7 @@ export function estimateRoutineCalories(
   const sexFactor = getProfileSexFactor(profile);
   const avgMet =
     routine.exercises.length > 0
-      ? routine.exercises.reduce((sum, item) => {
+      ?  routine.exercises.reduce((sum, item) => {
           const exercise = exercises.find((entry) => entry.id === item.exercise_id) ?? null;
           return sum + getExerciseMet(exercise);
         }, 0) / routine.exercises.length
@@ -87,7 +87,7 @@ export function estimateProgramCalories(
   const linkedRoutines = routines.filter((routine) => program.routine_ids.includes(routine.id));
   const sessionEstimate =
     linkedRoutines.length > 0
-      ? Math.round(
+      ?  Math.round(
           linkedRoutines.reduce((sum, routine) => sum + estimateRoutineCalories(routine, exercises, profile).total, 0) /
             linkedRoutines.length,
         )

@@ -1,43 +1,57 @@
-// ============================================================
-// VYRA FITNESS — Forgot Password Screen
-// ============================================================
-
-import { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Header from '@/components/layout/Header';
 import { useAuth } from '@/hooks/useAuth';
 import { validateEmail } from '@/utils/validators';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 
 export default function ForgotPasswordScreen() {
   const { resetPassword, isLoading } = useAuth();
-  const [email, setEmail]   = useState('');
-  const [error, setError]   = useState<string | null>(null);
-  const [sent,  setSent]    = useState(false);
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const interval = setInterval(() => {
+      setCooldown((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldown]);
 
   const handleReset = async () => {
     const err = validateEmail(email);
-    if (err) { setError(err); return; }
+    if (err) {
+      setError(err);
+      return;
+    }
     setError(null);
     const ok = await resetPassword(email.trim().toLowerCase());
-    if (ok) setSent(true);
+    if (ok) {
+      setSent(true);
+      setCooldown(60);
+    }
   };
 
   if (sent) {
     return (
       <SafeScreen>
-        <Header showBack />
-        <View style={styles.sentContainer}>
-          <Text style={styles.sentEmoji}>📧</Text>
-          <Text style={styles.sentTitle}>¡Revisá tu email!</Text>
-          <Text style={styles.sentText}>
-            Te enviamos un link para restablecer tu contraseña a{'\n'}
-            <Text style={styles.sentEmail}>{email}</Text>
-          </Text>
+        <View style={styles.success}>
+          <View style={styles.checkWrap}>
+            <Text style={styles.check}>✓</Text>
+          </View>
+          <Text style={styles.successTitle}>Revisa tu bandeja de entrada</Text>
+          <Text style={styles.email}>{email}</Text>
+          <Text style={styles.successBody}>También revisa spam si no lo ves.</Text>
+          <Pressable onPress={handleReset} disabled={cooldown > 0}>
+            <Text style={[styles.resend, cooldown > 0 && styles.resendDisabled]}>
+              {cooldown > 0 ? `Reenviar en ${cooldown}s` : 'Reenviar'}
+            </Text>
+          </Pressable>
         </View>
       </SafeScreen>
     );
@@ -45,11 +59,9 @@ export default function ForgotPasswordScreen() {
 
   return (
     <SafeScreen>
-      <Header title="Recuperar contraseña" showBack />
       <View style={styles.form}>
-        <Text style={styles.subtitle}>
-          Ingresá tu email y te enviamos un link para crear una nueva contraseña.
-        </Text>
+        <Text style={styles.title}>Recupera tu acceso</Text>
+        <Text style={styles.subtitle}>Ingresa tu email y te mandamos las instrucciones.</Text>
         <Input
           label="Email"
           value={email}
@@ -60,8 +72,8 @@ export default function ForgotPasswordScreen() {
           returnKeyType="done"
           onSubmitEditing={handleReset}
         />
-        <Button onPress={handleReset} variant="primary" fullWidth size="lg" loading={isLoading} style={styles.cta}>
-          Enviar link
+        <Button onPress={handleReset} fullWidth size="lg" loading={isLoading}>
+          Enviar instrucciones
         </Button>
       </View>
     </SafeScreen>
@@ -69,12 +81,71 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  form:          { paddingTop: Spacing[6] },
-  subtitle:      { fontFamily: FontFamily.regular, fontSize: FontSize.base, color: Colors.textSecondary, lineHeight: FontSize.base * 1.6, marginBottom: Spacing[5] },
-  cta:           { marginTop: Spacing[4] },
-  sentContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing[6] },
-  sentEmoji:     { fontSize: 64, marginBottom: Spacing[5] },
-  sentTitle:     { fontFamily: FontFamily.bold, fontSize: FontSize['2xl'], color: Colors.textPrimary, marginBottom: Spacing[3] },
-  sentText:      { fontFamily: FontFamily.regular, fontSize: FontSize.base, color: Colors.textSecondary, textAlign: 'center', lineHeight: FontSize.base * 1.6 },
-  sentEmail:     { fontFamily: FontFamily.semibold, color: Colors.brand },
+  form: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: Spacing[3],
+  },
+  title: {
+    fontFamily: FontFamily.display,
+    fontSize: 38,
+    lineHeight: 40,
+    color: Colors.textPrimary,
+  },
+  subtitle: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    lineHeight: 24,
+    color: Colors.textSecondary,
+    marginBottom: Spacing[2],
+  },
+  success: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing[3],
+    paddingHorizontal: Spacing[6],
+  },
+  checkWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(Colors.success, 0.12),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.success, 0.24),
+  },
+  check: {
+    fontFamily: FontFamily.bold,
+    fontSize: 30,
+    color: Colors.success,
+  },
+  successTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: 36,
+    lineHeight: 38,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  email: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.lg,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  successBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  resend: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.brand,
+  },
+  resendDisabled: {
+    color: Colors.textMuted,
+  },
 });

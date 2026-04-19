@@ -11,16 +11,18 @@ import {
   StyleSheet,
   type ViewStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing } from '@/constants/theme';
+import { ComponentHeight, FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
 
 interface HeaderProps {
   eyebrow?:    string;
   title?:      string;
   subtitle?:   string;
   showBack?:   boolean;
+  displayTitle?: boolean;
   onBack?:     () => void;
   rightAction?:React.ReactNode;
   rightElement?: React.ReactNode;
@@ -34,6 +36,7 @@ export default function Header({
   title,
   subtitle,
   showBack    = true,
+  displayTitle,
   onBack,
   rightAction,
   rightElement,
@@ -48,6 +51,7 @@ export default function Header({
   };
 
   const rightEl = rightElement ?? rightAction;
+  const useDisplayTitle = displayTitle ?? (typeof title === 'string' && title.length <= 16);
 
   return (
     <View style={[styles.container, style]}>
@@ -59,7 +63,7 @@ export default function Header({
             style={styles.backBtn}
             hitSlop={12}
           >
-            <Text style={styles.backIcon}>←</Text>
+            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
           </Pressable>
         )}
       </View>
@@ -71,7 +75,11 @@ export default function Header({
         )}
         {title && (
           <Text
-            style={[styles.title, color ? { color } : {}]}
+            style={[
+              styles.title,
+              useDisplayTitle ? styles.titleDisplay : styles.titleDefault,
+              color ? { color } : {},
+            ]}
             numberOfLines={1}
           >
             {title}
@@ -95,57 +103,66 @@ export default function Header({
 const styles = StyleSheet.create({
   container: {
     flexDirection:  'row',
-    alignItems:     'center',
-    height:         56,
-    paddingHorizontal: Spacing[1],
+    alignItems:     'flex-end',
+    minHeight:      ComponentHeight.header + 14,
+    paddingHorizontal: Spacing[5],
+    paddingBottom:  Spacing[3],
   },
   side: {
-    width:          56,
+    minWidth:       48,
+    flexBasis:      48,
     alignItems:     'flex-start',
     justifyContent: 'center',
   },
   sideRight: {
     alignItems: 'flex-end',
+    maxWidth: 120,
+    flexShrink: 1,
   },
   backBtn: {
-    width:           40,
-    height:          40,
-    borderRadius:    20,
+    width:           42,
+    height:          42,
+    borderRadius:    Radius.full,
     backgroundColor: Colors.bgElevated,
     alignItems:      'center',
     justifyContent:  'center',
     borderWidth:     1,
-    borderColor:     Colors.border,
-  },
-  backIcon: {
-    fontSize:   FontSize.lg,
-    color:      Colors.textPrimary,
-    lineHeight: FontSize.lg * 1.2,
+    borderColor:     'rgba(255,255,255,0.08)',
   },
   titleContainer: {
     flex:    1,
-    paddingHorizontal: Spacing[2],
+    paddingHorizontal: Spacing[3],
+    gap: 2,
   },
   titleCenter: {
     alignItems: 'center',
   },
   title: {
-    fontFamily: FontFamily.bold,
-    fontSize:   FontSize.xl,
     color:      Colors.textPrimary,
+  },
+  titleDisplay: {
+    fontFamily: FontFamily.display,
+    fontSize: 30,
+    lineHeight: 30,
+    letterSpacing: 1.8,
+  },
+  titleDefault: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
+    lineHeight: 28,
   },
   subtitle: {
     fontFamily: FontFamily.regular,
-    fontSize:   FontSize.sm,
+    fontSize:   FontSize.xs,
     color:      Colors.textSecondary,
     marginTop:  1,
   },
   eyebrow: {
     fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
+    fontSize: 10,
     color: Colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1.2,
     marginBottom: 2,
   },
 });

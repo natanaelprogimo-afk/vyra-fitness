@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -47,19 +47,19 @@ const styles = StyleSheet.create({
     marginBottom: Spacing[3],
   },
   row: {
-    gap: Spacing[1.5],
+    gap: Spacing[2],
     paddingHorizontal: Spacing[5],
     paddingBottom: 4,
   },
   pill: {
-    minHeight: 40,
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[1.5],
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: withOpacity(Colors.surface2, 0.78),
+    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
     paddingHorizontal: Spacing[3.5],
     paddingVertical: Spacing[1.75],
   },

@@ -1,8 +1,3 @@
-// ============================================================
-// VYRA FITNESS — Input
-// Campo de texto con label, error, ícono, tipo seguro y multiline
-// ============================================================
-
 import React, { useState } from 'react';
 import {
   View,
@@ -13,25 +8,20 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated';
-import { Colors } from '@/constants/colors';
+import { Colors, withOpacity } from '@/constants/colors';
 import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
-  label?:       string;
-  error?:       string | null;
-  hint?:        string;
-  iconLeft?:    React.ReactNode;
-  iconRight?:   React.ReactNode;
-  onPressRight?:() => void;
-  style?:       ViewStyle | ViewStyle[];
-  inputStyle?:  object;
-  disabled?:    boolean;
-  unit?:        string;             // ej: "kg", "ml", "kcal"
+  label?: string;
+  error?: string | null;
+  hint?: string;
+  iconLeft?: React.ReactNode;
+  iconRight?: React.ReactNode;
+  onPressRight?: () => void;
+  style?: ViewStyle | ViewStyle[];
+  inputStyle?: object;
+  disabled?: boolean;
+  unit?: string;
 }
 
 export default function Input({
@@ -48,75 +38,57 @@ export default function Input({
   secureTextEntry,
   ...props
 }: InputProps) {
-  const [isFocused, setIsFocused]   = useState(false);
-  const [isSecure, setIsSecure]     = useState(secureTextEntry ?? false);
-  const borderAnim = useSharedValue(0);
-
-  const animBorder = useAnimatedStyle(() => ({
-    borderColor: withTiming(
-      isFocused
-        ? Colors.brand
-        : error
-        ? Colors.error
-        : Colors.border,
-      { duration: 180 }
-    ),
-  }));
-
-  const handleFocus = () => {
-    setIsFocused(true);
-    borderAnim.value = 1;
-    props.onFocus?.({} as never);
-  };
-
-  const handleBlur = () => {
-    setIsFocused(false);
-    borderAnim.value = 0;
-    props.onBlur?.({} as never);
-  };
+  const [isFocused, setIsFocused] = useState(false);
+  const [isSecure, setIsSecure] = useState(secureTextEntry ?? false);
+  const borderColor = isFocused ? Colors.action : error ? Colors.error : Colors.bgOverlay;
 
   return (
     <View style={[styles.wrapper, style]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label ? <Text style={styles.label}>{label}</Text> : null}
 
-      <Animated.View style={[styles.container, animBorder, error && styles.errorBorder, disabled && styles.disabled]}>
-        {iconLeft && <View style={styles.iconLeft}>{iconLeft}</View>}
+      <View style={[styles.container, { borderColor }, disabled && styles.disabled]}>
+        {iconLeft ? <View style={styles.iconLeft}>{iconLeft}</View> : null}
 
         <TextInput
           {...props}
-          style={[styles.input, iconLeft ? styles.inputWithIconLeft : null, unit ? styles.inputWithUnit : null, inputStyle]}
+          style={[
+            styles.input,
+            iconLeft ? styles.inputWithIconLeft : null,
+            unit ? styles.inputWithUnit : null,
+            inputStyle,
+          ]}
           placeholderTextColor={Colors.textMuted}
-          selectionColor={Colors.brand}
-          cursorColor={Colors.brand}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
+          selectionColor={Colors.action}
+          cursorColor={Colors.action}
+          onFocus={(event) => {
+            setIsFocused(true);
+            props.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setIsFocused(false);
+            props.onBlur?.(event);
+          }}
           editable={!disabled}
           secureTextEntry={isSecure}
         />
 
-        {unit && (
-          <Text style={styles.unit}>{unit}</Text>
-        )}
+        {unit ? <Text style={styles.unit}>{unit}</Text> : null}
 
-        {secureTextEntry && (
-          <Pressable onPress={() => setIsSecure(!isSecure)} style={styles.iconRight}>
+        {secureTextEntry ? (
+          <Pressable onPress={() => setIsSecure((value) => !value)} style={styles.iconRight}>
             <Text style={styles.secureToggle}>{isSecure ? '👁️' : '🙈'}</Text>
           </Pressable>
-        )}
+        ) : null}
 
-        {iconRight && !secureTextEntry && (
-          <Pressable
-            onPress={onPressRight}
-            style={styles.iconRight}
-            disabled={!onPressRight}
-          >
+        {iconRight && !secureTextEntry ? (
+          <Pressable onPress={onPressRight} style={styles.iconRight} disabled={!onPressRight}>
             {iconRight}
           </Pressable>
-        )}
-      </Animated.View>
+        ) : null}
+      </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
-      {hint && !error && <Text style={styles.hint}>{hint}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {hint && !error ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
 }
@@ -126,27 +98,28 @@ const styles = StyleSheet.create({
     marginBottom: Spacing[3],
   },
   label: {
-    fontFamily:   FontFamily.medium,
-    fontSize:     FontSize.sm,
-    color:        Colors.textSecondary,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
     marginBottom: Spacing[1.5],
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
   },
   container: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    backgroundColor: Colors.bgSurface,
-    borderRadius:    Radius.lg,
-    borderWidth:     1.5,
-    borderColor:     Colors.border,
-    height:          52,
-    paddingHorizontal: Spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    minHeight: 56,
+    paddingHorizontal: Spacing[5],
   },
   input: {
-    flex:         1,
-    fontFamily:   FontFamily.regular,
-    fontSize:     FontSize.base,
-    color:        Colors.textPrimary,
-    height:       '100%',
+    flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: 18,
+    color: Colors.textPrimary,
+    height: '100%',
   },
   inputWithIconLeft: {
     marginLeft: Spacing[2],
@@ -162,30 +135,27 @@ const styles = StyleSheet.create({
   },
   unit: {
     fontFamily: FontFamily.medium,
-    fontSize:   FontSize.sm,
-    color:      Colors.textMuted,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
   },
   secureToggle: {
     fontSize: FontSize.base,
-  },
-  errorBorder: {
-    borderColor: Colors.error,
   },
   disabled: {
     opacity: 0.5,
   },
   error: {
-    fontFamily:  FontFamily.regular,
-    fontSize:    FontSize.xs,
-    color:       Colors.error,
-    marginTop:   Spacing[1],
-    marginLeft:  Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.error,
+    marginTop: Spacing[1],
+    marginLeft: Spacing[1],
   },
   hint: {
-    fontFamily:  FontFamily.regular,
-    fontSize:    FontSize.xs,
-    color:       Colors.textMuted,
-    marginTop:   Spacing[1],
-    marginLeft:  Spacing[1],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: Spacing[1],
+    marginLeft: Spacing[1],
   },
 });

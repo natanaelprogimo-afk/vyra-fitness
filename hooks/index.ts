@@ -21,21 +21,15 @@ export { useMental } from './useMental';
 export { useFemaleHealth } from './useFemaleHealth';
 export { useSupplements } from './useSupplements';
 
-// Dashboard & Gamification
+// Dashboard
 export { useDashboard } from './useDashboard';
 export { useReadiness } from './useReadiness';
-export { useCoins } from './useCoins';
-export { useBadges } from './useBadges';
-export { useModuleRewards } from './useModuleRewards';
-export { useFirstWeek } from './useFirstWeek';
 
-// AI & Coach
+// AI
 export { useAI } from './useAI';
-export { useCoach } from './useCoach';
 
-// Premium & Ads
+// Premium
 export { usePremium } from './usePremium';
-export { useAds } from './useAds';
 
 // System
 export { useNotifications } from './useNotifications';

@@ -49,9 +49,9 @@ export function getFastingProtocolMeta(protocolId?: string | null) {
   const protocol = PROTOCOLS[protocolId ?? '16:8'] ?? PROTOCOLS['16:8'];
   const intensity =
     protocol.targetHours >= 24
-      ? 'Avanzado'
+      ?  'Avanzado'
       : protocol.targetHours >= 18
-        ? 'Intermedio'
+        ?  'Intermedio'
         : 'Base';
   return {
     id: protocolId ?? '16:8',

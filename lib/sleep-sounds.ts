@@ -19,9 +19,9 @@ function getBaseUrl(): string {
   const extraUrl = (Constants.expoConfig?.extra as Record<string, unknown> | undefined)?.sleepSoundsBaseUrl;
   const raw =
     typeof envUrl === 'string' && envUrl.trim().length > 0
-      ? envUrl
+      ?  envUrl
       : typeof extraUrl === 'string'
-        ? extraUrl
+        ?  extraUrl
         : '';
   return raw.replace(/\/+$/, '');
 }

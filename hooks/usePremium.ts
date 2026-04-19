@@ -193,11 +193,10 @@ export function usePremium() {
           filter: `id=eq.${profile.id}`,
         },
         (payload) => {
-          const nextPremium = Boolean((payload.new as any)?.is_premium);
-          const nextExpiresAt =
-            typeof (payload.new as any)?.premium_expires_at === 'string'
-              ? (payload.new as any).premium_expires_at
-              : null;
+          const nextRow =
+            payload.new && typeof payload.new === 'object' ? (payload.new as Record<string, unknown>) : {};
+          const nextPremium = nextRow.is_premium === true;
+          const nextExpiresAt = typeof nextRow.premium_expires_at === 'string' ? nextRow.premium_expires_at : null;
           setIsPremium(nextPremium);
           updateProfile({
             is_premium: nextPremium,

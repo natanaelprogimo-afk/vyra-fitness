@@ -21,4 +21,5 @@ export default function BackendHealthGate({ children }: BackendHealthGateProps) 
   }
 
   return <>{children}</>;
-}
+}
+

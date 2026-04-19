@@ -5,7 +5,7 @@
 // Calcula hidratación equivalente según tipo de bebida.
 // ============================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -16,27 +16,16 @@ import initSyncService from '@/services/sync';
 import { captureError } from '@/lib/sentry';
 import { todayISO } from '@/utils/dates';
 import { calculateHydrationEquivalent } from '@/utils/calculations';
-import { addCoins } from '@/services/supabase/profiles';
 import { trackLogCreated } from '@/lib/analytics';
 import type { WaterLog, DrinkTypeId } from '@/types/modules';
 import { ErrorMessages } from '@/constants/strings';
 import { DRINK_TYPES } from '@/constants/modules';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
 
-const FIRST_WATER_REWARD_DESC = 'Primer log de agua del dia';
-
 interface HydrationGoalAdjustment {
   source: 'steps' | 'fasting' | 'female_phase';
   delta: number;
   reason: string;
-}
-
-interface HydrationSleepCorrelation {
-  highHydrationAvgSleep: number | null;
-  lowHydrationAvgSleep: number | null;
-  sampleHigh: number;
-  sampleLow: number;
-  insight: string | null;
 }
 
 interface HydrationStreakInfo {
@@ -50,19 +39,15 @@ interface BeverageCompositionItem {
   hydrationMl: number;
 }
 
-function isoDay(value: string): string {
-  return value.split('T')[0] ?? value;
+interface WaterHourlyBucket {
+  label: string;
+  totalMl: number;
 }
 
 function addDays(day: string, amount: number): string {
   const date = new Date(`${day}T00:00:00`);
   date.setDate(date.getDate() + amount);
   return date.toISOString().split('T')[0] ?? day;
-}
-
-function average(values: number[]): number | null {
-  if (!values.length) return null;
-  return Math.round((values.reduce((sum, item) => sum + item, 0) / values.length) * 10) / 10;
 }
 
 function computeHydrationStreak(
@@ -95,66 +80,6 @@ function computeHydrationStreak(
   };
 }
 
-function computeHydrationSleepCorrelation(
-  waterRows: Array<{ logged_at: string; hydration_equivalent_ml: number }>,
-  sleepRows: Array<{ end_time: string; quality_score: number }>,
-): HydrationSleepCorrelation {
-  if (!waterRows.length || !sleepRows.length) {
-    return {
-      highHydrationAvgSleep: null,
-      lowHydrationAvgSleep: null,
-      sampleHigh: 0,
-      sampleLow: 0,
-      insight: null,
-    };
-  }
-
-  const hydrationByDay = new Map<string, number>();
-  for (const row of waterRows) {
-    const day = isoDay(row.logged_at);
-    hydrationByDay.set(day, (hydrationByDay.get(day) ?? 0) + (row.hydration_equivalent_ml ?? 0));
-  }
-
-  const highScores: number[] = [];
-  const lowScores: number[] = [];
-
-  for (const sleep of sleepRows) {
-    const sleepDay = isoDay(sleep.end_time);
-    const hydrationDay = addDays(sleepDay, -1);
-    const hydration = hydrationByDay.get(hydrationDay);
-    if (hydration === undefined) continue;
-
-    if (hydration >= 2000) {
-      highScores.push(sleep.quality_score);
-    } else if (hydration < 1500) {
-      lowScores.push(sleep.quality_score);
-    }
-  }
-
-  const highAvg = average(highScores);
-  const lowAvg = average(lowScores);
-
-  let insight: string | null = null;
-  if (highAvg !== null && lowAvg !== null && highScores.length >= 2 && lowScores.length >= 2) {
-    const diff = Math.round((highAvg - lowAvg) * 10) / 10;
-    if (diff > 0.8) {
-      insight = `En tus dias con 2L+ de hidratacion, tu sueno promedio sube a ${highAvg}/100 (vs ${lowAvg}/100).`;
-    } else if (diff < -0.8) {
-      insight = `No se ve mejora de sueno con hidratacion alta por ahora (${highAvg}/100 vs ${lowAvg}/100).`;
-    } else {
-      insight = `Tu sueno se mantiene parecido con hidratacion alta o baja (${highAvg}/100 vs ${lowAvg}/100).`;
-    }
-  }
-
-  return {
-    highHydrationAvgSleep: highAvg,
-    lowHydrationAvgSleep: lowAvg,
-    sampleHigh: highScores.length,
-    sampleLow: lowScores.length,
-    insight,
-  };
-}
-
 function computeBeverageComposition(
   rows: Array<{ drink_type: string; amount_ml: number; hydration_equivalent_ml: number; logged_at: string }>,
 ): BeverageCompositionItem[] {
@@ -181,6 +106,35 @@ function computeBeverageComposition(
   return [...map.values()].sort((a, b) => b.hydrationMl - a.hydrationMl);
 }
 
+function buildHourlyDistribution(
+  rows: Array<{ logged_at: string; hydration_equivalent_ml: number }>,
+): { buckets: WaterHourlyBucket[]; valley: WaterHourlyBucket | null } {
+  const buckets = Array.from({ length: 9 }, (_, index) => {
+    const start = 6 + index * 2;
+    const end = start + 2;
+    return {
+      label: `${String(start).padStart(2, '0')}-${String(end).padStart(2, '0')}`,
+      totalMl: 0,
+    };
+  });
+
+  for (const row of rows) {
+    const date = new Date(row.logged_at);
+    const hour = date.getHours();
+    const bucketIndex = Math.floor((hour - 6) / 2);
+    if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+      buckets[bucketIndex]!.totalMl += row.hydration_equivalent_ml ?? 0;
+    }
+  }
+
+  const nonZero = buckets.filter((bucket) => bucket.totalMl > 0);
+  const valley = nonZero.length
+    ? nonZero.reduce((lowest, bucket) => (bucket.totalMl < lowest.totalMl ? bucket : lowest), nonZero[0]!)
+    : null;
+
+  return { buckets, valley };
+}
+
 // Metas de alerta por rango horario
 function getHydrationAlert(current: number, goal: number, hour: number): string | null {
   const pct = current / goal;
@@ -194,7 +148,6 @@ export function useWater() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore((s) => s.profile);
   const showToast   = useUIStore((s) => s.showToast);
-  const showAchievement = useUIStore((s) => s.showAchievement);
   const isOnline    = useUIStore((s) => s.isOnline);
   const userId      = profile?.id ?? '';
   const baseGoal    = profile?.water_goal_ml ?? 2500;
@@ -358,6 +311,13 @@ export function useWater() {
         deleted:                 false,
       };
 
+      const remotePayload = {
+        amount_ml: amountMl,
+        drink_type: drinkType,
+        hydration_equivalent_ml: hydrationEquivalent,
+        logged_at: new Date(loggedAt).toISOString(),
+      };
+
       if (isOnline) {
         // Escribir directo a Supabase
         const { data, error } = await supabase
@@ -376,7 +336,7 @@ export function useWater() {
         return data.id;
       } else {
         // Offline: escribir local + encolar sync (writeLocalAndSync usa DB y cola)
-        const localId = await writeLocalAndSync('water_logs', payload, userId);
+        const localId = await writeLocalAndSync('water_logs', payload, userId, remotePayload);
         return localId;
       }
     },
@@ -388,40 +348,12 @@ export function useWater() {
 
       const hydro = calculateHydrationEquivalent(amountMl, drinkType);
       const newTotal = totalHydro + hydro;
-      const isFirstLogToday = logs.length === 0;
-
       // Feedback positivo
       const drink = DRINK_TYPES[drinkType];
       showToast(`+${amountMl}ml ${drink?.emoji ?? '💧'} — ${Math.round(newTotal)}/${goal}ml`, 'success');
 
-      if (isFirstLogToday) {
-        const { count } = await supabase
-          .from('coin_transactions')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', userId)
-          .eq('type', 'water_log')
-          .eq('description', FIRST_WATER_REWARD_DESC);
-
-        if ((count ?? 0) === 0) {
-          const rewarded = await addCoins(userId, 20, 'water_log', FIRST_WATER_REWARD_DESC);
-          if (rewarded !== null) {
-            showAchievement({
-              type: 'streak',
-              title: 'Primer paso',
-              subtitle: 'Ya sumaste 20 monedas por arrancar tu dia con agua.',
-              coins: 20,
-              xp: 0,
-            });
-          }
-        }
-      }
-
-      // Coins por primera vez que alcanza la meta del día
       if (totalHydro < goal && newTotal >= goal) {
-        const newBalance = await addCoins(userId, 10, 'hydration_goal', 'Meta de hidratación del día');
-        if (newBalance !== null) {
-          showToast('¡Meta de hidratación! +10 🪙', 'coins');
-        }
+        showToast('¡Meta de hidratación alcanzada!', 'success');
       }
 
       trackLogCreated('water', 'manual', Date.now());
@@ -488,34 +420,15 @@ export function useWater() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: sleepRowsForCorrelation = [] } = useQuery({
-    queryKey: ['water_sleep_correlation', userId],
-    queryFn: async () => {
-      if (!userId || !isOnline) return [];
-      const from = new Date();
-      from.setDate(from.getDate() - 30);
-      const { data } = await supabase
-        .from('sleep_logs')
-        .select('end_time, quality_score')
-        .eq('user_id', userId)
-        .gte('end_time', from.toISOString())
-        .order('end_time', { ascending: true });
-      return data ?? [];
-    },
-    enabled: !!userId && isOnline,
-    staleTime: 10 * 60 * 1000,
-  });
-
   // Agrupar historial por día para el gráfico
   const weeklyData = groupByDay(history, 7);
   const monthData = groupByDay(history, 30);
   const hydrationStreak = computeHydrationStreak(monthData, baseGoal);
-  const hydrationSleepCorrelation = computeHydrationSleepCorrelation(
-    history as Array<{ logged_at: string; hydration_equivalent_ml: number }>,
-    sleepRowsForCorrelation as Array<{ end_time: string; quality_score: number }>,
-  );
   const beverageComposition = computeBeverageComposition(
     history as Array<{ drink_type: string; amount_ml: number; hydration_equivalent_ml: number; logged_at: string }>,
+  );
+  const hourlyDistribution = buildHourlyDistribution(
+    history as Array<{ logged_at: string; hydration_equivalent_ml: number }>,
   );
 
   const morningContext = (() => {
@@ -562,8 +475,8 @@ export function useWater() {
     hydrationAlert,
     morningContext,
     hydrationStreak,
-    hydrationSleepCorrelation,
     beverageComposition,
+    hourlyDistribution,
     weeklyData,
     history,
     isLoading,

@@ -1,326 +1,291 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
-import Svg, { Polyline, Circle, Line, Text as SvgText } from 'react-native-svg';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
-import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import ProgressBar from '@/components/ui/ProgressBar';
-import PremiumLock from '@/components/ui/PremiumLock';
-import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
-import { useReadiness, ScoreHistory } from '@/hooks/useReadiness';
-import { useBadges } from '@/hooks/useBadges';
+import WeightTrendChart from '@/components/progress/WeightTrendChart';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
+import { useWeight } from '@/hooks/useWeight';
+import { useWorkout } from '@/hooks/useWorkout';
+import { getProfileContextMemory } from '@/lib/profile-context';
+import { buildWeightTrendPoints } from '@/lib/progress-insights';
+import type { WorkoutSessionDetail } from '@/lib/workout-types';
 
-type Period = '7' | '30' | '90';
+function buildConsistencyGrid(history: Array<{ started_at: string }>) {
+  const activeDays = new Set(history.map((entry) => entry.started_at.slice(0, 10)));
+  const entries = Array.from({ length: 56 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (55 - index));
+    const iso = date.toISOString().slice(0, 10);
+    return {
+      iso,
+      active: activeDays.has(iso),
+      isToday: index === 55,
+    };
+  });
 
-// Gráfico de línea de scores históricos
-function ScoreLineChart({
-  data,
-  period,
-}: {
-  data:   ScoreHistory[];
-  period: Period;
-}) {
-  const W = 340;
-  const H = 120;
-  const PAD = { top: 16, bottom: 24, left: 8, right: 8 };
-
-  if (!data || data.length < 2) {
-    return (
-      <View style={chartStyles.empty}>
-        <Text style={chartStyles.emptyText}>
-          Registrá actividad en los módulos para ver tu gráfico aquí.
-        </Text>
-      </View>
-    );
-  }
-
-  const sorted = [...data].reverse(); // cronológico
-  const scores = sorted.map((d) => d.total_score);
-  const minS = Math.min(...scores, 0);
-  const maxS = Math.max(...scores, 100);
-  const range = maxS - minS || 1;
-
-  const toX = (i: number) =>
-    PAD.left + (i / (sorted.length - 1)) * (W - PAD.left - PAD.right);
-  const toY = (v: number) =>
-    PAD.top + (1 - (v - minS) / range) * (H - PAD.top - PAD.bottom);
-
-  const points = sorted.map((d, i) => `${toX(i)},${toY(d.total_score)}`).join(' ');
-  const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-
-  // Labels de fechas: primero, medio, último
-  const labelIdxs = [0, Math.floor(sorted.length / 2), sorted.length - 1];
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return `${d.getDate()}/${d.getMonth() + 1}`;
-  };
-
-  return (
-    <View>
-      <Svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={chartStyles.svg}>
-        {/* Línea del promedio */}
-        <Line
-          x1={PAD.left}
-          y1={toY(avg)}
-          x2={W - PAD.right}
-          y2={toY(avg)}
-          stroke={Colors.textMuted}
-          strokeWidth={1}
-          strokeDasharray="4 4"
-        />
-        {/* Línea de datos */}
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={Colors.brand}
-          strokeWidth={2.5}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        {/* Puntos */}
-        {sorted.map((d, i) => (
-          <Circle
-            key={i}
-            cx={toX(i)}
-            cy={toY(d.total_score)}
-            r={3}
-            fill={d.total_score >= 80 ? Colors.success : d.total_score >= 60 ? Colors.warning : Colors.error}
-          />
-        ))}
-        {/* Etiquetas de fecha */}
-        {labelIdxs.map((idx) => (
-          sorted[idx] && (
-            <SvgText
-              key={idx}
-              x={toX(idx)}
-              y={H - 4}
-              fontSize={10}
-              fill={Colors.textMuted}
-              textAnchor="middle"
-            >
-              {formatDate(sorted[idx].date)}
-            </SvgText>
-          )
-        ))}
-      </Svg>
-      <Text style={chartStyles.avgLabel}>Promedio: {avg} pts</Text>
-    </View>
-  );
+  return Array.from({ length: 8 }, (_, weekIndex) => ({
+    label: `S${weekIndex + 1}`,
+    days: entries.slice(weekIndex * 7, weekIndex * 7 + 7),
+  }));
 }
 
-const chartStyles = StyleSheet.create({
-  svg: { alignSelf: 'center' },
-  avgLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-    textAlign: 'right',
-    marginTop: 4,
-  },
-  empty: {
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontFamily: FontFamily.regular,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textAlign: 'center',
-  },
-});
+function withinRange(iso: string, days: number) {
+  const date = new Date(iso);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days + 1);
+  cutoff.setHours(0, 0, 0, 0);
+  return date.getTime() >= cutoff.getTime();
+}
+
+function humanizeDate(iso: string) {
+  const dayDiff = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (dayDiff <= 0) return 'Hoy';
+  if (dayDiff === 1) return 'Ayer';
+  return `Hace ${dayDiff} dias`;
+}
+
+function buildExerciseProgress(
+  history: Array<{ id: string; started_at: string }>,
+  getSessionDetail: (sessionId: string) => WorkoutSessionDetail | null,
+) {
+  const now = Date.now();
+  const last30 = now - 30 * 24 * 60 * 60 * 1000;
+  const prev30 = now - 60 * 24 * 60 * 60 * 1000;
+
+  const map = new Map<
+    string,
+    {
+      exerciseId: string;
+      exerciseName: string;
+      recentVolume: number;
+      previousVolume: number;
+      bestWeight: number;
+      uses: number;
+    }
+  >();
+
+  for (const session of history) {
+    const detail = getSessionDetail(session.id);
+    if (!detail) continue;
+    const sessionMs = new Date(session.started_at).getTime();
+
+    for (const set of detail.sets) {
+      const current = map.get(set.exercise_id) ?? {
+        exerciseId: set.exercise_id,
+        exerciseName: set.exercise_name,
+        recentVolume: 0,
+        previousVolume: 0,
+        bestWeight: 0,
+        uses: 0,
+      };
+
+      const setVolume = Number(set.weight_kg ?? 0) * Number(set.reps ?? 0);
+      if (sessionMs >= last30) current.recentVolume += setVolume;
+      if (sessionMs >= prev30 && sessionMs < last30) current.previousVolume += setVolume;
+      current.bestWeight = Math.max(current.bestWeight, Number(set.weight_kg ?? 0));
+      current.uses += 1;
+      map.set(set.exercise_id, current);
+    }
+  }
+
+  return [...map.values()]
+    .map((item) => {
+      const trendPct =
+        item.previousVolume > 0
+          ? Math.round(((item.recentVolume - item.previousVolume) / item.previousVolume) * 100)
+          : item.recentVolume > 0
+            ? 100
+            : 0;
+      return { ...item, trendPct };
+    })
+    .sort((left, right) => right.uses - left.uses || right.bestWeight - left.bestWeight)
+    .slice(0, 5);
+}
 
 export default function ProgressScreen() {
-  const { profile } = useAuthStore();
-  const {
-    dailyScore,
-    history,
-    loading,
-    refreshing,
-    refresh,
-    scoreColor,
-    calculate,
-  } = useReadiness();
-  const { getProgress, unlockedBadges, allBadges } = useBadges();
+  const [range, setRange] = useState<7 | 30 | 90>(30);
+  const profile = useAuthStore((state) => state.profile);
+  const { history, getConsistencyStats, getSessionDetail } = useWorkout();
+  const { logs, stats } = useWeight();
 
-  const [period, setPeriod] = useState<Period>('7');
-
-  // Filtrar historial por período
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - parseInt(period));
-  const filteredHistory = history.filter(
-    (h) => new Date(h.date) >= cutoff,
+  const sessionsInRange = useMemo(
+    () => history.filter((entry) => withinRange(entry.started_at, range)),
+    [history, range],
   );
-
-  // Calcular tendencia (últimos 7 vs previos 7)
-  const last7  = history.slice(0, 7).map((h) => h.total_score);
-  const prev7  = history.slice(7, 14).map((h) => h.total_score);
-  const avg7   = last7.length  ? Math.round(last7.reduce((a, b) => a + b, 0)  / last7.length)  : 0;
-  const avgP7  = prev7.length  ? Math.round(prev7.reduce((a, b) => a + b, 0)  / prev7.length)  : 0;
-  const delta  = avg7 - avgP7;
-
-  const badgeProgress = getProgress();
-  const recentBadges  = unlockedBadges.slice(0, 3);
-
-  // Score de hoy por módulo
-  const breakdown = dailyScore?.breakdown;
-  const moduleRows = breakdown
-    ? [
-        { label: '💧 Agua',      value: breakdown.hydration, color: Colors.water },
-        { label: '🚶 Actividad', value: breakdown.activity,  color: Colors.steps },
-        { label: '😴 Sueño',     value: breakdown.sleep,     color: Colors.sleep },
-        { label: '🍎 Nutrición', value: breakdown.nutrition, color: Colors.nutrition },
-        { label: '🧠 Mental',    value: breakdown.mental,    color: Colors.mental },
-      ]
-    : [];
+  const totalVolume = sessionsInRange.reduce((sum, entry) => sum + Number(entry.total_volume_kg ?? 0), 0);
+  const totalMinutes = sessionsInRange.reduce((sum, entry) => sum + Number(entry.duration_min ?? 0), 0);
+  const weeklyAverage =
+    range > 0 ? (sessionsInRange.length / Math.max(1, Math.round(range / 7))).toFixed(1) : '0';
+  const consistencyRows = useMemo(() => buildConsistencyGrid(history), [history]);
+  const weightPoints = useMemo(() => buildWeightTrendPoints(logs, '30d'), [logs]);
+  const consistencyStats = getConsistencyStats();
+  const currentStreak = Number(profile?.current_streak ?? profile?.streak ?? consistencyStats.currentStreak ?? 0);
+  const bestStreak = Number(profile?.best_streak ?? profile?.longest_streak ?? currentStreak ?? 0);
+  const contextMemory = getProfileContextMemory(profile);
+  const freezeCount =
+    typeof profile?.streak_freeze_count === 'number'
+      ? profile.streak_freeze_count
+      : typeof contextMemory.streak_freeze_count === 'number'
+        ? Number(contextMemory.streak_freeze_count)
+        : Math.max(0, Math.floor(currentStreak / 7));
+  const exerciseProgress = useMemo(
+    () => buildExerciseProgress(history, getSessionDetail),
+    [getSessionDetail, history],
+  );
 
   return (
     <SafeScreen padHorizontal={false} padBottom={false}>
-      <Header title="Progreso" color={Colors.brand} />
-
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={Colors.brand}
-            colors={[Colors.brand]}
-          />
-        }
-      >
-        {/* Score del día - resumen */}
-        <Card style={styles.todayCard}>
-          <View style={styles.todayHeader}>
-            <View>
-              <Text style={styles.todayLabel}>Score de hoy</Text>
-              <Text style={[styles.todayScore, { color: scoreColor(dailyScore?.score ?? 0) }]}>
-                {dailyScore?.score ?? '—'}
-              </Text>
-            </View>
-            {delta !== 0 && (
-              <View style={styles.trend}>
-                <Text style={[styles.trendArrow, { color: delta > 0 ? Colors.success : Colors.error }]}>
-                  {delta > 0 ? '↑' : '↓'}
-                </Text>
-                <Text style={[styles.trendValue, { color: delta > 0 ? Colors.success : Colors.error }]}>
-                  {Math.abs(delta)} pts
-                </Text>
-                <Text style={styles.trendLabel}>vs sem. anterior</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Breakdown por módulo */}
-          {moduleRows.map((row, i) => (
-            <View key={i} style={styles.moduleRow}>
-              <Text style={styles.moduleLabel}>{row.label}</Text>
-              <ProgressBar value={row.value} color={row.color} height={6} style={styles.moduleBar} />
-              <Text style={[styles.moduleValue, { color: row.color }]}>{row.value}</Text>
-            </View>
-          ))}
-
-          {!breakdown && !loading && (
-            <Text style={styles.noBreakdown}>
-              Completá actividad en los módulos para ver el detalle.
-            </Text>
-          )}
-        </Card>
-
-        {/* Gráfico de historial */}
-        <Card>
-          <View style={styles.chartHeader}>
-            <Text style={styles.sectionTitle}>Historial de readiness</Text>
-            <View style={styles.periodRow}>
-              {(['7', '30', '90'] as Period[]).map((p) => (
-                <TouchableOpacity
-                  key={p}
-                  style={[
-                    styles.periodPill,
-                    period === p && styles.periodPillActive,
-                  ]}
-                  onPress={() => { setPeriod(p); refresh(); }}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Tu progreso</Text>
+          <View style={styles.rangeRow}>
+            {[7, 30, 90].map((value) => {
+              const active = range === value;
+              return (
+                <Pressable
+                  key={value}
+                  onPress={() => setRange(value as 7 | 30 | 90)}
+                  style={[styles.rangePill, active && styles.rangePillActive]}
                 >
-                  <Text style={[
-                    styles.periodText,
-                    period === p && styles.periodTextActive,
-                  ]}>
-                    {p}d
+                  <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
+                    {value}D
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                </Pressable>
+              );
+            })}
           </View>
-          <ScoreLineChart data={filteredHistory} period={period} />
+        </View>
+
+        <Card style={styles.streakCard} shadow={false}>
+          <Text style={styles.streakLabel}>Racha actual</Text>
+          <Text style={[styles.streakValue, currentStreak === 0 && styles.streakValueMuted]}>
+            {currentStreak}
+          </Text>
+          <Text style={styles.streakBody}>dias consecutivos</Text>
+          <Text style={styles.streakMeta}>Mejor racha: {bestStreak} dias</Text>
+          <Text style={styles.streakMeta}>
+            {freezeCount > 0
+              ? `🛡️ ${freezeCount} streak freeze disponible`
+              : 'Sin freezes disponibles'}
+          </Text>
         </Card>
 
-        {/* Tendencias premium */}
-        <PremiumLock feature="correlaciones" trigger="progress_trends">
-          <Card>
-            <Text style={styles.sectionTitle}>Correlaciones avanzadas</Text>
-            <Text style={styles.correlationExample}>
-              Tus mejores días (score ≥80) coinciden con dormir &gt;7h y tomar &gt;2.5L de agua.
+        <View style={styles.statsGrid}>
+          <Card style={styles.statCard} shadow={false}>
+            <Text style={styles.statValue}>{sessionsInRange.length}</Text>
+            <Text style={styles.statLabel}>Sesiones</Text>
+          </Card>
+          <Card style={styles.statCard} shadow={false}>
+            <Text style={styles.statValue}>{Math.round(totalVolume).toLocaleString('es-UY')}</Text>
+            <Text style={styles.statLabel}>Volumen total kg</Text>
+          </Card>
+          <Card style={styles.statCard} shadow={false}>
+            <Text style={styles.statValue}>{Math.round(totalMinutes)}</Text>
+            <Text style={styles.statLabel}>Tiempo total min</Text>
+          </Card>
+          <Card style={styles.statCard} shadow={false}>
+            <Text style={styles.statValue}>{weeklyAverage}</Text>
+            <Text style={styles.statLabel}>Promedio/semana</Text>
+          </Card>
+        </View>
+
+        <Card style={styles.consistencyCard} shadow={false}>
+          <Text style={styles.sectionTitle}>Consistencia - 8 semanas</Text>
+          <View style={styles.consistencyRows}>
+            {consistencyRows.map((row) => (
+              <View key={row.label} style={styles.consistencyRow}>
+                <Text style={styles.weekLabel}>{row.label}</Text>
+                <View style={styles.consistencyDayRow}>
+                  {row.days.map((day) => (
+                    <View
+                      key={day.iso}
+                      style={[
+                        styles.consistencyDot,
+                        day.active && styles.consistencyDotActive,
+                        day.isToday && !day.active && styles.consistencyDotToday,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        </Card>
+
+        {weightPoints.length >= 2 ? (
+          <Card style={styles.weightCard} shadow={false}>
+            <View style={styles.weightHeader}>
+              <Text style={styles.sectionTitle}>Peso</Text>
+              <Pressable
+                style={styles.weightButton}
+                onPress={() => router.push(Routes.profile.index as never)}
+              >
+                <Text style={styles.weightButtonText}>+ Peso</Text>
+              </Pressable>
+            </View>
+            <WeightTrendChart data={weightPoints} />
+            <Text style={styles.weightHint}>
+              {stats.weeklyDelta === null
+                ? 'Aun sin tendencia'
+                : `${stats.weeklyDelta > 0 ? '+' : ''}${stats.weeklyDelta.toFixed(1)} kg este mes`}
             </Text>
           </Card>
-        </PremiumLock>
+        ) : null}
 
-        {/* Badges recientes */}
-        <Card>
-          <View style={styles.badgesHeader}>
-            <Text style={styles.sectionTitle}>Badges</Text>
-            <TouchableOpacity onPress={() => router.push('/gamification/badges' as any)}>
-              <Text style={styles.seeAll}>Ver todos →</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.badgeProgressRow}>
-            <ProgressBar value={badgeProgress.pct} color={Colors.coins} height={8} style={{ flex: 1 }} />
-            <Text style={styles.badgeProgressCount}>
-              {badgeProgress.unlocked}/{badgeProgress.total}
-            </Text>
-          </View>
-          {recentBadges.length > 0 ? (
-            <View style={styles.recentBadges}>
-              {recentBadges.map((ub) => {
-                const def = allBadges.find((b) => b.id === ub.badge_id);
-                if (!def) return null;
-                return (
-                  <View key={ub.badge_id} style={styles.recentBadge}>
-                    <Text style={styles.recentBadgeEmoji}>{def.emoji}</Text>
-                    <View>
-                      <Text style={styles.recentBadgeName}>{def.name}</Text>
-                      <Text style={styles.recentBadgeDate}>
-                        {new Date(ub.unlocked_at).toLocaleDateString('es-AR')}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
+        {exerciseProgress.length ? (
+          <Card style={styles.exerciseCard} shadow={false}>
+            <Text style={styles.sectionTitle}>Progreso por ejercicio</Text>
+            <View style={styles.exerciseList}>
+              {exerciseProgress.map((item, index) => (
+                <View key={item.exerciseId}>
+                  <Pressable
+                    style={styles.exerciseRow}
+                    onPress={() => router.push(Routes.workout.exercises as never)}
+                  >
+                    <Text style={styles.exerciseName}>{item.exerciseName}</Text>
+                    <Text style={styles.exerciseMeta}>
+                      {item.trendPct > 0 ? '↑' : item.trendPct < 0 ? '↓' : '→'}{' '}
+                      {Math.abs(item.trendPct)}% · Mejor: {Math.round(item.bestWeight)} kg
+                    </Text>
+                  </Pressable>
+                  {index < exerciseProgress.length - 1 ? <View style={styles.divider} /> : null}
+                </View>
+              ))}
             </View>
-          ) : (
-            <Text style={styles.noBreakdown}>Completá desafíos para desbloquear badges 🏆</Text>
-          )}
-        </Card>
+          </Card>
+        ) : null}
 
-        {/* Ir a la tienda */}
-        <TouchableOpacity
-          style={styles.storeBtn}
-          onPress={() => router.push('/store/shop' as any)}
-        >
-          <Text style={styles.storeBtnText}>🛒 Ir a la tienda de coins</Text>
-        </TouchableOpacity>
-
-        <View style={styles.bottomPad} />
+        <View style={styles.sessionsBlock}>
+          <Text style={styles.sectionTitle}>Ultimas sesiones</Text>
+          <View style={styles.sessionList}>
+            {history.slice(0, 8).map((session, index) => (
+              <View key={session.id}>
+                <Pressable
+                  style={styles.sessionRow}
+                  onPress={() =>
+                    router.push({
+                      pathname: Routes.workout.sessionDetail,
+                      params: { id: session.id },
+                    } as never)
+                  }
+                >
+                  <View style={styles.sessionCopy}>
+                    <Text style={styles.sessionTitle}>{session.name}</Text>
+                    <Text style={styles.sessionMeta}>
+                      {humanizeDate(session.started_at)} · {session.duration_min ?? 0} min ·{' '}
+                      {Math.round(session.total_volume_kg ?? 0).toLocaleString('es-UY')} kg
+                    </Text>
+                  </View>
+                </Pressable>
+                {index < Math.min(history.length, 8) - 1 ? <View style={styles.divider} /> : null}
+              </View>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </SafeScreen>
   );
@@ -329,151 +294,210 @@ export default function ProgressScreen() {
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
-    paddingTop: Spacing[4],
+    paddingTop: Spacing[5],
+    paddingBottom: 120,
     gap: Spacing[4],
   },
-  todayCard: { gap: Spacing[3] },
-  todayHeader: {
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    gap: Spacing[3],
   },
-  todayLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 14,
-    color: Colors.textSecondary,
-  },
-  todayScore: {
-    fontFamily: FontFamily.bold,
-    fontSize: 52,
-    lineHeight: 60,
-  },
-  trend: { alignItems: 'flex-end', gap: 2 },
-  trendArrow: {
+  title: {
     fontFamily: FontFamily.bold,
     fontSize: 28,
-    lineHeight: 32,
-  },
-  trendValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
-  },
-  trendLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  moduleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[2],
-  },
-  moduleLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    width: 100,
-  },
-  moduleBar: { flex: 1 },
-  moduleValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 12,
-    width: 28,
-    textAlign: 'right',
-  },
-  noBreakdown: {
-    fontFamily: FontFamily.regular,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    paddingVertical: Spacing[3],
-  },
-  sectionTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
     color: Colors.textPrimary,
   },
-  chartHeader: {
+  rangeRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing[3],
+    gap: Spacing[2],
   },
-  periodRow: {
-    flexDirection: 'row',
+  rangePill: {
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgSurface,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  rangePillActive: {
+    backgroundColor: Colors.bgElevated,
+    borderColor: Colors.actionBorder,
+  },
+  rangePillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  rangePillTextActive: {
+    color: Colors.action,
+  },
+  streakCard: {
+    borderTopWidth: 4,
+    borderTopColor: Colors.action,
     gap: Spacing[1],
   },
-  periodPill: {
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[1],
+  streakLabel: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  streakValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 72,
+    lineHeight: 72,
+    color: Colors.action,
+  },
+  streakValueMuted: {
+    color: Colors.textMuted,
+  },
+  streakBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  streakMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[3],
+  },
+  statCard: {
+    width: '47%',
+    gap: Spacing[1],
+  },
+  statValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
+    color: Colors.textPrimary,
+  },
+  statLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  consistencyCard: {
+    gap: Spacing[3],
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  consistencyRows: {
+    gap: 8,
+  },
+  consistencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  weekLabel: {
+    width: 20,
+    fontFamily: FontFamily.medium,
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  consistencyDayRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  consistencyDot: {
+    width: 12,
+    height: 12,
     borderRadius: Radius.full,
     backgroundColor: Colors.bgElevated,
   },
-  periodPillActive: { backgroundColor: Colors.brand },
-  periodText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
-    color: Colors.textMuted,
+  consistencyDotActive: {
+    backgroundColor: Colors.action,
   },
-  periodTextActive: { color: '#fff' },
-  correlationExample: {
-    fontFamily: FontFamily.regular,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginTop: Spacing[2],
+  consistencyDotToday: {
+    borderWidth: 1.5,
+    borderColor: Colors.action,
+    backgroundColor: 'transparent',
   },
-  badgesHeader: {
+  weightCard: {
+    gap: Spacing[3],
+  },
+  weightHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing[3],
+    gap: Spacing[3],
   },
-  seeAll: {
+  weightButton: {
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.action,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+  },
+  weightButtonText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.white,
+  },
+  weightHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  exerciseCard: {
+    gap: Spacing[3],
+  },
+  exerciseList: {
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+  },
+  exerciseRow: {
+    paddingVertical: Spacing[2.5],
+    gap: 4,
+  },
+  exerciseName: {
     fontFamily: FontFamily.medium,
-    fontSize: 14,
-    color: Colors.brand,
-  },
-  badgeProgressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[3],
-    marginBottom: Spacing[3],
-  },
-  badgeProgressCount: {
-    fontFamily: FontFamily.bold,
-    fontSize: 14,
-    color: Colors.coins,
-  },
-  recentBadges: { gap: Spacing[3] },
-  recentBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[3],
-  },
-  recentBadgeEmoji: { fontSize: 32 },
-  recentBadgeName: {
-    fontFamily: FontFamily.bold,
-    fontSize: 14,
+    fontSize: FontSize.base,
     color: Colors.textPrimary,
   },
-  recentBadgeDate: {
+  exerciseMeta: {
     fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
-  storeBtn: {
-    backgroundColor: `${Colors.coins}15`,
+  sessionsBlock: {
+    gap: Spacing[3],
+  },
+  sessionList: {
     borderRadius: Radius.xl,
-    padding: Spacing[4],
-    alignItems: 'center',
+    backgroundColor: Colors.bgSurface,
     borderWidth: 1,
-    borderColor: `${Colors.coins}40`,
+    borderColor: withOpacity(Colors.white, 0.08),
+    overflow: 'hidden',
   },
-  storeBtnText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
-    color: Colors.coins,
+  sessionRow: {
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[4],
   },
-  bottomPad: { height: 100 },
+  sessionCopy: {
+    gap: 2,
+  },
+  sessionTitle: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  sessionMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: withOpacity(Colors.white, 0.06),
+  },
 });

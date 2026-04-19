@@ -19,8 +19,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSpring,
-  runOnJS,
-  Easing,
 } from 'react-native-reanimated';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
@@ -206,7 +204,3 @@ const styles = StyleSheet.create({
     marginTop: Spacing[5],
   },
 });
-
-// Re-export AchievementModal for convenience
-import AchievementModal from './AchievementModal';
-export { AchievementModal as Achievement };

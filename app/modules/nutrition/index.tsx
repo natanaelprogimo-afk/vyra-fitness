@@ -1,426 +1,452 @@
-// ============================================================
-// VYRA FITNESS — Módulo Nutrición: Pantalla Principal
-// Resumen diario kcal, barras de macros, 4 tarjetas de comida
-// ============================================================
-
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import type { ComponentProps } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
+import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
 import Card from '@/components/ui/Card';
-import ProgressBar from '@/components/ui/ProgressBar';
-import AnimatedNumber from '@/components/ui/AnimatedNumber';
-import Button from '@/components/ui/Button';
-import { useNutrition, MEAL_TYPES, type MealType } from '@/hooks/useNutrition';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { MEAL_TYPES, useNutrition, type MealType } from '@/hooks/useNutrition';
+import { useSettingsStore } from '@/stores/settingsStore';
 
-export default function NutritionScreen() {
+function inferSuggestedMealType(hasEaten: Record<MealType, boolean>): MealType {
+  const hour = new Date().getHours();
+  if (hour < 11) return hasEaten.breakfast ? 'snack' : 'breakfast';
+  if (hour < 16) return hasEaten.lunch ? 'snack' : 'lunch';
+  if (hour < 21) return hasEaten.dinner ? 'snack' : 'dinner';
+  return 'snack';
+}
+
+function formatTodayLabel() {
+  return new Date().toLocaleDateString('es-UY', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+export default function NutritionScreen({ showBack = true }: { showBack?: boolean }) {
+  const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.nutrition));
+  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
   const {
-    mealsByType, hasEaten,
-    totals, caloriePct, remaining,
-    calorieGoal, macroGoals,
-    deleteMeal, isLoading, frequentMeals, logFrequentMeal,
-    nutritionSleepEnergyCorrelation, cycleNutritionGuidance,
+    mealsByType,
+    hasEaten,
+    totals,
+    calorieGoal,
+    weeklyData,
+    remaining,
+    deleteMeal,
   } = useNutrition();
 
-  const proteinPct = Math.min(100, (totals.protein / macroGoals.protein) * 100);
-  const carbsPct   = Math.min(100, (totals.carbs   / macroGoals.carbs)   * 100);
-  const fatPct     = Math.min(100, (totals.fat     / macroGoals.fat)     * 100);
+  const suggestedMealType = inferSuggestedMealType(hasEaten);
+  const caloriesPct = Math.max(0, Math.min(100, calorieGoal > 0 ? (totals.calories / calorieGoal) * 100 : 0));
+  const maxWeekValue = Math.max(...weeklyData.map((item) => item.calories), calorieGoal, 1);
+
+  if (!hasSeenIntro) {
+    return (
+      <SafeScreen padHorizontal={false} padBottom>
+        <Header title="Nutricion" showBack={showBack} displayTitle={showBack} />
+        <ModuleIntroScreen
+          accentColor={Colors.nutrition}
+          icon="🥗"
+          title="Nutricion"
+          body="Registra tu primera comida y VYRA empieza a entender horarios, calorias y lo que mas repites."
+          ctaLabel="Registrar primera comida"
+          onContinue={() => {
+            markModuleIntroSeen('nutrition');
+            router.push({
+              pathname: Routes.nutrition.log,
+              params: { mealType: suggestedMealType },
+            } as never);
+          }}
+        />
+      </SafeScreen>
+    );
+  }
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Nutrición"
-        showBack
-        color={Colors.nutrition}
-        rightAction={
-          <Pressable onPress={() => router.push('/modules/nutrition/history' as any)} style={styles.histBtn}>
-            <Text style={styles.histText}>Historial</Text>
-          </Pressable>
-        }
+        title="Nutricion"
+        showBack={showBack}
+        displayTitle={showBack}
+        rightAction={<Text style={styles.headerDate}>{formatTodayLabel()}</Text>}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-
-        {/* Calorías del día */}
-        <Card style={styles.calorieCard}>
-          <View style={styles.calorieRow}>
-            <View>
-              <Text style={styles.calorieLabel}>Consumidas</Text>
-              <AnimatedNumber
-                value={Math.round(totals.calories)}
-                style={styles.calorieValue}
-                duration={600}
-              />
-              <Text style={styles.calorieUnit}>kcal</Text>
-            </View>
-            <View style={styles.calorieDivider} />
-            <View style={{ alignItems: 'center' }}>
-              <Text style={styles.calorieLabel}>Meta</Text>
-              <Text style={[styles.calorieValue, { color: Colors.textSecondary }]}>{calorieGoal}</Text>
-              <Text style={styles.calorieUnit}>kcal</Text>
-            </View>
-            <View style={styles.calorieDivider} />
-            <View>
-              <Text style={styles.calorieLabel}>Restantes</Text>
-              <Text style={[styles.calorieValue, {
-                color: remaining <= 0 ? Colors.error : remaining < 300 ? Colors.fasting : Colors.steps,
-              }]}>
-                {remaining <= 0 ? '0' : remaining}
-              </Text>
-              <Text style={styles.calorieUnit}>kcal</Text>
-            </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Card style={styles.summaryCard} shadow={false}>
+          <Text style={styles.cardEyebrow}>Hoy</Text>
+          <Text style={styles.summaryValue}>
+            {Math.round(totals.calories)} / {calorieGoal} kcal
+          </Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${caloriesPct}%` }]} />
           </View>
-          <ProgressBar
-            value={caloriePct}
-            color={caloriePct > 105 ? Colors.error : Colors.nutrition}
-            height={8}
-            animated
-            style={styles.calorieProg}
-          />
-          {remaining <= 0 && (
-            <Text style={styles.overText}>
-              {Math.abs(remaining)} kcal sobre la meta de hoy
-            </Text>
-          )}
-        </Card>
-
-        {remaining > 700 && (
-          <Card style={styles.deficitWarningCard}>
-            <Text style={styles.deficitWarningText}>
-              ⚠️ Déficit alto: estás más de 700 kcal por debajo de tu meta diaria.
-            </Text>
-          </Card>
-        )}
-
-        {/* Macros */}
-        <Card style={styles.macroCard}>
-          <Text style={styles.macroTitle}>Macronutrientes</Text>
           <View style={styles.macroRow}>
-            <MacroBar
-              label="Proteínas"
-              value={Math.round(totals.protein)}
-              goal={macroGoals.protein}
-              pct={proteinPct}
-              unit="g"
-              color="#FF6B6B"
-            />
-            <MacroBar
-              label="Carbos"
-              value={Math.round(totals.carbs)}
-              goal={macroGoals.carbs}
-              pct={carbsPct}
-              unit="g"
-              color={Colors.fasting}
-            />
-            <MacroBar
-              label="Grasas"
-              value={Math.round(totals.fat)}
-              goal={macroGoals.fat}
-              pct={fatPct}
-              unit="g"
-              color="#FFD43B"
-            />
-            <MacroBar
-              label="Fibra"
-              value={Math.round(totals.fiber)}
-              goal={25}
-              pct={Math.min(100, (totals.fiber / 25) * 100)}
-              unit="g"
-              color={Colors.steps}
-            />
+            <MacroStat label="P" value={`${Math.round(totals.protein)}g`} />
+            <MacroStat label="C" value={`${Math.round(totals.carbs)}g`} />
+            <MacroStat label="G" value={`${Math.round(totals.fat)}g`} />
           </View>
+          <Text style={styles.summaryHint}>
+            {remaining > 0 ? `Restan ${Math.round(remaining)} kcal para tu meta.` : 'Objetivo de hoy cubierto.'}
+          </Text>
         </Card>
 
-        {frequentMeals.length > 0 && (
-          <Card style={styles.frequentCard}>
-            <Text style={styles.frequentTitle}>Comidas frecuentes (1 tap)</Text>
-            <View style={styles.frequentGrid}>
-              {frequentMeals.slice(0, 10).map((meal) => (
-                <Pressable
-                  key={meal.key}
-                  onPress={() => logFrequentMeal(meal)}
-                  style={styles.frequentChip}
-                >
-                  <Text style={styles.frequentName} numberOfLines={1}>{meal.food_name}</Text>
-                  <Text style={styles.frequentMeta}>
-                    {Math.round(meal.calories)} kcal · {meal.uses}x
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </Card>
-        )}
+        <View style={styles.quickActions}>
+          <QuickAction
+            icon="camera-outline"
+            label="Foto IA"
+            onPress={() =>
+              router.push({
+                pathname: Routes.nutrition.log,
+                params: { mealType: suggestedMealType, mode: 'photo' },
+              } as never)
+            }
+          />
+          <QuickAction
+            icon="search-outline"
+            label="Buscar"
+            onPress={() =>
+              router.push({
+                pathname: Routes.nutrition.log,
+                params: { mealType: suggestedMealType, mode: 'search' },
+              } as never)
+            }
+          />
+          <QuickAction
+            icon="create-outline"
+            label="Manual"
+            onPress={() =>
+              router.push({
+                pathname: Routes.nutrition.log,
+                params: { mealType: suggestedMealType, mode: 'manual' },
+              } as never)
+            }
+          />
+        </View>
 
-        {cycleNutritionGuidance ? (
-          <Card style={styles.cycleCard}>
-            <Text style={styles.cycleTitle}>Nutricion segun fase del ciclo</Text>
-            <Text style={styles.cycleText}>{cycleNutritionGuidance}</Text>
-          </Card>
-        ) : null}
-
-        {nutritionSleepEnergyCorrelation.insight ? (
-          <Card style={styles.correlationCard}>
-            <Text style={styles.correlationTitle}>Nutricion, sueno y energia</Text>
-            <Text style={styles.correlationText}>{nutritionSleepEnergyCorrelation.insight}</Text>
-            <Text style={styles.correlationMeta}>
-              Muestras: nutricion alta {nutritionSleepEnergyCorrelation.sampleHigh} dias | baja {nutritionSleepEnergyCorrelation.sampleLow} dias
-            </Text>
-            <View style={styles.correlationStats}>
-              {nutritionSleepEnergyCorrelation.avgSleepHighNutrition !== null && nutritionSleepEnergyCorrelation.avgSleepLowNutrition !== null ? (
-                <Text style={styles.correlationStatText}>
-                  Sueno: {nutritionSleepEnergyCorrelation.avgSleepHighNutrition} vs {nutritionSleepEnergyCorrelation.avgSleepLowNutrition}
-                </Text>
-              ) : null}
-              {nutritionSleepEnergyCorrelation.avgEnergyHighNutrition !== null && nutritionSleepEnergyCorrelation.avgEnergyLowNutrition !== null ? (
-                <Text style={styles.correlationStatText}>
-                  Energia: {nutritionSleepEnergyCorrelation.avgEnergyHighNutrition} vs {nutritionSleepEnergyCorrelation.avgEnergyLowNutrition}
-                </Text>
-              ) : null}
-            </View>
-          </Card>
-        ) : null}
-
-        {/* Comidas del día */}
-        <Text style={styles.sectionTitle}>Comidas de hoy</Text>
-        {(Object.keys(MEAL_TYPES) as MealType[]).map((type) => {
-          const config  = MEAL_TYPES[type];
-          const meals   = mealsByType[type];
-          const total   = meals.reduce((s, m) => s + m.calories, 0);
+        {(Object.keys(MEAL_TYPES) as MealType[]).map((mealType) => {
+          const meta = MEAL_TYPES[mealType];
+          const meals = mealsByType[mealType];
+          const mealCalories = meals.reduce((sum, meal) => sum + meal.calories, 0);
 
           return (
-            <Card key={type} style={styles.mealCard}>
+            <Card key={mealType} style={styles.mealCard} shadow={false}>
               <View style={styles.mealHeader}>
-                <View style={styles.mealTitleRow}>
-                  <Text style={styles.mealEmoji}>{config.emoji}</Text>
-                  <Text style={styles.mealName}>{config.label}</Text>
-                  {hasEaten[type] && <Text style={styles.checkmark}>✓</Text>}
+                <View style={styles.mealTitleWrap}>
+                  <Text style={styles.mealLabel}>{meta.label.toUpperCase()}</Text>
+                  <Text style={styles.mealMeta}>{Math.round(mealCalories)} kcal</Text>
                 </View>
-                <View style={styles.mealRight}>
-                  {total > 0 && (
-                    <Text style={styles.mealKcal}>{Math.round(total)} kcal</Text>
-                  )}
-                  <Pressable
-                    onPress={() => router.push({ pathname: '/modules/nutrition/log', params: { mealType: type } } as any)}
-                    style={styles.addBtn}
-                  >
-                    <Text style={styles.addBtnText}>+ Agregar</Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={styles.inlineAdd}
+                  onPress={() =>
+                    router.push({
+                      pathname: Routes.nutrition.log,
+                      params: { mealType },
+                    } as never)
+                  }
+                >
+                  <Text style={styles.inlineAddText}>+</Text>
+                </Pressable>
               </View>
 
-              {meals.length > 0 && (
-                <View style={styles.mealItems}>
-                  {meals.map((meal) => (
-                    <View key={meal.id} style={styles.mealItem}>
-                      <View style={styles.mealItemInfo}>
-                        <Text style={styles.mealItemName} numberOfLines={1}>{meal.food_name}</Text>
-                        <Text style={styles.mealItemMeta}>
-                          {meal.amount_g}g · P: {Math.round(meal.protein_g)}g · C: {Math.round(meal.carbs_g)}g · G: {Math.round(meal.fat_g)}g
-                        </Text>
-                      </View>
-                      <View style={styles.mealItemRight}>
-                        <Text style={styles.mealItemKcal}>{Math.round(meal.calories)}</Text>
-                        <Text style={styles.mealItemKcalUnit}>kcal</Text>
-                        <Pressable onPress={() => deleteMeal(meal.id)} style={styles.deleteBtn}>
-                          <Text style={styles.deleteBtnText}>✕</Text>
+              {meals.length ? (
+                <View style={styles.mealList}>
+                  {meals.map((meal, index) => (
+                    <View key={meal.id}>
+                      <View style={styles.foodRow}>
+                        <View style={styles.foodCopy}>
+                          <Text style={styles.foodName}>{meal.food_name}</Text>
+                          <Text style={styles.foodMeta}>
+                            {Math.round(meal.calories)} kcal · {Math.round(meal.protein_g)}P · {Math.round(meal.carbs_g)}C · {Math.round(meal.fat_g)}G
+                          </Text>
+                        </View>
+                        <Pressable onPress={() => deleteMeal(meal.id)} style={styles.deleteButton}>
+                          <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
                         </Pressable>
                       </View>
+                      {index < meals.length - 1 ? <View style={styles.divider} /> : null}
                     </View>
                   ))}
                 </View>
-              )}
-
-              {meals.length === 0 && (
-                <Text style={styles.mealEmpty}>Sin registros aún</Text>
+              ) : (
+                <Text style={styles.emptyMealText}>Todavia no hay alimentos cargados aqui.</Text>
               )}
             </Card>
           );
         })}
 
-        {/* Botón historial */}
-        <Button
-          onPress={() => router.push('/modules/nutrition/history' as any)}
-          variant="secondary"
-          fullWidth
-          size="md"
-          style={styles.historyBtn}
-        >
-          Ver historial semanal 📊
-        </Button>
+        <Card style={styles.historyCard} shadow={false}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>Historial</Text>
+            <Pressable onPress={() => router.push(Routes.nutrition.history as never)}>
+              <Text style={styles.historyLink}>Ver mas</Text>
+            </Pressable>
+          </View>
+          <View style={styles.historyBars}>
+            {weeklyData.slice(-7).map((item) => {
+              const heightPct = Math.max(8, (item.calories / maxWeekValue) * 100);
+              const withinRange = item.calories >= calorieGoal * 0.85 && item.calories <= calorieGoal * 1.05;
+              const overflow = item.calories > calorieGoal * 1.05;
+              const fillColor = withinRange
+                ? Colors.success
+                : overflow
+                  ? Colors.warning
+                  : Colors.bgElevated;
+              const label = new Date(`${item.date}T12:00:00`)
+                .toLocaleDateString('es-UY', { weekday: 'short' })
+                .slice(0, 1)
+                .toUpperCase();
+              return (
+                <View key={item.date} style={styles.historyItem}>
+                  <View style={styles.historyTrack}>
+                    <View style={[styles.historyFill, { height: `${heightPct}%`, backgroundColor: fillColor }]} />
+                  </View>
+                  <Text style={styles.historyDay}>{label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </Card>
       </ScrollView>
     </SafeScreen>
   );
 }
 
-function MacroBar({
-  label, value, goal, pct, unit, color,
-}: {
-  label: string; value: number; goal: number; pct: number; unit: string; color: string;
-}) {
+function MacroStat({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.macroBar}>
-      <Text style={[styles.macroPct, { color }]}>{Math.round(pct)}%</Text>
-      <View style={styles.macroTrack}>
-        <View style={[styles.macroFill, { height: `${pct}%`, backgroundColor: color }]} />
-      </View>
-      <Text style={styles.macroValue}>{value}{unit}</Text>
+    <View style={styles.macroItem}>
       <Text style={styles.macroLabel}>{label}</Text>
-      <Text style={styles.macroGoal}>/{goal}{unit}</Text>
+      <Text style={styles.macroValue}>{value}</Text>
     </View>
   );
 }
 
+function QuickAction({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.quickAction} onPress={onPress}>
+      <Ionicons name={icon} size={18} color={Colors.nutrition} />
+      <Text style={styles.quickActionText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  content:       { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
-  histBtn:       { paddingHorizontal: Spacing[2] },
-  histText:      { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.nutrition },
-
-  // Calorías
-  calorieCard:   { marginBottom: Spacing[4] },
-  calorieRow:    { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: Spacing[4] },
-  calorieLabel:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginBottom: 2 },
-  calorieValue:  { fontFamily: FontFamily.bold, fontSize: FontSize['2xl'], color: Colors.nutrition, textAlign: 'center' },
-  calorieUnit:   { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center' },
-  calorieDivider:{ width: 1, height: 48, backgroundColor: Colors.divider },
-  calorieProg:   {},
-  overText:      { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.error, marginTop: Spacing[1], textAlign: 'center' },
-  deficitWarningCard: {
-    marginBottom: Spacing[4],
-    borderWidth: 1,
-    borderColor: Colors.warning,
-    backgroundColor: `${Colors.warning}18`,
-  },
-  deficitWarningText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
-    color: Colors.warning,
-    textAlign: 'center',
-  },
-
-  // Macros
-  macroCard:     { marginBottom: Spacing[5] },
-  macroTitle:    { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[4] },
-  macroRow:      { flexDirection: 'row', gap: Spacing[3] },
-  macroBar:      { flex: 1, alignItems: 'center', gap: 3 },
-  macroPct:      { fontFamily: FontFamily.bold, fontSize: FontSize.xs },
-  macroTrack:    { width: '100%', height: 80, backgroundColor: Colors.bgElevated, borderRadius: Radius.sm, overflow: 'hidden', justifyContent: 'flex-end' },
-  macroFill:     { borderRadius: Radius.sm, minHeight: 4 },
-  macroValue:    { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.textPrimary },
-  macroLabel:    { fontFamily: FontFamily.medium, fontSize: 9, color: Colors.textSecondary },
-  macroGoal:     { fontFamily: FontFamily.regular, fontSize: 9, color: Colors.textMuted },
-  frequentCard: {
-    marginBottom: Spacing[5],
-    borderWidth: 1,
-    borderColor: `${Colors.nutrition}55`,
-    backgroundColor: `${Colors.nutrition}10`,
-  },
-  frequentTitle: {
-    fontFamily: FontFamily.bold,
+  headerDate: {
+    fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
-    color: Colors.nutrition,
-    marginBottom: Spacing[3],
+    color: Colors.textSecondary,
+    textTransform: 'capitalize',
   },
-  frequentGrid: {
+  content: {
+    paddingHorizontal: Spacing[5],
+    paddingBottom: Spacing[10],
+    gap: Spacing[4],
+  },
+  summaryCard: {
+    gap: Spacing[3],
+  },
+  cardEyebrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  summaryValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 30,
+    color: Colors.textPrimary,
+    letterSpacing: -1,
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: Radius.full,
+    backgroundColor: Colors.nutrition,
+  },
+  macroRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: Spacing[2],
   },
-  frequentChip: {
-    width: '48%',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: `${Colors.nutrition}55`,
-    backgroundColor: Colors.bgSurface,
-    paddingVertical: Spacing[2],
-    paddingHorizontal: Spacing[2],
-  },
-  frequentName: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  frequentMeta: {
-    marginTop: 2,
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-  },
-  cycleCard: {
-    marginBottom: Spacing[5],
-    borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: `${Colors.female}10`,
-  },
-  cycleTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
-    color: Colors.female,
-    marginBottom: Spacing[1],
-  },
-  cycleText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  correlationCard: {
-    marginBottom: Spacing[5],
-    borderWidth: 1,
-    borderColor: `${Colors.nutrition}55`,
-    backgroundColor: `${Colors.nutrition}10`,
-    gap: Spacing[1],
-  },
-  correlationTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
-    color: Colors.nutrition,
-  },
-  correlationText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    lineHeight: 20,
-  },
-  correlationMeta: {
-    marginTop: 2,
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-  },
-  correlationStats: {
-    marginTop: Spacing[1],
+  macroItem: {
+    flex: 1,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgElevated,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2.5],
     gap: 2,
   },
-  correlationStatText: {
-    fontFamily: FontFamily.medium,
+  macroLabel: {
+    fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  macroValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  summaryHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
     color: Colors.textSecondary,
   },
-
-  // Comidas
-  sectionTitle:  { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[3] },
-  mealCard:      { marginBottom: Spacing[3] },
-  mealHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[2] },
-  mealTitleRow:  { flexDirection: 'row', alignItems: 'center', gap: Spacing[2] },
-  mealEmoji:     { fontSize: 20 },
-  mealName:      { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
-  checkmark:     { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.steps, marginLeft: Spacing[1] },
-  mealRight:     { flexDirection: 'row', alignItems: 'center', gap: Spacing[2] },
-  mealKcal:      { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
-  addBtn:        { paddingVertical: Spacing[1], paddingHorizontal: Spacing[2.5], borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.nutrition, backgroundColor: `${Colors.nutrition}12` },
-  addBtnText:    { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.nutrition },
-  mealItems:     { gap: Spacing[2], borderTopWidth: 1, borderTopColor: Colors.divider, paddingTop: Spacing[2] },
-  mealItem:      { flexDirection: 'row', alignItems: 'center', gap: Spacing[2] },
-  mealItemInfo:  { flex: 1 },
-  mealItemName:  { fontFamily: FontFamily.semibold, fontSize: FontSize.sm, color: Colors.textPrimary },
-  mealItemMeta:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  mealItemRight: { alignItems: 'flex-end', gap: 1 },
-  mealItemKcal:  { fontFamily: FontFamily.bold, fontSize: FontSize.sm, color: Colors.nutrition },
-  mealItemKcalUnit:{ fontFamily: FontFamily.regular, fontSize: 9, color: Colors.textMuted },
-  deleteBtn:     { padding: Spacing[1] },
-  deleteBtnText: { fontSize: 12, color: Colors.textMuted },
-  mealEmpty:     { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', paddingVertical: Spacing[2] },
-  historyBtn:    { marginTop: Spacing[2] },
+  quickActions: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  quickAction: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing[2],
+    paddingHorizontal: Spacing[2],
+  },
+  quickActionText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  mealCard: {
+    gap: Spacing[3],
+  },
+  mealHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mealTitleWrap: {
+    gap: 4,
+  },
+  mealLabel: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    letterSpacing: 1.2,
+  },
+  mealMeta: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  inlineAdd: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.actionBg,
+  },
+  inlineAddText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: Colors.action,
+    lineHeight: 22,
+  },
+  mealList: {
+    gap: Spacing[2.5],
+  },
+  foodRow: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+    alignItems: 'center',
+  },
+  foodCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  foodName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  foodMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  deleteButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    marginTop: Spacing[2.5],
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  emptyMealText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  historyCard: {
+    gap: Spacing[3],
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  historyLink: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  historyBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing[2],
+    height: 96,
+  },
+  historyItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  historyTrack: {
+    width: '100%',
+    flex: 1,
+    borderRadius: Radius.sm,
+    backgroundColor: withOpacity(Colors.white, 0.04),
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  historyFill: {
+    width: '100%',
+    borderRadius: Radius.sm,
+  },
+  historyDay: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
 });

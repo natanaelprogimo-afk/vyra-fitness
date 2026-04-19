@@ -85,7 +85,7 @@ export default function FastingSettingsScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>Experiencia</Text>
           <ToggleRow title="Mostrar fases" body="Mantiene mensajes simples dentro del timer mientras ayunás." value={settings.showPhaseLabels} onValueChange={(value) => setSettings((current) => (current ? { ...current, showPhaseLabels: value } : current))} />
-          <ToggleRow title="Predicciones" body="Ejemplo: “En 2h entrás en quema máxima”." value={settings.showPredictions} onValueChange={(value) => setSettings((current) => (current ? { ...current, showPredictions: value } : current))} />
+          <ToggleRow title="Predicciones" body='Ejemplo: "En 2h entrás en quema máxima".' value={settings.showPredictions} onValueChange={(value) => setSettings((current) => (current ? { ...current, showPredictions: value } : current))} />
         </View>
 
         <View style={styles.card}>

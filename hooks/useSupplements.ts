@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
@@ -7,9 +7,9 @@ export interface Supplement {
   id: string;
   name: string;
   dose: number;
-  unit: 'mg' | 'g' | 'ml' | 'caps' | 'IU';
+  unit: 'mg' | 'g' | 'ml' | 'caps' | 'IU' | 'tablets' | 'scoops';
   frequency: 'daily' | 'weekly' | 'as_needed';
-  reminder_times: string[]; // ['08:00', '20:00']
+  reminder_times: string[];
   active: boolean;
 }
 
@@ -25,6 +25,122 @@ interface SupplementInteractionWarning {
   message: string;
 }
 
+interface SupplementRow {
+  id: string;
+  name: string;
+  dose: number | null;
+  unit: Supplement['unit'];
+  frequency: Supplement['frequency'];
+  reminder_times_json: unknown;
+  active: boolean | null;
+}
+
+interface SupplementLogRow {
+  supplement_id: string;
+  taken_at: string;
+  supplements:
+    | {
+        name: string;
+      }
+    | Array<{
+        name: string;
+      }>
+    | null;
+}
+
+interface SupplementTimeRow {
+  supplement_id?: string;
+  taken_at: string;
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function getLocalDateKey(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function getDayBounds(date = new Date()) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return {
+    key: getLocalDateKey(start),
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+}
+
+function parseReminderTimes(value: unknown): string[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      // Historical rows may already store plain strings like "09:00" or "09:00,21:30".
+    }
+
+    if (trimmed.includes(',')) {
+      return trimmed
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+
+    return trimmed.includes(':') ? [trimmed] : [];
+  }
+
+  return [];
+}
+
+function buildInteractionWarnings(items: Supplement[]): SupplementInteractionWarning[] {
+  const names = items.map((item) => item.name.toLowerCase());
+  const hasIron = names.some((name) => name.includes('hierro') || name.includes('iron'));
+  const hasCalcium = names.some((name) => name.includes('calcio') || name.includes('calcium'));
+  const hasZinc = names.some((name) => name.includes('zinc'));
+
+  const warnings: SupplementInteractionWarning[] = [];
+
+  if (hasIron && hasCalcium) {
+    warnings.push({
+      id: 'iron_calcium',
+      message:
+        'Hierro + calcio juntos pueden reducir la absorcion del hierro. Si aplica, separarlos 2-3 horas suele ser mas ordenado.',
+    });
+  }
+
+  if (hasCalcium && hasZinc) {
+    warnings.push({
+      id: 'calcium_zinc',
+      message:
+        'Calcio + zinc juntos pueden competir por absorcion. Si tu profesional lo avala, separarlos 2 horas suele ser mas claro.',
+    });
+  }
+
+  return warnings;
+}
+
 export function useSupplements() {
   const { profile } = useAuthStore();
   const userId = profile?.id;
@@ -36,10 +152,11 @@ export function useSupplements() {
   const [dailyAdherenceStreak, setDailyAdherenceStreak] = useState(0);
   const [interactionWarnings, setInteractionWarnings] = useState<SupplementInteractionWarning[]>([]);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayBounds = useMemo(() => getDayBounds(), []);
 
   const fetchSupplements = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) return [] as Supplement[];
+
     try {
       const { data, error } = await supabase
         .from('supplements')
@@ -50,155 +167,180 @@ export function useSupplements() {
 
       if (error) throw error;
 
-      const mapped: Supplement[] = (data ?? []).map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        dose: s.dose,
-        unit: s.unit,
-        frequency: s.frequency,
-        reminder_times: s.reminder_times_json
-          ? JSON.parse(s.reminder_times_json)
-          : [],
-        active: s.active,
+      const mapped: Supplement[] = ((data ?? []) as SupplementRow[]).map((supplement) => ({
+        id: supplement.id,
+        name: supplement.name,
+        dose: Number(supplement.dose ?? 0),
+        unit: supplement.unit,
+        frequency: supplement.frequency,
+        reminder_times: parseReminderTimes(supplement.reminder_times_json),
+        active: supplement.active !== false,
       }));
 
       setSupplements(mapped);
-
-      const names = mapped.map((item) => item.name.toLowerCase());
-      const hasIron = names.some((name) => name.includes('hierro') || name.includes('iron'));
-      const hasCalcium = names.some((name) => name.includes('calcio') || name.includes('calcium'));
-
-      const warnings: SupplementInteractionWarning[] = [];
-      if (hasIron && hasCalcium) {
-        warnings.push({
-          id: 'iron_calcium',
-          message:
-            'Hierro + calcio juntos pueden reducir absorcion de hierro. Considera separarlos 2-3 horas (consulta profesional).',
-        });
-      }
-      setInteractionWarnings(warnings);
+      setInteractionWarnings(buildInteractionWarnings(mapped));
+      return mapped;
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.fetch" });
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useSupplements.fetch',
+      });
+      setSupplements([]);
+      setInteractionWarnings([]);
+      return [];
     }
   }, [userId]);
 
-  const fetchAdherenceStreak = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const dailySupps = supplements.filter((supplement) => supplement.frequency === 'daily');
-      if (!dailySupps.length) {
-        setDailyAdherenceStreak(0);
-        return;
+  const fetchAdherenceStreak = useCallback(
+    async (sourceSupplements?: Supplement[]) => {
+      if (!userId) return;
+
+      try {
+        const items = sourceSupplements ?? supplements;
+        const dailySupplements = items.filter((supplement) => supplement.frequency === 'daily' && supplement.active);
+
+        if (!dailySupplements.length) {
+          setDailyAdherenceStreak(0);
+          return;
+        }
+
+        const ids = dailySupplements.map((item) => item.id);
+        const from = new Date();
+        from.setDate(from.getDate() - 59);
+        const fromBounds = getDayBounds(from);
+
+        const { data, error } = await supabase
+          .from('supplement_logs')
+          .select('supplement_id, taken_at')
+          .eq('user_id', userId)
+          .in('supplement_id', ids)
+          .gte('taken_at', fromBounds.startIso)
+          .order('taken_at', { ascending: false });
+
+        if (error) throw error;
+
+        const byDate = new Map<string, Set<string>>();
+        for (const row of (data ?? []) as SupplementTimeRow[]) {
+          if (!row.supplement_id) continue;
+          const key = getLocalDateKey(new Date(row.taken_at));
+          const taken = byDate.get(key) ?? new Set<string>();
+          taken.add(row.supplement_id);
+          byDate.set(key, taken);
+        }
+
+        let streak = 0;
+        const cursor = new Date();
+        cursor.setHours(0, 0, 0, 0);
+
+        for (let i = 0; i < 60; i += 1) {
+          const key = getLocalDateKey(cursor);
+          const taken = byDate.get(key);
+          const completed = ids.every((id) => taken?.has(id));
+          if (!completed) break;
+          streak += 1;
+          cursor.setDate(cursor.getDate() - 1);
+        }
+
+        setDailyAdherenceStreak(streak);
+      } catch (err) {
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+          action: 'useSupplements.fetchAdherenceStreak',
+        });
       }
-
-      const ids = dailySupps.map((item) => item.id);
-      const from = new Date();
-      from.setDate(from.getDate() - 59);
-
-      const { data, error } = await supabase
-        .from('supplement_logs')
-        .select('supplement_id, date')
-        .eq('user_id', userId)
-        .in('supplement_id', ids)
-        .gte('date', from.toISOString().split('T')[0])
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-
-      const byDate = new Map<string, Set<string>>();
-      for (const row of data ?? []) {
-        const key = row.date;
-        const set = byDate.get(key) ?? new Set<string>();
-        set.add(row.supplement_id);
-        byDate.set(key, set);
-      }
-
-      let streak = 0;
-      let cursor = new Date();
-      for (let i = 0; i < 60; i += 1) {
-        const day = cursor.toISOString().split('T')[0];
-        const taken = byDate.get(day);
-        const completed = ids.every((id) => taken?.has(id));
-        if (!completed) break;
-        streak += 1;
-        cursor.setDate(cursor.getDate() - 1);
-      }
-
-      setDailyAdherenceStreak(streak);
-    } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.fetchAdherenceStreak" });
-    }
-  }, [supplements, userId]);
+    },
+    [supplements, userId]
+  );
 
   const fetchTodayLogs = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) return [] as SupplementLog[];
+
     try {
       const { data, error } = await supabase
         .from('supplement_logs')
-        .select('supplement_id, taken_at, date, supplements(name)')
+        .select('supplement_id, taken_at, supplements(name)')
         .eq('user_id', userId)
-        .eq('date', todayStr);
+        .gte('taken_at', todayBounds.startIso)
+        .lt('taken_at', todayBounds.endIso);
 
       if (error) throw error;
 
-      const mapped: SupplementLog[] = (data ?? []).map((l: any) => ({
-        supplement_id: l.supplement_id,
-        supplement_name: l.supplements?.name ?? '—',
-        taken_at: l.taken_at,
-        date: l.date,
-      }));
+      const mapped: SupplementLog[] = ((data ?? []) as SupplementLogRow[]).map((log) => {
+        const related = Array.isArray(log.supplements) ? log.supplements[0] : log.supplements;
+
+        return {
+          supplement_id: log.supplement_id,
+          supplement_name: related?.name ?? '-',
+          taken_at: log.taken_at,
+          date: getLocalDateKey(new Date(log.taken_at)),
+        };
+      });
 
       setTodayLogs(mapped);
+      return mapped;
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.fetchLogs" });
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useSupplements.fetchLogs',
+      });
+      setTodayLogs([]);
+      return [];
     } finally {
       setLoading(false);
     }
-  }, [userId, todayStr]);
+  }, [todayBounds.endIso, todayBounds.startIso, userId]);
+
+  const refresh = useCallback(async () => {
+    const [nextSupplements] = await Promise.all([fetchSupplements(), fetchTodayLogs()]);
+    await fetchAdherenceStreak(nextSupplements);
+  }, [fetchAdherenceStreak, fetchSupplements, fetchTodayLogs]);
 
   const markTaken = useCallback(
     async (supplementId: string) => {
       if (!userId) return;
-      // Verificar que no esté ya marcado hoy
-      const alreadyTaken = todayLogs.some((l) => l.supplement_id === supplementId);
-      if (alreadyTaken) return;
+      if (todayLogs.some((log) => log.supplement_id === supplementId)) return;
 
       try {
         const { error } = await supabase.from('supplement_logs').insert({
           user_id: userId,
           supplement_id: supplementId,
           taken_at: new Date().toISOString(),
-          date: todayStr,
         });
+
         if (error) throw error;
+
         await fetchTodayLogs();
         await fetchAdherenceStreak();
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.markTaken" });
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+          action: 'useSupplements.markTaken',
+        });
       }
     },
-    [userId, todayLogs, todayStr, fetchTodayLogs, fetchAdherenceStreak],
+    [fetchAdherenceStreak, fetchTodayLogs, todayLogs, userId]
   );
 
   const unmarkTaken = useCallback(
     async (supplementId: string) => {
       if (!userId) return;
+
       try {
         const { error } = await supabase
           .from('supplement_logs')
           .delete()
           .eq('user_id', userId)
           .eq('supplement_id', supplementId)
-          .eq('date', todayStr);
+          .gte('taken_at', todayBounds.startIso)
+          .lt('taken_at', todayBounds.endIso);
 
         if (error) throw error;
+
         await fetchTodayLogs();
         await fetchAdherenceStreak();
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.unmarkTaken" });
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+          action: 'useSupplements.unmarkTaken',
+        });
       }
     },
-    [userId, todayStr, fetchTodayLogs, fetchAdherenceStreak],
+    [fetchAdherenceStreak, fetchTodayLogs, todayBounds.endIso, todayBounds.startIso, userId]
   );
 
   const addSupplement = useCallback(
@@ -207,9 +349,10 @@ export function useSupplements() {
       dose: number,
       unit: Supplement['unit'],
       frequency: Supplement['frequency'],
-      reminderTimes: string[] = [],
+      reminderTimes: string[] = []
     ) => {
       if (!userId) return;
+
       setSaving(true);
       try {
         const { error } = await supabase.from('supplements').insert({
@@ -218,105 +361,140 @@ export function useSupplements() {
           dose,
           unit,
           frequency,
-          reminder_times_json: JSON.stringify(reminderTimes),
+          reminder_times_json: reminderTimes,
           active: true,
         });
+
         if (error) throw error;
-        await fetchSupplements();
+
+        await refresh();
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.add" });
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+          action: 'useSupplements.add',
+        });
       } finally {
         setSaving(false);
       }
     },
-    [userId, fetchSupplements],
+    [refresh, userId]
   );
 
   const deactivateSupplement = useCallback(
     async (supplementId: string) => {
       if (!userId) return;
+
       try {
         const { error } = await supabase
           .from('supplements')
           .update({ active: false })
           .eq('id', supplementId)
           .eq('user_id', userId);
+
         if (error) throw error;
-        await fetchSupplements();
+
+        await refresh();
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useSupplements.deactivate" });
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+          action: 'useSupplements.deactivate',
+        });
       }
     },
-    [userId, fetchSupplements],
+    [refresh, userId]
   );
 
-  // Adherencia de los últimos 30 días por suplemento
   const getAdherence = useCallback(
     async (supplementId: string): Promise<number> => {
       if (!userId) return 0;
+
       try {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const fromBounds = getDayBounds(thirtyDaysAgo);
 
         const { data, error } = await supabase
           .from('supplement_logs')
-          .select('date')
+          .select('taken_at')
           .eq('user_id', userId)
           .eq('supplement_id', supplementId)
-          .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
+          .gte('taken_at', fromBounds.startIso);
 
         if (error) throw error;
-        return Math.round(((data?.length ?? 0) / 30) * 100);
+
+        const uniqueDays = new Set(
+          ((data ?? []) as SupplementTimeRow[]).map((row) => getLocalDateKey(new Date(row.taken_at)))
+        );
+
+        return Math.round((uniqueDays.size / 30) * 100);
       } catch {
         return 0;
       }
     },
-    [userId],
+    [userId]
   );
 
-  // Adherencia agregada por dia para la ultima semana (compat)
   const getWeeklyHistory = useCallback(async (): Promise<Array<{ date: string; completed: boolean }>> => {
     if (!userId) return [];
+
     try {
       const days = 7;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+
       const keys: string[] = [];
       for (let i = days - 1; i >= 0; i -= 1) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        keys.push(d.toISOString().split('T')[0]);
+        const current = new Date(today);
+        current.setDate(today.getDate() - i);
+        keys.push(getLocalDateKey(current));
       }
+
+      const oldestDay = new Date(today);
+      oldestDay.setDate(today.getDate() - (days - 1));
+      const oldestBounds = getDayBounds(oldestDay);
+      const nextDayBounds = getDayBounds(new Date(today));
 
       const { data, error } = await supabase
         .from('supplement_logs')
-        .select('date')
+        .select('taken_at')
         .eq('user_id', userId)
-        .in('date', keys);
+        .gte('taken_at', oldestBounds.startIso)
+        .lt('taken_at', nextDayBounds.endIso);
 
       if (error) throw error;
 
-      const present = new Set((data ?? []).map((r: any) => r.date));
-      return keys.map((k) => ({ date: k, completed: present.has(k) }));
+      const present = new Set(
+        ((data ?? []) as SupplementTimeRow[]).map((row) => getLocalDateKey(new Date(row.taken_at)))
+      );
+
+      return keys.map((key) => ({
+        date: key,
+        completed: present.has(key),
+      }));
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useSupplements.getWeeklyHistory' });
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useSupplements.getWeeklyHistory',
+      });
       return [];
     }
   }, [userId]);
 
   const isTakenToday = useCallback(
-    (supplementId: string) =>
-      todayLogs.some((l) => l.supplement_id === supplementId),
-    [todayLogs],
+    (supplementId: string) => todayLogs.some((log) => log.supplement_id === supplementId),
+    [todayLogs]
   );
 
   useEffect(() => {
-    Promise.all([fetchSupplements(), fetchTodayLogs()]);
-  }, []);
+    if (!userId) {
+      setSupplements([]);
+      setTodayLogs([]);
+      setDailyAdherenceStreak(0);
+      setInteractionWarnings([]);
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    void fetchAdherenceStreak();
-  }, [fetchAdherenceStreak]);
+    setLoading(true);
+    void refresh();
+  }, [refresh, userId]);
 
   return {
     supplements,
@@ -326,7 +504,7 @@ export function useSupplements() {
     dailyAdherenceStreak,
     interactionWarnings,
     getWeeklyHistory,
-    getActive: () => supplements.filter((s) => s.active),
+    getActive: () => supplements.filter((supplement) => supplement.active),
     logTaken: markTaken,
     markTaken,
     unmarkTaken,
@@ -334,6 +512,6 @@ export function useSupplements() {
     deactivateSupplement,
     getAdherence,
     isTakenToday,
-    refresh: () => Promise.all([fetchSupplements(), fetchTodayLogs()]),
+    refresh,
   };
 }

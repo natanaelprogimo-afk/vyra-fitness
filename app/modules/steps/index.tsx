@@ -1,283 +1,327 @@
-// ============================================================
-// VYRA FITNESS — Módulo Pasos: Pantalla Principal
-// Ring live con pedómetro, métricas, historial de 7 días
-// ============================================================
-
-import { useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
-import Animated, {
-  useSharedValue, useAnimatedStyle,
-  withRepeat, withTiming, withSequence, Easing,
-} from 'react-native-reanimated';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
+import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
 import ProgressCircle from '@/components/charts/ProgressCircle';
-import AnimatedNumber from '@/components/ui/AnimatedNumber';
 import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useSteps } from '@/hooks/useSteps';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
+import { useSettingsStore } from '@/stores/settingsStore';
+
+function formatDistance(valueKm: number | string, unit: 'km' | 'mi') {
+  const numeric = typeof valueKm === 'number' ? valueKm : parseFloat(valueKm) || 0;
+  const converted = unit === 'mi' ? numeric * 0.621371 : numeric;
+  return `${converted.toFixed(1)} ${unit}`;
+}
+
+function buildStepsMessage(progressPct: number, remaining: number, totalSteps: number) {
+  if (progressPct >= 110) return `Superaste tu meta. ${totalSteps.toLocaleString('es')} pasos hoy.`;
+  if (progressPct >= 100) return `Meta alcanzada. ${totalSteps.toLocaleString('es')} pasos hoy.`;
+  if (progressPct >= 60) return `Casi. Te quedan ${remaining.toLocaleString('es')} pasos para la meta.`;
+  if (progressPct >= 30) return 'Vas bien. A mitad del camino.';
+  return 'Buen comienzo. Sigue sumando.';
+}
 
 export default function StepsScreen() {
+  const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.steps));
+  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
+  const distUnit = useSettingsStore((state) => state.distUnit);
   const {
-    isAvailable, liveSteps, totalSteps, goal,
-    progressPct, distanceKm, calories, remaining,
-    activeSteps, passiveSteps, activeRatio, activityZone,
-    isLoading, weeklyData, weeklyAvg, daysMetGoal,
-    manualSave,
+    totalSteps,
+    goal,
+    progressPct,
+    distanceKm,
+    calories,
+    remaining,
+    weeklyData,
+    weeklyAvg,
+    bestDaySteps,
+    daysMetGoal,
   } = useSteps();
 
-  // Pulso del ícono de pasos cuando hay movimiento
-  const pulse = useSharedValue(1);
-  useEffect(() => {
-    if (liveSteps > 0) {
-      pulse.value = withRepeat(
-        withSequence(
-          withTiming(1.12, { duration: 400, easing: Easing.out(Easing.quad) }),
-          withTiming(1.0,  { duration: 400, easing: Easing.in(Easing.quad) })
-        ),
-        -1, false
-      );
-    } else {
-      pulse.value = withTiming(1);
-    }
-  }, [liveSteps > 0]);
+  const maxWeekly = Math.max(...weeklyData.map((day) => Number(day.steps ?? 0)), goal, 1);
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
-  }));
-
-  const maxWeekly = Math.max(...weeklyData.map(d => d.steps), goal);
+  if (!hasSeenIntro) {
+    return (
+      <SafeScreen padHorizontal={false} padBottom>
+        <Header title="Pasos" showBack />
+        <ModuleIntroScreen
+          accentColor={Colors.steps}
+          icon="🚶"
+          title="Pasos"
+          body="Este modulo se actualiza solo. Aqui ves meta, recorrido semanal y cuanto te falta para cerrar el dia."
+          ctaLabel="Entrar al modulo"
+          onContinue={() => markModuleIntroSeen('steps')}
+        />
+      </SafeScreen>
+    );
+  }
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
         title="Pasos"
         showBack
-        color={Colors.steps}
         rightAction={
-          <Pressable onPress={() => router.push('/modules/steps/settings' as any)} style={styles.settingsBtn}>
-            <Text style={styles.settingsText}>Meta</Text>
+          <Pressable onPress={() => router.push(Routes.steps.settings as never)}>
+            <Text style={styles.headerLink}>Meta</Text>
           </Pressable>
         }
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {/* Ring principal */}
-        <View style={styles.ringSection}>
-          <ProgressCircle
-            value={progressPct}
-            size={200}
-            strokeWidth={14}
-            color={Colors.steps}
-            trackColor={Colors.bgElevated}
-            animated
-            duration={800}
-          >
-            <Animated.Text style={[styles.ringEmoji, pulseStyle]}>🚶</Animated.Text>
-            <AnimatedNumber
-              value={totalSteps}
-              duration={600}
-              style={styles.ringSteps}
-            />
-            <Text style={styles.ringGoal}>de {goal.toLocaleString('es')} pasos</Text>
-          </ProgressCircle>
-
-          {!isAvailable && (
-            <Text style={styles.unavailableText}>
-              Pedómetro no disponible en este dispositivo
-            </Text>
-          )}
-          {liveSteps > 0 && (
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>+{liveSteps} desde que abriste</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Métricas */}
-        <View style={styles.metricsRow}>
-          <MetricCard emoji="📏" label="Distancia" value={`${(typeof distanceKm === 'number' ? distanceKm : parseFloat(String(distanceKm))).toFixed(2)}km`} color={Colors.steps} />
-          <MetricCard emoji="🔥" label="Calorías"  value={`${Math.round(calories)} kcal`} color={Colors.workout} />
-          <MetricCard emoji="🎯" label="Restantes" value={remaining > 0 ? `${remaining.toLocaleString('es')}` : '¡Meta!'} color={remaining === 0 ? Colors.success : Colors.textMuted} />
-        </View>
-
-        <Card style={[styles.zoneCard, { borderColor: `${activityZone.color}55` }]}>
-          <View style={styles.zoneHeader}>
-            <Text style={styles.zoneTitle}>Zona de actividad</Text>
-            <Text style={[styles.zoneBadge, { backgroundColor: `${activityZone.color}22`, color: activityZone.color }]}>
-              {activityZone.label}
-            </Text>
-          </View>
-          <Text style={styles.zoneRange}>Rango: {activityZone.range} pasos</Text>
-          <View style={styles.splitRow}>
-            <SplitPill
-              label="Activos"
-              value={`${activeSteps.toLocaleString('es')}`}
-              hint={`${activeRatio}%`}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Card style={styles.heroCard} shadow={false}>
+          <View style={styles.heroRow}>
+            <ProgressCircle
+              value={progressPct}
+              size={180}
+              strokeWidth={12}
               color={Colors.steps}
-            />
-            <SplitPill
-              label="Pasivos"
-              value={`${passiveSteps.toLocaleString('es')}`}
-              hint={`${Math.max(0, 100 - activeRatio)}%`}
-              color={Colors.textMuted}
-            />
+              trackColor={Colors.bgElevated}
+              animated
+              duration={700}
+              accessibilityLabel={`Pasos: ${totalSteps} de ${goal}`}
+            >
+              <Text style={styles.heroValue}>{totalSteps.toLocaleString('es')}</Text>
+              <Text style={styles.heroUnit}>pasos</Text>
+              <Text style={styles.heroMeta}>Meta: {goal.toLocaleString('es')}</Text>
+            </ProgressCircle>
+
+            <View style={styles.heroStats}>
+              <Metric label="Distancia" value={formatDistance(distanceKm, distUnit)} />
+              <Metric label="Energia" value={`${Math.round(calories)} kcal`} />
+              <Metric
+                label="Restantes"
+                value={remaining > 0 ? remaining.toLocaleString('es') : 'Meta'}
+              />
+            </View>
+          </View>
+
+          <Text style={styles.message}>{buildStepsMessage(progressPct, remaining, totalSteps)}</Text>
+
+          <View style={styles.actionsRow}>
+            <Pressable style={styles.ghostAction} onPress={() => router.push(Routes.steps.history as never)}>
+              <Text style={styles.ghostActionText}>Ver ruta de hoy</Text>
+            </Pressable>
+            <Pressable style={styles.ghostAction} onPress={() => router.push(Routes.steps.settings as never)}>
+              <Text style={styles.ghostActionText}>Ajustar meta diaria</Text>
+            </Pressable>
           </View>
         </Card>
 
-        {/* Progreso % */}
-        {remaining === 0 && (
-          <Card style={[styles.goalCard, { borderColor: `${Colors.steps}44` }]}>
-            <Text style={styles.goalEmoji}>🎉</Text>
-            <Text style={styles.goalText}>¡Meta diaria alcanzada!</Text>
-          </Card>
-        )}
-
-        {/* Botón guardar */}
-        {liveSteps > 0 && (
-          <Button
-            onPress={manualSave}
-            variant="primary"
-            fullWidth
-            style={styles.saveBtn}
-            size="md"
-          >
-            Guardar progreso
-          </Button>
-        )}
-
-        {/* Barchart 7 días */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Últimos 7 días</Text>
-          <Card>
-            <View style={styles.bars}>
-              {weeklyData.map((day) => {
-                const pct      = Math.min(100, (day.steps / maxWeekly) * 100);
-                const metGoal  = day.steps >= goal;
-                const isToday  = day.logged_date === new Date().toISOString().split('T')[0];
-                const dayLabel = new Date(day.logged_date + 'T12:00:00').toLocaleDateString('es', { weekday: 'short' });
-
-                return (
-                  <View key={day.logged_date} style={styles.barWrap}>
-                    <Text style={styles.barVal}>
-                      {day.steps >= 1000 ? `${(day.steps/1000).toFixed(1)}k` : day.steps}
-                    </Text>
-                    <View style={styles.barTrack}>
-                      {/* meta line */}
-                      <View style={[styles.goalLine, { bottom: `${(goal / maxWeekly) * 100}%` as any }]} />
-                      <View style={[styles.barFill, {
-                        height: `${pct}%`,
-                        backgroundColor: metGoal ? Colors.steps : `${Colors.steps}55`,
-                      }]} />
-                    </View>
-                    <Text style={[styles.barDay, isToday && { color: Colors.steps, fontFamily: FontFamily.bold }]}>
-                      {isToday ? 'Hoy' : dayLabel}
-                    </Text>
+        <Card style={styles.weekCard} shadow={false}>
+          <Text style={styles.sectionTitle}>Ultimos 7 dias</Text>
+          <View style={styles.weekBars}>
+            {weeklyData.map((day) => {
+              const daySteps = Number(day.steps ?? 0);
+              const isGoalMet = daySteps >= goal;
+              const isToday = day.logged_date === new Date().toISOString().split('T')[0];
+              const fillHeight = Math.max(8, (daySteps / maxWeekly) * 100);
+              const label = new Date(`${day.logged_date}T12:00:00`)
+                .toLocaleDateString('es-UY', { weekday: 'short' })
+                .slice(0, 1)
+                .toUpperCase();
+              return (
+                <View key={day.logged_date} style={styles.weekItem}>
+                  <View style={styles.weekTrack}>
+                    <View style={[styles.goalLine, { bottom: `${(goal / maxWeekly) * 100}%` }]} />
+                    <View
+                      style={[
+                        styles.weekFill,
+                        {
+                          height: `${fillHeight}%`,
+                          backgroundColor: isGoalMet ? Colors.steps : withOpacity(Colors.steps, 0.38),
+                        },
+                      ]}
+                    />
                   </View>
-                );
-              })}
-            </View>
-          </Card>
-        </View>
+                  <Text style={[styles.weekLabel, isToday && styles.weekLabelToday]}>{label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </Card>
 
-        {/* Stats semana */}
-        <View style={styles.statsRow}>
-          <StatCard label="Promedio" value={`${weeklyAvg.toLocaleString('es')}`} emoji="📊" />
-          <StatCard label="Días con meta" value={`${daysMetGoal}/7`} emoji="🎯" />
-          <StatCard label="Total km" value={`${(weeklyData.reduce((s, d) => s + (d.distance_m ?? 0), 0) / 1000).toFixed(1)}`} emoji="📏" />
+        <View style={styles.statsGrid}>
+          <StatCard label="Promedio diario" value={`${weeklyAvg.toLocaleString('es')}`} />
+          <StatCard label="Dias con meta" value={`${daysMetGoal}/7`} />
+          <StatCard label="Mejor dia" value={bestDaySteps.toLocaleString('es')} />
+          <StatCard
+            label="Total semana"
+            value={weeklyData.reduce((sum, day) => sum + Number(day.steps ?? 0), 0).toLocaleString('es')}
+          />
         </View>
       </ScrollView>
     </SafeScreen>
   );
 }
 
-function MetricCard({ emoji, label, value, color }: { emoji: string; label: string; value: string; color: string }) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <Card style={styles.metricCard}>
-      <Text style={styles.metricEmoji}>{emoji}</Text>
-      <Text style={[styles.metricValue, { color }]}>{value}</Text>
+    <View style={styles.metricItem}>
       <Text style={styles.metricLabel}>{label}</Text>
-    </Card>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
   );
 }
 
-function StatCard({ emoji, label, value }: { emoji: string; label: string; value: string }) {
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card style={styles.statCard}>
-      <Text style={styles.statEmoji}>{emoji}</Text>
+    <Card style={styles.statCard} shadow={false}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </Card>
   );
 }
 
-function SplitPill({
-  label,
-  value,
-  hint,
-  color,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  color: string;
-}) {
-  return (
-    <View style={styles.splitPill}>
-      <Text style={styles.splitLabel}>{label}</Text>
-      <Text style={[styles.splitValue, { color }]}>{value}</Text>
-      <Text style={styles.splitHint}>{hint}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
-  settingsBtn:  { paddingHorizontal: Spacing[2] },
-  settingsText: { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.steps },
-  ringSection:  { alignItems: 'center', paddingVertical: Spacing[6] },
-  ringEmoji:    { fontSize: 28, marginBottom: Spacing[1] },
-  ringSteps:    { fontFamily: FontFamily.bold, fontSize: FontSize['3xl'], color: Colors.steps, lineHeight: FontSize['3xl'] * 1.1 },
-  ringGoal:     { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted },
-  unavailableText: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.warning, marginTop: Spacing[3], textAlign: 'center' },
-  liveBadge:    { flexDirection: 'row', alignItems: 'center', gap: Spacing[2], marginTop: Spacing[3], backgroundColor: `${Colors.steps}15`, paddingHorizontal: Spacing[3], paddingVertical: Spacing[1.5], borderRadius: Radius.full },
-  liveDot:      { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.steps },
-  liveText:     { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.steps },
-  metricsRow:   { flexDirection: 'row', gap: Spacing[3], marginBottom: Spacing[4] },
-  metricCard:   { flex: 1, alignItems: 'center', paddingVertical: Spacing[3] },
-  metricEmoji:  { fontSize: 20, marginBottom: Spacing[1] },
-  metricValue:  { fontFamily: FontFamily.bold, fontSize: FontSize.base },
-  metricLabel:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  zoneCard:     { marginBottom: Spacing[4], borderWidth: 1 },
-  zoneHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[1] },
-  zoneTitle:    { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
-  zoneBadge:    { fontFamily: FontFamily.bold, fontSize: FontSize.xs, paddingHorizontal: Spacing[2], paddingVertical: 4, borderRadius: Radius.full },
-  zoneRange:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginBottom: Spacing[3] },
-  splitRow:     { flexDirection: 'row', gap: Spacing[2] },
-  splitPill:    { flex: 1, backgroundColor: Colors.bgElevated, borderRadius: Radius.lg, paddingVertical: Spacing[2], paddingHorizontal: Spacing[3], alignItems: 'center' },
-  splitLabel:   { fontFamily: FontFamily.medium, fontSize: FontSize.xs, color: Colors.textMuted },
-  splitValue:   { fontFamily: FontFamily.bold, fontSize: FontSize.lg, marginTop: 2 },
-  splitHint:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  goalCard:     { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], marginBottom: Spacing[4], borderWidth: 1, backgroundColor: `${Colors.steps}0A` },
-  goalEmoji:    { fontSize: 28 },
-  goalText:     { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.steps },
-  saveBtn:      { marginBottom: Spacing[4], borderColor: Colors.steps },
-  section:      { marginBottom: Spacing[4] },
-  sectionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary, marginBottom: Spacing[3] },
-  bars:         { flexDirection: 'row', gap: Spacing[2], height: 120, alignItems: 'flex-end' },
-  barWrap:      { flex: 1, alignItems: 'center', gap: Spacing[1] },
-  barVal:       { fontFamily: FontFamily.regular, fontSize: 8, color: Colors.textMuted },
-  barTrack:     { width: '100%', flex: 1, backgroundColor: Colors.bgElevated, borderRadius: Radius.sm, overflow: 'hidden', position: 'relative', justifyContent: 'flex-end' },
-  goalLine:     { position: 'absolute', left: 0, right: 0, height: 1.5, backgroundColor: Colors.steps, opacity: 0.5, zIndex: 1 },
-  barFill:      { borderRadius: Radius.sm },
-  barDay:       { fontFamily: FontFamily.medium, fontSize: 9, color: Colors.textMuted },
-  statsRow:     { flexDirection: 'row', gap: Spacing[3] },
-  statCard:     { flex: 1, alignItems: 'center', paddingVertical: Spacing[3] },
-  statEmoji:    { fontSize: 20, marginBottom: Spacing[1] },
-  statValue:    { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
-  statLabel:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2, textAlign: 'center' },
+  headerLink: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  content: {
+    paddingHorizontal: Spacing[5],
+    paddingBottom: Spacing[10],
+    gap: Spacing[4],
+  },
+  heroCard: {
+    gap: Spacing[4],
+  },
+  heroRow: {
+    flexDirection: 'row',
+    gap: Spacing[4],
+    alignItems: 'center',
+  },
+  heroValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 36,
+    color: Colors.textPrimary,
+    letterSpacing: -1.2,
+  },
+  heroUnit: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  heroMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  heroStats: {
+    flex: 1,
+    gap: Spacing[3],
+  },
+  metricItem: {
+    gap: 4,
+  },
+  metricLabel: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+  },
+  metricValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  message: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  ghostAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  ghostActionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  weekCard: {
+    gap: Spacing[3],
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  weekBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing[2],
+    height: 164,
+  },
+  weekItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  weekTrack: {
+    width: '100%',
+    flex: 1,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgElevated,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  weekFill: {
+    width: '100%',
+    borderRadius: Radius.sm,
+  },
+  goalLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: withOpacity(Colors.steps, 0.6),
+  },
+  weekLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  weekLabelToday: {
+    color: Colors.steps,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[3],
+  },
+  statCard: {
+    width: '48%',
+    gap: Spacing[2],
+  },
+  statValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
+    color: Colors.textPrimary,
+  },
+  statLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
 });

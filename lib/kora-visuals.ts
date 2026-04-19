@@ -5,9 +5,9 @@ function getBaseUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_KORA_ASSETS_BASE_URL;
   const extraUrl = (Constants.expoConfig?.extra as Record<string, unknown> | undefined)?.koraAssetsBaseUrl;
   const raw = typeof envUrl === 'string' && envUrl.trim().length > 0
-    ? envUrl
+    ?  envUrl
     : typeof extraUrl === 'string'
-      ? extraUrl
+      ?  extraUrl
       : '';
   return raw.replace(/\/+$/, '');
 }

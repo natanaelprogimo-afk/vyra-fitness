@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
-import * as Location from 'expo-location';
+
+type ExpoLocationModule = typeof import('expo-location');
 
 export const STEPS_ROUTE_TASK = 'VYRA_STEPS_ROUTE_TASK';
 export const STEPS_PASSIVE_ROUTE_TASK = 'VYRA_STEPS_PASSIVE_ROUTE_TASK';
@@ -23,6 +24,16 @@ export type StepsRoute = {
   points: RoutePoint[];
   source?: 'manual' | 'passive';
 };
+
+let cachedLocationModule: ExpoLocationModule | null = null;
+
+function getLocationModule(): ExpoLocationModule {
+  if (!cachedLocationModule) {
+    cachedLocationModule = require('expo-location') as ExpoLocationModule;
+  }
+
+  return cachedLocationModule;
+}
 
 function haversineKm(a: RoutePoint, b: RoutePoint): number {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -238,6 +249,7 @@ export async function getActivePassiveStepsRoute(): Promise<StepsRoute | null> {
 
 export async function isStepsRouteTracking(): Promise<boolean> {
   try {
+    const Location = getLocationModule();
     return await Location.hasStartedLocationUpdatesAsync(STEPS_ROUTE_TASK);
   } catch {
     return false;
@@ -246,6 +258,7 @@ export async function isStepsRouteTracking(): Promise<boolean> {
 
 export async function isPassiveStepsRouteTracking(): Promise<boolean> {
   try {
+    const Location = getLocationModule();
     return await Location.hasStartedLocationUpdatesAsync(STEPS_PASSIVE_ROUTE_TASK);
   } catch {
     return false;
@@ -263,16 +276,17 @@ export async function getPassiveStepsRouteEnabled(): Promise<boolean> {
 
 export async function startPassiveStepsRouteTracking(): Promise<{ ok: boolean; error?: string }> {
   try {
+    const Location = getLocationModule();
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (!foreground.granted) {
-      return { ok: false, error: 'Permiso de ubicacion denegado.' };
+      return { ok: false, error: 'Permiso de ubicación denegado.' };
     }
 
     const background = await Location.requestBackgroundPermissionsAsync().catch(() => ({
       granted: false,
     }));
     if (!background.granted) {
-      return { ok: false, error: 'Necesitas permiso de ubicacion en segundo plano.' };
+      return { ok: false, error: 'Necesitas permiso de ubicación en segundo plano.' };
     }
 
     const already = await Location.hasStartedLocationUpdatesAsync(STEPS_PASSIVE_ROUTE_TASK);
@@ -317,6 +331,7 @@ export async function startPassiveStepsRouteTracking(): Promise<{ ok: boolean; e
 
 export async function stopPassiveStepsRouteTracking(): Promise<StepsRoute | null> {
   try {
+    const Location = getLocationModule();
     const active = await readPassiveRoute();
     const hasUpdates = await Location.hasStartedLocationUpdatesAsync(STEPS_PASSIVE_ROUTE_TASK);
     if (hasUpdates) {
@@ -363,16 +378,17 @@ export async function setPassiveStepsRouteEnabled(
 
 export async function startStepsRouteTracking(): Promise<{ ok: boolean; error?: string }> {
   try {
+    const Location = getLocationModule();
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (!foreground.granted) {
-      return { ok: false, error: 'Permiso de ubicacion denegado.' };
+      return { ok: false, error: 'Permiso de ubicación denegado.' };
     }
 
     const background = await Location.requestBackgroundPermissionsAsync().catch(() => ({
       granted: false,
     }));
     if (!background.granted) {
-      // Continuar igual, pero la ruta no seguira en segundo plano.
+      // Continuar igual, pero la ruta no seguirá en segundo plano.
     }
 
     const already = await Location.hasStartedLocationUpdatesAsync(STEPS_ROUTE_TASK);
@@ -413,6 +429,7 @@ export async function startStepsRouteTracking(): Promise<{ ok: boolean; error?: 
 
 export async function stopStepsRouteTracking(): Promise<StepsRoute | null> {
   try {
+    const Location = getLocationModule();
     const active = await readActiveRoute();
     if (!active) {
       await Location.stopLocationUpdatesAsync(STEPS_ROUTE_TASK);

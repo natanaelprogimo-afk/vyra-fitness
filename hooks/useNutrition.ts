@@ -9,7 +9,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { addCoins, addXP } from '@/services/supabase/profiles';
 import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
@@ -17,6 +16,10 @@ import { calculateMacros } from '@/utils/calculations';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
 import { Colors } from '@/constants/colors';
+import {
+  buildProfileContextUpdate,
+  getProfileContextMemory,
+} from '@/lib/profile-context';
 import {
   getNutritionMode,
   getNutritionModeOption,
@@ -115,10 +118,7 @@ export function useNutrition() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSavingNutritionMode, setIsSavingNutritionMode] = useState(false);
   const [isSavingCompetitionCheckin, setIsSavingCompetitionCheckin] = useState(false);
-  const coachMemory =
-    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
-      ? (profile.coach_memory_json as Record<string, unknown>)
-      : {};
+  const coachMemory = getProfileContextMemory(profile);
 
   const calorieGoal = profile?.calorie_goal ?? 2000;
   const macroGoals  = calculateMacros(calorieGoal, (profile?.goal as any) ?? 'health');
@@ -348,17 +348,17 @@ export function useNutrition() {
         if (hasSleepSignal && hasEnergySignal) {
           insight =
             sleepDiff >= 0 && energyDiff >= 0
-              ? `Con nutricion alta, tu sueno sube ~${Math.round(sleepDiff)} pts y tu energia ~${energyDiff.toFixed(1)} pts.`
+              ?  `Con nutricion alta, tu sueno sube ~${Math.round(sleepDiff)} pts y tu energia ~${energyDiff.toFixed(1)} pts.`
               : `En dias de nutricion baja, sueno y energia tienden a caer (sueno ${Math.round(Math.abs(sleepDiff))} pts, energia ${Math.abs(energyDiff).toFixed(1)} pts).`;
         } else if (hasSleepSignal) {
           insight =
             sleepDiff >= 0
-              ? `Cuando comes mejor, tu sueno mejora ~${Math.round(sleepDiff)} puntos.`
+              ?  `Cuando comes mejor, tu sueno mejora ~${Math.round(sleepDiff)} puntos.`
               : `Cuando baja tu calidad nutricional, tu sueno cae ~${Math.round(Math.abs(sleepDiff))} puntos.`;
         } else if (hasEnergySignal) {
           insight =
             energyDiff >= 0
-              ? `Con mejor nutricion, tu energia reportada sube ~${energyDiff.toFixed(1)} puntos.`
+              ?  `Con mejor nutricion, tu energia reportada sube ~${energyDiff.toFixed(1)} puntos.`
               : `Con nutricion baja, tu energia reportada cae ~${Math.abs(energyDiff).toFixed(1)} puntos.`;
         }
       }
@@ -470,18 +470,18 @@ export function useNutrition() {
   const nutritionModeOption = getNutritionModeOption(nutritionMode);
   const proteinBoost =
     nutritionMode === 'competition'
-      ? 20
+      ?  20
       : nutritionMode === 'athlete'
-        ? Math.max(10, Math.round(activityCalories / 150))
+        ?  Math.max(10, Math.round(activityCalories / 150))
         : Math.round(activityCalories / 250);
   const calorieBudget = Math.max(
     calorieGoal,
     Math.round(
       calorieGoal +
         (nutritionMode === 'competition'
-          ? activityCalories * 0.45
+          ?  activityCalories * 0.45
           : nutritionMode === 'athlete'
-            ? activityCalories * 0.35
+            ?  activityCalories * 0.35
             : activityCalories * 0.2),
     ),
   );
@@ -496,11 +496,11 @@ export function useNutrition() {
       Math.round(
         (macroGoals.carbs ?? 0) +
           (nutritionMode === 'athlete'
-            ? activityCalories / 12
+            ?  activityCalories / 12
             : nutritionMode === 'competition'
-              ? activityCalories / 10
+              ?  activityCalories / 10
               : nutritionMode === 'simple'
-                ? activityCalories / 18
+                ?  activityCalories / 18
                 : activityCalories / 20),
       ),
     ),
@@ -510,13 +510,13 @@ export function useNutrition() {
   const fastingIntegration = (() => {
     const activeFast =
       typeof coachMemory.fasting_active === 'boolean'
-        ? Boolean(coachMemory.fasting_active)
+        ?  Boolean(coachMemory.fasting_active)
         : false;
     if (!activeFast && !profile?.fasting_protocol) return null;
 
     const protocolLabel =
       typeof coachMemory.fasting_protocol_label === 'string'
-        ? (coachMemory.fasting_protocol_label as string)
+        ?  (coachMemory.fasting_protocol_label as string)
         : profile?.fasting_protocol ?? 'protocolo activo';
     const blocked = activeFast;
 
@@ -527,7 +527,7 @@ export function useNutrition() {
         ? `Ayuno activo: mantén el plan simple hasta romper ${protocolLabel}.`
         : `Ayuno configurado: ${protocolLabel}. Ajusta la primera comida según hambre y horario real.`,
       steps: blocked
-        ? [
+        ?  [
             'Prioriza agua, cafe o infusiones sin calorías.',
             'Rompe el ayuno solo si el contexto del día lo justifica.',
             'Cuando abras la ventana, empieza con proteína y comida simple.',
@@ -539,11 +539,11 @@ export function useNutrition() {
   const adaptivePlan = {
     message:
       nutritionMode === 'competition'
-        ? 'VYRA está priorizando precisión y consistencia para que el peso diario tenga contexto real.'
+        ?  'VYRA está priorizando precisión y consistencia para que el peso diario tenga contexto real.'
         : nutritionMode === 'athlete'
-          ? 'VYRA está ajustando el presupuesto del día con más foco en rendimiento y recuperación.'
+          ?  'VYRA está ajustando el presupuesto del día con más foco en rendimiento y recuperación.'
           : nutritionMode === 'awareness'
-            ? 'VYRA está simplificando el día para que comer bien sea sostenible y rápido.'
+            ?  'VYRA está simplificando el día para que comer bien sea sostenible y rápido.'
             : 'VYRA usa tu actividad y la consistencia reciente para que el plan no se quede estático.',
     recommendedCalories: calorieBudget,
     trackedMealDays: weeklyData.length,
@@ -576,7 +576,7 @@ export function useNutrition() {
 
   const competitionCheckin =
     coachMemory.nutrition_competition_checkin && typeof coachMemory.nutrition_competition_checkin === 'object'
-      ? (coachMemory.nutrition_competition_checkin as {
+      ?  (coachMemory.nutrition_competition_checkin as {
           sodium_mg: number;
           water_ml: number;
           fiber_g: number;
@@ -588,7 +588,7 @@ export function useNutrition() {
       : null;
 
   const mealLoggingBlockReason = fastingIntegration?.blocked
-    ? 'Hay un ayuno activo. Si vas a registrar comida, primero termina o actualiza la ventana.'
+    ?  'Hay un ayuno activo. Si vas a registrar comida, primero termina o actualiza la ventana.'
     : '';
   const isMealLoggingBlocked = Boolean(fastingIntegration?.blocked);
 
@@ -620,7 +620,7 @@ export function useNutrition() {
       carbs_g: 68,
       fat_g: 15,
       fiber_g: 7,
-      accent: Colors.coach,
+      accent: Colors.info,
       tags: ['base', 'volumen', 'fácil'],
     },
     {
@@ -673,7 +673,7 @@ export function useNutrition() {
 
         throw new Error(
           typeof payload?.error === 'string'
-            ? payload.error
+            ?  payload.error
             : 'No pudimos consultar el código de barras.',
         );
       }
@@ -733,12 +733,6 @@ export function useNutrition() {
     },
     onSuccess: async (_, input) => {
       // Coins por primer log de cada tipo de comida del día
-      const isFirst = mealsByType[input.meal_type].length === 0;
-      if (isFirst) {
-        await addCoins(userId, 3, 'nutrition_log', `${MEAL_TYPES[input.meal_type].label} registrado`);
-        await addXP(userId, 20);
-      }
-
       queryClient.invalidateQueries({ queryKey: ['meals_today'] });
       queryClient.invalidateQueries({ queryKey: ['nutrition_weekly'] });
       queryClient.invalidateQueries({ queryKey: ['nutrition_frequent_meals'] });
@@ -819,17 +813,17 @@ export function useNutrition() {
     setIsSavingNutritionMode(true);
     const nextMemory = withNutritionMode(coachMemory, mode);
     const previousMemory = coachMemory;
-    updateProfile({ coach_memory_json: nextMemory });
+    updateProfile(buildProfileContextUpdate({ memory: nextMemory }));
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ coach_memory_json: nextMemory, updated_at: new Date().toISOString() })
+        .update({ ...buildProfileContextUpdate({ memory: nextMemory }), updated_at: new Date().toISOString() })
         .eq('id', userId);
       if (error) throw error;
       showToast(`Modo ${getNutritionModeOption(mode).shortTitle.toLowerCase()} activado.`, 'success');
       return true;
     } catch (err) {
-      updateProfile({ coach_memory_json: previousMemory });
+      updateProfile(buildProfileContextUpdate({ memory: previousMemory }));
       captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useNutrition.setNutritionMode' });
       showToast('No pudimos actualizar el modo ahora mismo.', 'warning');
       return false;
@@ -858,10 +852,10 @@ export function useNutrition() {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ coach_memory_json: nextMemory, updated_at: new Date().toISOString() })
+        .update({ ...buildProfileContextUpdate({ memory: nextMemory }), updated_at: new Date().toISOString() })
         .eq('id', userId);
       if (error) throw error;
-      updateProfile({ coach_memory_json: nextMemory });
+      updateProfile(buildProfileContextUpdate({ memory: nextMemory }));
       showToast('Check-in guardado.', 'success');
       return true;
     } catch (err) {

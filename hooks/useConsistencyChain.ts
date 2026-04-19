@@ -131,7 +131,7 @@ async function buildFallbackTimeline(userId: string, days: number): Promise<Cons
     const date = daysAgoISO(i);
     const row = map.get(date) as any | undefined;
     const metrics = row
-      ? [
+      ?  [
           row.hydration_pct ?? 0,
           row.sleep_pct ?? 0,
           row.nutrition_pct ?? 0,

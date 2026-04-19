@@ -45,8 +45,3 @@ declare module 'expo-sharing' {
   const m: any;
   export = m;
 }
-
-declare module '@expo-google-fonts/dm-sans/400Regular' { export const DMSans_400Regular: any; export default DMSans_400Regular; }
-declare module '@expo-google-fonts/dm-sans/500Medium' { export const DMSans_500Medium: any; export default DMSans_500Medium; }
-declare module '@expo-google-fonts/dm-sans/600SemiBold' { export const DMSans_600SemiBold: any; export default DMSans_600SemiBold; }
-declare module '@expo-google-fonts/syne/700Bold' { export const Syne_700Bold: any; export default Syne_700Bold; }

@@ -1,49 +1,54 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Card from '@/components/ui/Card';
 import EmptyState from '@/components/ui/EmptyState';
 import { Colors } from '@/constants/colors';
-import { Spacing, Radius, FontFamily } from '@/constants/theme';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
 
 export default function WorkoutInsightsScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
-  const initial = (params.tab as string) ?? 'history';
-  const [tab, setTab] = useState<'history' | 'stats' | 'prs'>(initial as any);
+  const initial = params.tab === 'stats' || params.tab === 'prs' ? params.tab : 'history';
+  const [tab, setTab] = useState<'history' | 'stats' | 'prs'>(initial);
 
-  const {
-    history,
-    getWeeklyStats,
-    getConsistencyStats,
-    personalRecords,
-    exercises,
-  } = useWorkout();
+  const { history, getWeeklyStats, getConsistencyStats, personalRecords, exercises } = useWorkout();
 
   const weekly = useMemo(() => getWeeklyStats(), [getWeeklyStats, history]);
   const consistency = useMemo(() => getConsistencyStats(), [getConsistencyStats, history]);
 
   const prsList = useMemo(() => {
-    return Object.values(personalRecords || {}).map((r) => ({
-      ...r,
-      name: exercises.find((e) => e.id === r.exercise_id)?.name ?? r.exercise_id,
-    })).sort((a, b) => (new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
+    return Object.values(personalRecords || {})
+      .map((record) => ({
+        ...record,
+        name: exercises.find((exercise) => exercise.id === record.exercise_id)?.name ?? record.exercise_id,
+      }))
+      .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime());
   }, [personalRecords, exercises]);
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Entrenamiento — Insights</Text>
+        <Text style={styles.title}>Entreno</Text>
         <View style={styles.tabRow}>
-          <TouchableOpacity onPress={() => setTab('history')} style={[styles.tabBtn, tab === 'history' && styles.tabActive]}>
+          <TouchableOpacity
+            onPress={() => setTab('history')}
+            style={[styles.tabBtn, tab === 'history' && styles.tabActive]}
+          >
             <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>Historial</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setTab('stats')} style={[styles.tabBtn, tab === 'stats' && styles.tabActive]}>
-            <Text style={[styles.tabText, tab === 'stats' && styles.tabTextActive]}>Estadísticas</Text>
+          <TouchableOpacity
+            onPress={() => setTab('stats')}
+            style={[styles.tabBtn, tab === 'stats' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, tab === 'stats' && styles.tabTextActive]}>Resumen</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setTab('prs')} style={[styles.tabBtn, tab === 'prs' && styles.tabActive]}>
-            <Text style={[styles.tabText, tab === 'prs' && styles.tabTextActive]}>Records</Text>
+          <TouchableOpacity
+            onPress={() => setTab('prs')}
+            style={[styles.tabBtn, tab === 'prs' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, tab === 'prs' && styles.tabTextActive]}>PRs</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -52,18 +57,25 @@ export default function WorkoutInsightsScreen() {
         {tab === 'history' && (
           <View style={styles.section}>
             {history.length === 0 ? (
-              <EmptyState icon="📋" title="Sin entrenos" description="Todavía no registraste entrenos." />
+              <EmptyState icon="LISTA" title="Sin entrenos" description="Todavia no registraste entrenos." />
             ) : (
               history.map((session) => (
                 <Card key={session.id} style={styles.historyCard}>
                   <View style={styles.historyRow}>
                     <View style={styles.historyLeft}>
                       <Text style={styles.historyName}>{session.name}</Text>
-                      <Text style={styles.historyDate}>{new Date(session.started_at).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })} · {session.duration_min ?? '-'} min</Text>
+                      <Text style={styles.historyDate}>
+                        {new Date(session.started_at).toLocaleDateString('es-AR', {
+                          weekday: 'short',
+                          day: '2-digit',
+                          month: 'short',
+                        })}{' '}
+                        - {session.duration_min ?? '-'} min
+                      </Text>
                     </View>
                     <View style={styles.historyRight}>
-                      <Text style={styles.historyVolume}>{session.total_volume_kg.toLocaleString()} kg</Text>
-                      <Text style={styles.historyVolumeLabel}>volumen</Text>
+                      <Text style={styles.historyVolume}>{session.sets_count}</Text>
+                      <Text style={styles.historyVolumeLabel}>series</Text>
                     </View>
                   </View>
                 </Card>
@@ -82,8 +94,8 @@ export default function WorkoutInsightsScreen() {
                   <Text style={styles.statLabel}>Entrenos</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{Math.round(weekly.volume)}</Text>
-                  <Text style={styles.statLabel}>Volumen (kg)</Text>
+                  <Text style={styles.statValue}>{weekly.muscles.length}</Text>
+                  <Text style={styles.statLabel}>Grupos</Text>
                 </View>
                 <View style={styles.statItem}>
                   <Text style={styles.statValue}>{consistency.currentStreak}</Text>
@@ -97,12 +109,14 @@ export default function WorkoutInsightsScreen() {
         {tab === 'prs' && (
           <View style={styles.section}>
             {prsList.length === 0 ? (
-              <EmptyState icon="🏆" title="Sin records" description="No hay records personales registrados todavía." />
+              <EmptyState icon="TROFEO" title="Sin records" description="Todavia no hay PRs registrados." />
             ) : (
-              prsList.map((r) => (
-                <Card key={r.exercise_id} style={styles.prCard}>
-                  <Text style={styles.prName}>{r.name}</Text>
-                  <Text style={styles.prMeta}>Peso máximo: {r.maxWeight} kg · Reps: {r.maxReps}</Text>
+              prsList.map((record) => (
+                <Card key={record.exercise_id} style={styles.prCard}>
+                  <Text style={styles.prName}>{record.name}</Text>
+                  <Text style={styles.prMeta}>
+                    Peso maximo: {record.maxWeight} kg - Reps: {record.maxReps}
+                  </Text>
                 </Card>
               ))
             )}
@@ -170,7 +184,12 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', justifyContent: 'space-around' },
   statItem: { alignItems: 'center' },
   statValue: { fontFamily: FontFamily.bold, fontSize: 22, color: Colors.workout },
-  statLabel: { fontFamily: FontFamily.regular, fontSize: 12, color: Colors.textSecondary },
+  statLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
   prCard: { padding: Spacing[4] },
   prName: { fontFamily: FontFamily.bold, fontSize: 16, color: Colors.textPrimary },
   prMeta: { fontFamily: FontFamily.regular, fontSize: 13, color: Colors.textSecondary },

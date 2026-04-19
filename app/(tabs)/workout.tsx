@@ -1,3 +1,5 @@
 import WorkoutScreen from '../modules/workout';
 
-export default WorkoutScreen;
+export default function WorkoutTabScreen() {
+  return <WorkoutScreen showBack={false} />;
+}

@@ -1,329 +1,627 @@
-// ============================================================
-// VYRA FITNESS — Nutrición: Log de comida
-// Búsqueda en BD + entrada manual, cálculo por gramos
-// ============================================================
-
-import { useState, useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, ScrollView,
-  Pressable, StyleSheet, ActivityIndicator,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import SafeScreen from '@/components/ui/SafeScreen';
+import * as ImagePicker from 'expo-image-picker';
+import { router, useLocalSearchParams } from 'expo-router';
 import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
-import { useNutrition, MEAL_TYPES, type MealType, type FoodItem } from '@/hooks/useNutrition';
-import { NUTRITION_MODE_OPTIONS } from '@/lib/nutrition-mode';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import {
+  MEAL_TYPES,
+  useNutrition,
+  type FoodItem,
+  type MealType,
+} from '@/hooks/useNutrition';
+import { analyzeNutritionPhoto, type NutritionAIResult } from '@/lib/ai-assist';
+import {
+  calculateNutritionPreview,
+  canSubmitManualNutrition,
+  getNutritionQuickAmounts,
+  normalizeNutritionAmount,
+  parseNutritionNumber,
+} from '@/lib/nutrition-log';
 
-type LogMode = 'search' | 'barcode' | 'manual';
+type LogMode = 'search' | 'photo' | 'barcode' | 'manual';
 
 export default function NutritionLogScreen() {
-  const params    = useLocalSearchParams<{ mealType: MealType }>();
-  const mealType  = params.mealType ?? 'snack';
-  const config    = MEAL_TYPES[mealType];
+  const params = useLocalSearchParams<{ mealType?: MealType; mode?: LogMode }>();
+  const mealType = params.mealType ?? 'snack';
+  const mealMeta = MEAL_TYPES[mealType];
+  const initialMode: LogMode =
+    params.mode === 'photo' || params.mode === 'manual' || params.mode === 'barcode'
+      ? params.mode
+      : 'search';
 
-  const { logMeal, isLogging, searchFoods, nutritionMode, setNutritionMode, isSavingNutritionMode } = useNutrition();
+  const { logMeal, isLogging, searchFoods, frequentMeals } = useNutrition();
 
-  const [mode,        setMode]       = useState<LogMode>('search');
-  const [query,       setQuery]      = useState('');
-  const [results,     setResults]    = useState<FoodItem[]>([]);
-  const [isSearching, setIsSearching]= useState(false);
-  const [selected,    setSelected]   = useState<FoodItem | null>(null);
-  const [amountG,     setAmountG]    = useState('100');
+  const [mode, setMode] = useState<LogMode>(initialMode);
+  const [query, setQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [results, setResults] = useState<FoodItem[]>([]);
+  const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
+  const [amountG, setAmountG] = useState('100');
 
-  // Manual mode fields
-  const [manualName,  setManualName] = useState('');
-  const [manualKcal,  setManualKcal] = useState('');
-  const [manualProt,  setManualProt] = useState('');
-  const [manualCarbs, setManualCarbs]= useState('');
-  const [manualFat,   setManualFat]  = useState('');
-  const [manualFiber, setManualFiber]= useState('');
-  const [manualGrams, setManualGrams]= useState('100');
+  const [manualName, setManualName] = useState('');
+  const [manualCalories, setManualCalories] = useState('');
+  const [manualProtein, setManualProtein] = useState('');
+  const [manualCarbs, setManualCarbs] = useState('');
+  const [manualFat, setManualFat] = useState('');
+  const [manualFiber, setManualFiber] = useState('');
+  const [manualGrams, setManualGrams] = useState('100');
 
-  // Buscar con debounce
-  const handleSearch = useCallback(async (text: string) => {
-    setQuery(text);
-    setSelected(null);
-    if (text.length < 2) { setResults([]); return; }
-    setIsSearching(true);
-    const found = await searchFoods(text).finally(() => setIsSearching(false));
-    setResults(found);
-  }, []);
+  const [photoDraft, setPhotoDraft] = useState<NutritionAIResult | null>(null);
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
 
-  // Calcular macros según gramos al seleccionar un alimento
-  const calcForAmount = (food: FoodItem, grams: number) => {
-    const factor = grams / 100;
-    return {
-      calories: food.calories_per_100g * factor,
-      protein:  food.protein_g         * factor,
-      carbs:    food.carbs_g           * factor,
-      fat:      food.fat_g             * factor,
-      fiber:    food.fiber_g           * factor,
-    };
-  };
+  const quickAmounts = useMemo(() => getNutritionQuickAmounts(mealType), [mealType]);
+  const quickMeals = useMemo(() => {
+    const specific = frequentMeals.filter((item) => item.meal_type === mealType);
+    return (specific.length ? specific : frequentMeals).slice(0, 6);
+  }, [frequentMeals, mealType]);
 
-  const preview = selected
-    ? calcForAmount(selected, parseFloat(amountG) || 100)
+  const preview = selectedFood
+    ? calculateNutritionPreview(selectedFood, normalizeNutritionAmount(amountG, 100))
     : null;
 
-  const handleLogFromSearch = () => {
-    if (!selected || !preview) return;
-    const g = parseFloat(amountG) || 100;
+  const handleSearch = useCallback(
+    async (value: string) => {
+      setQuery(value);
+      setSelectedFood(null);
+      if (value.trim().length < 2) {
+        setResults([]);
+        return;
+      }
+      setIsSearching(true);
+      try {
+        const found = await searchFoods(value.trim());
+        setResults(found);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [searchFoods],
+  );
+
+  const applyPhotoDraft = useCallback((draft: NutritionAIResult) => {
+    setPhotoDraft(draft);
+    setManualName(draft.food_name);
+    setManualGrams(String(Math.round(draft.amount_g || 100)));
+    setManualCalories(String(Math.round(draft.calories || 0)));
+    setManualProtein(String(Math.round(draft.protein_g || 0)));
+    setManualCarbs(String(Math.round(draft.carbs_g || 0)));
+    setManualFat(String(Math.round(draft.fat_g || 0)));
+    setManualFiber(String(Math.round(draft.fiber_g || 0)));
+    setMode('manual');
+  }, []);
+
+  const handleAnalyzePhoto = useCallback(
+    async (source: 'camera' | 'library') => {
+      setPhotoError('');
+      setIsAnalyzingPhoto(true);
+      try {
+        const permission =
+          source === 'camera'
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+          setPhotoError(source === 'camera' ? 'Hace falta permiso de camara.' : 'Hace falta permiso de galeria.');
+          return;
+        }
+
+        const result =
+          source === 'camera'
+            ? await ImagePicker.launchCameraAsync({
+                quality: 0.65,
+                base64: true,
+              })
+            : await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.65,
+                base64: true,
+                allowsMultipleSelection: false,
+              });
+
+        if (result.canceled || !result.assets?.[0]?.base64) {
+          return;
+        }
+
+        const asset = result.assets[0];
+        const imageBase64 = typeof asset.base64 === 'string' ? asset.base64 : '';
+        if (!imageBase64) {
+          setPhotoError('No pude leer la foto para analizarla.');
+          return;
+        }
+        const parsed = await analyzeNutritionPhoto({
+          imageBase64,
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          description: `${mealMeta.label} del usuario`,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        applyPhotoDraft(parsed);
+      } catch (error) {
+        setPhotoError(error instanceof Error ? error.message : 'No pude analizar la foto.');
+      } finally {
+        setIsAnalyzingPhoto(false);
+      }
+    },
+    [applyPhotoDraft, mealMeta.label],
+  );
+
+  const handleAddSelectedFood = () => {
+    if (!selectedFood || !preview) return;
     logMeal({
       meal_type: mealType,
-      food_name: selected.name,
-      food_id:   selected.id,
-      amount_g:  g,
-      calories:  preview.calories,
+      food_name: selectedFood.name,
+      food_id: selectedFood.id,
+      amount_g: normalizeNutritionAmount(amountG, 100),
+      calories: preview.calories,
       protein_g: preview.protein,
-      carbs_g:   preview.carbs,
-      fat_g:     preview.fat,
-      fiber_g:   preview.fiber,
+      carbs_g: preview.carbs,
+      fat_g: preview.fat,
+      fiber_g: preview.fiber,
     });
     router.back();
   };
 
-  const handleLogManual = () => {
-    const name = manualName.trim();
-    if (!name || !manualKcal) return;
+  const handleAddManual = () => {
+    const trimmed = manualName.trim();
+    if (!canSubmitManualNutrition({ name: trimmed, calories: manualCalories })) return;
     logMeal({
       meal_type: mealType,
-      food_name: name,
-      amount_g:  parseFloat(manualGrams) || 100,
-      calories:  parseFloat(manualKcal)  || 0,
-      protein_g: parseFloat(manualProt)  || 0,
-      carbs_g:   parseFloat(manualCarbs) || 0,
-      fat_g:     parseFloat(manualFat)   || 0,
-      fiber_g:   parseFloat(manualFiber) || 0,
+      food_name: trimmed,
+      amount_g: normalizeNutritionAmount(manualGrams, 100),
+      calories: parseNutritionNumber(manualCalories) ?? 0,
+      protein_g: parseNutritionNumber(manualProtein) ?? 0,
+      carbs_g: parseNutritionNumber(manualCarbs) ?? 0,
+      fat_g: parseNutritionNumber(manualFat) ?? 0,
+      fiber_g: parseNutritionNumber(manualFiber) ?? 0,
+      source: photoDraft ? 'photo_ai' : 'manual',
     });
     router.back();
   };
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header
-        title={`Agregar a ${config.label}`}
-        showBack
-        color={Colors.nutrition}
-      />
+      <Header title={`Agregar a ${mealMeta.label}`} showBack />
 
-      {/* Nutrition mode selector (inlined from nutrition/mode) */}
-      <View style={styles.nutriModeRow}>
-        {NUTRITION_MODE_OPTIONS.map((m) => {
-          const isActive = nutritionMode === m.id;
-          return (
-            <Pressable
-              key={m.id}
-              style={[styles.nutriModeBtn, isActive && styles.nutriModeBtnActive]}
-              onPress={() => void setNutritionMode(m.id)}
-            >
-              <Text style={[styles.nutriModeText, isActive && { color: Colors.nutrition }]}>{m.shortTitle}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {/* Toggle mode */}
-      <View style={styles.modeToggle}>
-        <Pressable
-          style={[styles.modeBtn, mode === 'search' && styles.modeBtnActive]}
-          onPress={() => setMode('search')}
-        >
-          <Text style={[styles.modeBtnText, mode === 'search' && { color: Colors.nutrition }]}>
-            🔍 Buscar
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.modeBtn, mode === 'barcode' && styles.modeBtnActive]}
-          onPress={() => router.push('/modules/nutrition/barcode-scan' as any)}
-        >
-          <Text style={[styles.modeBtnText, mode === 'barcode' && { color: Colors.nutrition }]}>
-            📱 Código
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.modeBtn, mode === 'manual' && styles.modeBtnActive]}
-          onPress={() => setMode('manual')}
-        >
-          <Text style={[styles.modeBtnText, mode === 'manual' && { color: Colors.nutrition }]}>
-            ✏️ Manual
-          </Text>
-        </Pressable>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.modeRow}>
+          {(['search', 'photo', 'barcode', 'manual'] as LogMode[]).map((item) => {
+            const isActive = mode === item;
+            return (
+              <Pressable
+                key={item}
+                style={[styles.modePill, isActive && styles.modePillActive]}
+                onPress={() => {
+                  if (item === 'barcode') {
+                    router.push(Routes.nutrition.barcode as never);
+                    return;
+                  }
+                  setMode(item);
+                }}
+              >
+                <Text style={[styles.modePillText, isActive && styles.modePillTextActive]}>
+                  {item === 'search'
+                    ? 'Buscar'
+                    : item === 'photo'
+                      ? 'Foto'
+                      : item === 'barcode'
+                        ? 'Codigo'
+                        : 'Manual'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
         {mode === 'search' ? (
           <>
-            {/* Search bar */}
-            <TextInput
-              style={styles.searchInput}
+            {quickMeals.length ? (
+              <Card style={styles.sectionCard} shadow={false}>
+                <Text style={styles.sectionTitle}>Frecuentes</Text>
+                <View style={styles.quickMealsWrap}>
+                  {quickMeals.map((meal) => (
+                    <Pressable
+                      key={meal.key}
+                      style={styles.quickMealChip}
+                      onPress={() => {
+                        logMeal({
+                          meal_type: mealType,
+                          food_name: meal.food_name,
+                          food_id: meal.food_id ?? undefined,
+                          amount_g: meal.amount_g,
+                          calories: meal.calories,
+                          protein_g: meal.protein_g,
+                          carbs_g: meal.carbs_g,
+                          fat_g: meal.fat_g,
+                          fiber_g: meal.fiber_g,
+                        });
+                        router.back();
+                      }}
+                    >
+                      <Text style={styles.quickMealName} numberOfLines={1}>
+                        {meal.food_name}
+                      </Text>
+                      <Text style={styles.quickMealMeta}>
+                        {Math.round(meal.calories)} kcal · {meal.amount_g} g
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </Card>
+            ) : null}
+
+            <Input
+              label="Buscar alimento"
+              placeholder="Ej: arroz, yogur, pollo..."
               value={query}
-              onChangeText={handleSearch}
-              placeholder="Buscar alimento (ej: arroz, pollo, manzana)..."
-              placeholderTextColor={Colors.textMuted}
+              onChangeText={(value) => void handleSearch(value)}
               autoFocus
-              returnKeyType="search"
             />
 
-            {isSearching && (
-              <ActivityIndicator color={Colors.nutrition} style={styles.spinner} />
-            )}
+            {isSearching ? (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color={Colors.textSecondary} />
+                <Text style={styles.loadingText}>Buscando alimentos...</Text>
+              </View>
+            ) : null}
 
-            {/* Resultados */}
-            {results.map((food) => (
-              <Pressable
-                key={food.id}
-                onPress={() => {
-                  setSelected(food);
-                  setResults([]);
-                  Haptics.selectionAsync().catch(() => {});
-                }}
-                style={[styles.resultRow, selected?.id === food.id && styles.resultRowActive]}
-              >
-                <View style={styles.resultInfo}>
-                  <Text style={styles.resultName}>{food.name}</Text>
-                  {food.brand && <Text style={styles.resultBrand}>{food.brand}</Text>}
+            {results.length ? (
+              <Card style={styles.sectionCard} shadow={false}>
+                <Text style={styles.sectionTitle}>Resultados</Text>
+                <View style={styles.resultsList}>
+                  {results.map((item, index) => (
+                    <Pressable
+                      key={item.id}
+                      style={styles.resultRow}
+                      onPress={() => {
+                        setSelectedFood(item);
+                        setAmountG('100');
+                      }}
+                    >
+                      <View style={styles.resultCopy}>
+                        <Text style={styles.resultName}>{item.name}</Text>
+                        <Text style={styles.resultMeta}>
+                          {item.brand ? `${item.brand} · ` : ''}
+                          {Math.round(item.calories_per_100g)} kcal/100g
+                        </Text>
+                      </View>
+                      <Text style={styles.resultArrow}>{'>'}</Text>
+                      {index < results.length - 1 ? <View style={styles.resultDivider} /> : null}
+                    </Pressable>
+                  ))}
                 </View>
-                <Text style={styles.resultKcal}>{Math.round(food.calories_per_100g)} kcal/100g</Text>
-              </Pressable>
-            ))}
+              </Card>
+            ) : null}
 
-            {/* Alimento seleccionado */}
-            {selected && (
-              <Card style={styles.selectedCard}>
-                <Text style={styles.selectedName}>{selected.name}</Text>
-                {selected.brand && <Text style={styles.selectedBrand}>{selected.brand}</Text>}
-
+            {selectedFood && preview ? (
+              <Card style={styles.previewCard} shadow={false}>
+                <Text style={styles.sectionTitle}>{selectedFood.name}</Text>
+                <Text style={styles.previewMeta}>
+                  {preview.calories} kcal · {preview.protein}P · {preview.carbs}C · {preview.fat}G
+                </Text>
+                <View style={styles.amountRow}>
+                  {quickAmounts.map((value) => (
+                    <Pressable
+                      key={value}
+                      style={[
+                        styles.amountChip,
+                        normalizeNutritionAmount(amountG, 100) === value && styles.amountChipActive,
+                      ]}
+                      onPress={() => setAmountG(String(value))}
+                    >
+                      <Text
+                        style={[
+                          styles.amountChipText,
+                          normalizeNutritionAmount(amountG, 100) === value && styles.amountChipTextActive,
+                        ]}
+                      >
+                        {value}g
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
                 <Input
                   label="Cantidad"
                   value={amountG}
                   onChangeText={setAmountG}
                   keyboardType="numeric"
                   unit="g"
-                  style={styles.amountInput}
                 />
-
-                {preview && (
-                  <View style={styles.previewRow}>
-                    <PreviewMacro label="Kcal"  value={Math.round(preview.calories)} color={Colors.nutrition} />
-                    <PreviewMacro label="Prot"  value={Math.round(preview.protein)}  color="#FF6B6B" unit="g" />
-                    <PreviewMacro label="Carbs" value={Math.round(preview.carbs)}    color={Colors.fasting}  unit="g" />
-                    <PreviewMacro label="Grasas" value={Math.round(preview.fat)}     color="#FFD43B" unit="g" />
-                  </View>
-                )}
-
-                <Button
-                  onPress={handleLogFromSearch}
-                  variant="primary"
-                  fullWidth
-                  loading={isLogging}
-                  style={styles.logBtn}
-                >
-                  Agregar a {config.label}
+                <Button onPress={handleAddSelectedFood} loading={isLogging} fullWidth>
+                  Agregar a {mealMeta.label}
                 </Button>
               </Card>
-            )}
-
-            {results.length === 0 && query.length >= 2 && !isSearching && !selected && (
-              <View style={styles.noResults}>
-                <Text style={styles.noResultsText}>No encontramos "{query}"</Text>
-                <Pressable onPress={() => setMode('manual')}>
-                  <Text style={styles.noResultsLink}>→ Ingresarlo manualmente</Text>
-                </Pressable>
-              </View>
-            )}
+            ) : null}
           </>
-        ) : (
-          // Manual entry
-          <View>
-            <Text style={styles.manualTitle}>Ingresá la información nutricional</Text>
-            <Input label="Nombre del alimento *" value={manualName} onChangeText={setManualName} style={styles.field} />
-            <Input label="Cantidad" value={manualGrams} onChangeText={setManualGrams} keyboardType="numeric" unit="g" style={styles.field} />
-            <Input label="Calorías *" value={manualKcal}  onChangeText={setManualKcal}  keyboardType="numeric" unit="kcal" style={styles.field} />
-            <View style={styles.macroRow}>
-              <Input label="Proteínas"   value={manualProt}  onChangeText={setManualProt}  keyboardType="numeric" unit="g" style={[styles.field, styles.halfField]} />
-              <Input label="Carbohidrat" value={manualCarbs} onChangeText={setManualCarbs} keyboardType="numeric" unit="g" style={[styles.field, styles.halfField]} />
+        ) : null}
+
+        {mode === 'photo' ? (
+          <>
+            <Card style={styles.sectionCard} shadow={false}>
+              <Text style={styles.sectionTitle}>Foto IA</Text>
+              <Text style={styles.sectionBody}>
+                Haz una foto, revisa lo que VYRA detecta y corrige antes de guardar.
+              </Text>
+              <Button
+                onPress={() => void handleAnalyzePhoto('camera')}
+                loading={isAnalyzingPhoto}
+                fullWidth
+              >
+                Tomar foto
+              </Button>
+              <Button
+                onPress={() => void handleAnalyzePhoto('library')}
+                variant="ghost"
+                fullWidth
+                disabled={isAnalyzingPhoto}
+              >
+                Elegir de galeria
+              </Button>
+              {photoError ? <Text style={styles.errorText}>{photoError}</Text> : null}
+            </Card>
+
+            {photoDraft ? (
+              <Card style={styles.previewCard} shadow={false}>
+                <Text style={styles.sectionTitle}>Detecte esto</Text>
+                <Text style={styles.previewMeta}>
+                  {Math.round(photoDraft.calories)} kcal · confianza {Math.round(photoDraft.confidence * 100)}%
+                </Text>
+                <View style={styles.componentList}>
+                  {photoDraft.components.map((component) => (
+                    <View key={`${component.name}-${component.amount_g ?? 'na'}`} style={styles.componentRow}>
+                      <Text style={styles.componentName}>{component.name}</Text>
+                      <Text style={styles.componentMeta}>
+                        {component.amount_g ? `${Math.round(component.amount_g)} g` : 'sin cantidad'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <Button onPress={() => setMode('manual')} fullWidth>
+                  Confirmar y corregir
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {mode === 'manual' ? (
+          <Card style={styles.manualCard} shadow={false}>
+            <Text style={styles.sectionTitle}>Carga manual</Text>
+            {photoDraft?.note ? <Text style={styles.sectionBody}>{photoDraft.note}</Text> : null}
+            <Input label="Nombre" value={manualName} onChangeText={setManualName} placeholder="Ej: arroz con pollo" />
+            <Input
+              label="Cantidad"
+              value={manualGrams}
+              onChangeText={setManualGrams}
+              keyboardType="numeric"
+              unit="g"
+            />
+            <View style={styles.manualGrid}>
+              <Input label="Kcal" value={manualCalories} onChangeText={setManualCalories} keyboardType="numeric" />
+              <Input label="Proteina" value={manualProtein} onChangeText={setManualProtein} keyboardType="numeric" unit="g" />
             </View>
-            <View style={styles.macroRow}>
-              <Input label="Grasas"   value={manualFat}   onChangeText={setManualFat}   keyboardType="numeric" unit="g" style={[styles.field, styles.halfField]} />
-              <Input label="Fibra"    value={manualFiber} onChangeText={setManualFiber} keyboardType="numeric" unit="g" style={[styles.field, styles.halfField]} />
+            <View style={styles.manualGrid}>
+              <Input label="Carbos" value={manualCarbs} onChangeText={setManualCarbs} keyboardType="numeric" unit="g" />
+              <Input label="Grasas" value={manualFat} onChangeText={setManualFat} keyboardType="numeric" unit="g" />
             </View>
+            <Input label="Fibra" value={manualFiber} onChangeText={setManualFiber} keyboardType="numeric" unit="g" />
             <Button
-              onPress={handleLogManual}
-              variant="primary"
-              fullWidth
+              onPress={handleAddManual}
               loading={isLogging}
-              disabled={!manualName.trim() || !manualKcal}
-              style={styles.logBtn}
+              fullWidth
+              disabled={!canSubmitManualNutrition({ name: manualName.trim(), calories: manualCalories })}
             >
-              Agregar a {config.label}
+              Agregar a {mealMeta.label}
             </Button>
-          </View>
-        )}
+          </Card>
+        ) : null}
       </ScrollView>
     </SafeScreen>
   );
 }
 
-function PreviewMacro({ label, value, color, unit = '' }: { label: string; value: number; color: string; unit?: string }) {
-  return (
-    <View style={styles.previewMacro}>
-      <Text style={[styles.previewValue, { color }]}>{value}{unit}</Text>
-      <Text style={styles.previewLabel}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  modeToggle:     { flexDirection: 'row', marginHorizontal: Spacing[5], marginBottom: Spacing[4], backgroundColor: Colors.bgSurface, borderRadius: Radius.xl, padding: 3 },
-  modeBtn:        { flex: 1, paddingVertical: Spacing[2], alignItems: 'center', borderRadius: Radius.lg },
-  modeBtnActive:  { backgroundColor: Colors.bgElevated },
-  modeBtnText:    { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
-  nutriModeRow:   { flexDirection: 'row', gap: Spacing[2], marginHorizontal: Spacing[5], marginBottom: Spacing[3] },
-  nutriModeBtn:   { paddingVertical: Spacing[2], paddingHorizontal: Spacing[4], borderRadius: Radius.xl, backgroundColor: Colors.bgSurface, borderWidth: 1, borderColor: Colors.border },
-  nutriModeBtnActive: { borderColor: Colors.nutrition, backgroundColor: Colors.bgElevated },
-  nutriModeText:  { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
-  content:        { paddingHorizontal: Spacing[5], paddingBottom: Spacing[10] },
-  searchInput: {
-    backgroundColor:  Colors.bgSurface,
-    borderRadius:     Radius.xl,
-    borderWidth:      1,
-    borderColor:      Colors.border,
-    paddingHorizontal:Spacing[4],
-    paddingVertical:  Spacing[3],
-    color:            Colors.textPrimary,
-    fontFamily:       FontFamily.regular,
-    fontSize:         FontSize.base,
-    marginBottom:     Spacing[3],
+  content: {
+    paddingHorizontal: Spacing[5],
+    paddingBottom: Spacing[10],
+    gap: Spacing[4],
   },
-  spinner:        { marginVertical: Spacing[4] },
-  resultRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing[3], borderBottomWidth: 1, borderBottomColor: Colors.divider },
-  resultRowActive:{ backgroundColor: `${Colors.nutrition}10`, borderRadius: Radius.lg, paddingHorizontal: Spacing[2] },
-  resultInfo:     { flex: 1 },
-  resultName:     { fontFamily: FontFamily.semibold, fontSize: FontSize.sm, color: Colors.textPrimary },
-  resultBrand:    { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  resultKcal:     { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.textMuted },
-  selectedCard:   { marginTop: Spacing[4] },
-  selectedName:   { fontFamily: FontFamily.bold, fontSize: FontSize.lg, color: Colors.textPrimary, marginBottom: 2 },
-  selectedBrand:  { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted, marginBottom: Spacing[4] },
-  amountInput:    { marginBottom: Spacing[4] },
-  previewRow:     { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: Spacing[3], backgroundColor: Colors.bgElevated, borderRadius: Radius.lg, marginBottom: Spacing[4] },
-  previewMacro:   { alignItems: 'center' },
-  previewValue:   { fontFamily: FontFamily.bold, fontSize: FontSize.lg },
-  previewLabel:   { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  logBtn:         {},
-  noResults:      { alignItems: 'center', paddingVertical: Spacing[6] },
-  noResultsText:  { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textMuted, marginBottom: Spacing[2] },
-  noResultsLink:  { fontFamily: FontFamily.medium, fontSize: FontSize.sm, color: Colors.nutrition },
-  manualTitle:    { fontFamily: FontFamily.bold, fontSize: FontSize.lg, color: Colors.textPrimary, marginBottom: Spacing[4] },
-  field:          { marginBottom: Spacing[3] },
-  macroRow:       { flexDirection: 'row', gap: Spacing[3] },
-  halfField:      { flex: 1 },
+  modeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  modePill: {
+    minHeight: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modePillActive: {
+    backgroundColor: Colors.action,
+    borderColor: Colors.action,
+  },
+  modePillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  modePillTextActive: {
+    color: Colors.white,
+  },
+  sectionCard: {
+    gap: Spacing[3],
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  sectionBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  quickMealsWrap: {
+    gap: Spacing[2],
+  },
+  quickMealChip: {
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2.5],
+    gap: 4,
+  },
+  quickMealName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  quickMealMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  loadingText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  resultsList: {
+    gap: Spacing[2],
+  },
+  resultRow: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+    minHeight: 56,
+    paddingVertical: Spacing[2],
+  },
+  resultCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  resultName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  resultMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  resultArrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.md,
+    color: Colors.textMuted,
+  },
+  resultDivider: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -Spacing[1],
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  previewCard: {
+    gap: Spacing[3],
+  },
+  previewMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  amountRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  amountChip: {
+    minHeight: 38,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountChipActive: {
+    backgroundColor: withOpacity(Colors.action, 0.1),
+    borderColor: Colors.actionBorder,
+  },
+  amountChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  amountChipTextActive: {
+    color: Colors.action,
+  },
+  componentList: {
+    gap: Spacing[2],
+  },
+  componentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+    paddingBottom: Spacing[2],
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  componentName: {
+    flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  componentMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  manualCard: {
+    gap: Spacing[3],
+  },
+  manualGrid: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  errorText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.error,
+  },
 });

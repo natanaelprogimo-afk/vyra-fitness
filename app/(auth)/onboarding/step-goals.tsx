@@ -1,89 +1,113 @@
-﻿import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
-import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { GOAL_OPTIONS } from '@/lib/onboarding-v2';
-import { loadOnboardingProgress, saveOnboardingProgress, type OnboardingDraft } from '@/lib/onboarding-storage';
-import { router } from 'expo-router';
+import {
+  loadOnboardingProgress,
+  saveOnboardingProgress,
+  type OnboardingDraft,
+} from '@/lib/onboarding-storage';
+import { useAuthStore } from '@/stores/authStore';
+
+function sanitizeName(raw: string | null | undefined) {
+  return raw?.trim() ?? '';
+}
 
 export default function StepGoalsScreen() {
+  const user = useAuthStore((state) => state.user);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
-  const [selected, setSelected] = useState<string>('');
+  const [name, setName] = useState('');
+  const [goal, setGoal] = useState<NonNullable<OnboardingDraft['goal']> | ''>('');
 
   useEffect(() => {
     let active = true;
+
     void (async () => {
       const progress = await loadOnboardingProgress();
       if (!active) return;
-      setDraft(progress.data ?? null);
-      if (progress.data?.goal) setSelected(progress.data.goal);
+
+      const nextDraft = progress.data ?? null;
+      const fallbackName =
+        typeof user?.user_metadata?.name === 'string'
+          ? user.user_metadata.name
+          : typeof user?.email === 'string'
+            ? user.email.split('@')[0] ?? ''
+            : '';
+
+      setDraft(nextDraft);
+      setName(sanitizeName(nextDraft?.name) || sanitizeName(fallbackName));
+      setGoal(nextDraft?.goal ?? '');
     })();
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [user?.email, user?.user_metadata?.name]);
 
-  const handleSelect = async (goal: string) => {
-    setSelected(goal);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    await saveOnboardingProgress(Routes.auth.onboarding.base, {
+  const canContinue = name.trim().length >= 2 && goal !== '';
+
+  const handleContinue = async () => {
+    if (!canContinue || !goal) return;
+
+    await saveOnboardingProgress(Routes.auth.onboarding.equipment, {
       ...(draft ?? {}),
-      goal: goal as any,
+      name: name.trim(),
+      goal,
+      context_display_name: name.trim(),
     });
-    setTimeout(() => {
-      router.push(Routes.auth.onboarding.base as any);
-    }, 90);
+
+    router.push(Routes.auth.onboarding.equipment as never);
   };
 
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.goals}
-      eyebrow="Tu dirección"
+      eyebrow="Paso 1 de 4"
       title={
         <View>
-          <Text style={styles.title}>¿Qué querés</Text>
-          <Text style={styles.title}>lograr?</Text>
+          <Text style={styles.title}>Como te llamas?</Text>
         </View>
       }
-      subtitle="Elegí una meta. Afinamos después."
-      footer={<Text style={styles.helper}>Elegí una para continuar.</Text>}
+      subtitle="Primero dejamos claro tu nombre y el objetivo principal."
+      footer={
+        <Button onPress={handleContinue} disabled={!canContinue} fullWidth size="lg" haptic="medium">
+          Continuar
+        </Button>
+      }
     >
-      {GOAL_OPTIONS.map((goal) => {
-        const active = selected === goal.id;
-        return (
-          <Card
-            key={goal.id}
-            onPress={() => handleSelect(goal.id)}
-            accentColor={active ? goal.color : undefined}
-            style={[
-              styles.option,
-              active && {
-                borderColor: withOpacity(goal.color, 0.6),
-                backgroundColor: withOpacity(goal.color, 0.14),
-              },
-            ]}
-            shadow={false}
-          >
-            <View style={styles.optionRow}>
-              <View style={[styles.iconWrap, { backgroundColor: withOpacity(goal.color, 0.14), borderColor: withOpacity(goal.color, 0.22) }]}>
-                <Ionicons name={goal.icon as any} size={18} color={goal.color} />
-              </View>
-              <View style={styles.copy}>
-                <Text style={styles.optionTitle}>{goal.label}</Text>
-                <Text style={styles.optionSubtitle}>{goal.subtitle}</Text>
-              </View>
-              <View style={[styles.radio, active && { borderColor: goal.color }]}>
-                {active ? <View style={[styles.radioDot, { backgroundColor: goal.color }]} /> : null}
-              </View>
-            </View>
-          </Card>
-        );
-      })}
+      <Input
+        label="Tu nombre"
+        value={name}
+        onChangeText={setName}
+        placeholder="Tu nombre"
+        autoCapitalize="words"
+        autoComplete="name"
+      />
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Que quieres lograr?</Text>
+        <View style={styles.goalGrid}>
+          {GOAL_OPTIONS.map((item) => {
+            const selected = item.id === goal;
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => setGoal(item.id)}
+                style={[styles.goalCard, selected && styles.goalCardActive]}
+              >
+                <Text style={styles.goalEmoji}>{item.emoji}</Text>
+                <Text style={styles.goalTitle}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
     </OnboardingShell>
   );
 }
@@ -91,59 +115,50 @@ export default function StepGoalsScreen() {
 const styles = StyleSheet.create({
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 36,
-    lineHeight: 38,
+    fontSize: 32,
+    lineHeight: 36,
     color: Colors.textPrimary,
-    letterSpacing: -1,
+    letterSpacing: -1.5,
   },
-  option: {
-    padding: Spacing[4],
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  section: {
     gap: Spacing[3],
   },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
+  sectionLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  goalGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[3],
+  },
+  goalCard: {
+    width: '47%',
+    minHeight: 72,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    backgroundColor: Colors.bgElevated,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: Spacing[1],
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
   },
-  copy: {
-    flex: 1,
-    gap: 2,
+  goalCardActive: {
+    borderColor: Colors.action,
+    backgroundColor: withOpacity(Colors.action, 0.1),
   },
-  optionTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
+  goalEmoji: {
+    fontSize: 24,
+  },
+  goalTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
     color: Colors.textPrimary,
-  },
-  optionSubtitle: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-  },
-  radio: {
-    width: 22,
-    height: 22,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.16),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: Radius.full,
-  },
-  helper: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
     textAlign: 'center',
   },
-});
+});

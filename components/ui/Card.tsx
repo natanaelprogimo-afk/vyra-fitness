@@ -1,8 +1,3 @@
-// ============================================================
-// VYRA FITNESS — Card
-// Card con glass effect, border sutil, press animation opcional
-// ============================================================
-
 import React from 'react';
 import {
   Pressable,
@@ -14,23 +9,24 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors } from '@/constants/colors';
+import { Colors, withOpacity } from '@/constants/colors';
 import { Radius, Spacing, Shadows } from '@/constants/theme';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 interface CardProps {
-  children:        React.ReactNode;
-  onPress?:        () => void;
-  style?:          StyleProp<ViewStyle>;
-  elevated?:       boolean;        // usa bgElevated en vez de bgSurface
-  noPad?:          boolean;
-  borderColor?:    string;
-  shadow?:         boolean;
-  accentColor?:    string;         // barra de color izquierda
-  decorative?:     boolean;
-  haptic?:         boolean;
+  children: React.ReactNode;
+  onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
+  elevated?: boolean;
+  noPad?: boolean;
+  borderColor?: string;
+  shadow?: boolean;
+  accentColor?: string;
+  decorative?: boolean;
+  haptic?: boolean;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -39,14 +35,15 @@ export default function Card({
   children,
   onPress,
   style,
-  elevated    = false,
-  noPad       = false,
+  elevated = false,
+  noPad = false,
   borderColor,
-  shadow      = false,
+  shadow = false,
   accentColor,
-  haptic      = true,
+  haptic = true,
 }: CardProps) {
   const scale = useSharedValue(1);
+  const highContrast = useSettingsStore((state) => state.highContrast);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -54,11 +51,11 @@ export default function Card({
 
   const handlePressIn = () => {
     if (!onPress) return;
-    scale.value = withSpring(0.97, { damping: 15, stiffness: 250 });
+    scale.value = withTiming(0.98, { duration: 90 });
   };
 
   const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 250 });
+    scale.value = withTiming(1, { duration: 100 });
   };
 
   const handlePress = () => {
@@ -69,22 +66,18 @@ export default function Card({
 
   const cardStyle: ViewStyle = {
     backgroundColor: elevated ? Colors.bgElevated : Colors.bgSurface,
-    borderRadius:    Radius.xl,
-    padding:         noPad ? 0 : Spacing[4],
-    borderWidth:     1,
-    borderColor:     borderColor ?? Colors.border,
-    overflow:        accentColor ? 'hidden' : 'visible',
-    ...(shadow ? Shadows.md : {}),
+    borderRadius: Radius.xl,
+    padding: noPad ? 0 : Spacing[5],
+    borderWidth: 1,
+    borderColor:
+      borderColor ?? (highContrast ? withOpacity(Colors.white, 0.2) : Colors.border),
+    overflow: accentColor ? 'hidden' : 'visible',
+    ...(shadow ? { ...Shadows.md, shadowColor: accentColor ?? Colors.black } : {}),
   };
 
   const content = (
     <View style={[cardStyle, style]}>
-      {accentColor && (
-        <View
-          style={[styles.accent, { backgroundColor: accentColor }]}
-          pointerEvents="none"
-        />
-      )}
+      {accentColor ? <View style={[styles.accent, { backgroundColor: accentColor }]} /> : null}
       {children}
     </View>
   );
@@ -106,11 +99,9 @@ export default function Card({
 const styles = StyleSheet.create({
   accent: {
     position: 'absolute',
-    left:     0,
-    top:      0,
-    bottom:   0,
-    width:    3,
-    borderTopLeftRadius:    Radius.xl,
-    borderBottomLeftRadius: Radius.xl,
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
   },
 });

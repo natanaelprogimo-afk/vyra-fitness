@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Colors, withOpacity } from '@/constants/colors';
@@ -39,7 +39,7 @@ const styles = StyleSheet.create({
   pill: {
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.sleep, 0.14),
+    borderColor: withOpacity(Colors.white, 0.08),
     backgroundColor: SLEEP_INPUT_BG,
     paddingHorizontal: Spacing[3.5],
     paddingVertical: Spacing[2],
@@ -56,4 +56,5 @@ const styles = StyleSheet.create({
   pillTextActive: {
     color: Colors.sleep,
   },
-});
+});
+

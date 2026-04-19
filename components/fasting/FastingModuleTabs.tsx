@@ -34,14 +34,14 @@ const styles = StyleSheet.create({
     marginHorizontal: -Spacing[5],
   },
   row: {
-    gap: 8,
+    gap: Spacing[2],
     paddingHorizontal: Spacing[5],
   },
   pill: {
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.fasting, 0.12),
-    backgroundColor: '#2a1813',
+    borderColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
     paddingHorizontal: Spacing[3],
     paddingVertical: 10,
   },
@@ -52,9 +52,9 @@ const styles = StyleSheet.create({
   pillText: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: '#c3a096',
+    color: Colors.textSecondary,
   },
   pillTextActive: {
-    color: '#ffd7c0',
+    color: Colors.fasting,
   },
 });

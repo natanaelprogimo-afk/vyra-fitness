@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Header from '@/components/layout/Header';
@@ -107,7 +107,7 @@ export default function WorkoutExerciseDetailScreen() {
               {isFavorite ? 'En favoritos' : 'Guardar favorito'}
             </Button>
             <Button
-              onPress={() => router.push({ pathname: Routes.workout.routineBuilder, params: { seedExerciseId: exercise.id } } as any)}
+              onPress={() => router.push({ pathname: Routes.workout.routineEditor, params: { seedExerciseId: exercise.id } } as never)}
               variant="ghost"
               color={Colors.textPrimary}
               style={styles.flexButton}
@@ -156,7 +156,7 @@ export default function WorkoutExerciseDetailScreen() {
                   </Text>
                 </View>
                 <Button
-                  onPress={() => router.push({ pathname: Routes.workout.routineEditor, params: { routineId: routine.id } } as any)}
+                  onPress={() => router.push({ pathname: Routes.workout.routineEditor, params: { routineId: routine.id } } as never)}
                   size="sm"
                   variant="secondary"
                   color={Colors.workout}

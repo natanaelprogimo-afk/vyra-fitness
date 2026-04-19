@@ -1,48 +1,96 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   FlatList,
-  TextInput,
-  TouchableOpacity,
   Modal,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
-import { Exercise } from '@/hooks/useWorkout';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import { type Exercise } from '@/hooks/useWorkout';
+import {
+  getWorkoutExerciseMainGroup,
+  getWorkoutExerciseSubtype,
+} from '@/lib/workout-session';
 
-const MUSCLE_GROUPS = [
-  'Todos', 'Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps',
-  'Cuádriceps', 'Isquiotibiales', 'Glúteos', 'Pantorrillas', 'Core', 'Cardio',
-];
+const MAIN_GROUPS = ['Todos', 'Pecho', 'Espalda', 'Piernas', 'Hombros', 'Brazos', 'Core'] as const;
 
 interface ExercisePickerModalProps {
   visible: boolean;
   exercises: Exercise[];
+  equipmentType?: string | null;
   onSelect: (exercise: Exercise) => void;
   onClose: () => void;
+}
+
+function matchesEquipment(exercise: Exercise, equipmentType?: string | null) {
+  if (!equipmentType) return true;
+
+  const normalized = equipmentType.toLowerCase();
+  const equipment = exercise.equipment.toLowerCase();
+
+  if (normalized.includes('gym')) return true;
+  if (normalized.includes('bodyweight')) {
+    return (
+      equipment.includes('peso corporal') ||
+      equipment.includes('colchoneta') ||
+      equipment.includes('pared') ||
+      equipment.includes('silla') ||
+      equipment.includes('step')
+    );
+  }
+  if (normalized.includes('home')) {
+    return (
+      equipment.includes('mancuer') ||
+      equipment.includes('banda') ||
+      equipment.includes('peso corporal') ||
+      equipment.includes('colchoneta') ||
+      equipment.includes('silla') ||
+      equipment.includes('kettlebell')
+    );
+  }
+  return true;
 }
 
 export function ExercisePickerModal({
   visible,
   exercises,
+  equipmentType,
   onSelect,
   onClose,
 }: ExercisePickerModalProps) {
   const [search, setSearch] = useState('');
-  const [selectedMuscle, setSelectedMuscle] = useState('Todos');
+  const [selectedGroup, setSelectedGroup] =
+    useState<(typeof MAIN_GROUPS)[number]>('Todos');
+  const [selectedSubtype, setSelectedSubtype] = useState('Todos');
+
+  const subtypeOptions = useMemo(() => {
+    const candidates = exercises
+      .filter((exercise) => {
+        if (selectedGroup === 'Todos') return true;
+        return getWorkoutExerciseMainGroup(exercise.muscle_group) === selectedGroup;
+      })
+      .map((exercise) => getWorkoutExerciseSubtype(exercise.name))
+      .filter((value) => value !== 'Todos');
+
+    return ['Todos', ...Array.from(new Set(candidates)).sort((left, right) => left.localeCompare(right))];
+  }, [exercises, selectedGroup]);
 
   const filtered = useMemo(() => {
-    return exercises.filter((ex) => {
-      const matchSearch = ex.name.toLowerCase().includes(search.toLowerCase());
-      const matchMuscle =
-        selectedMuscle === 'Todos' ||
-        ex.muscle_group.toLowerCase() === selectedMuscle.toLowerCase();
-      return matchSearch && matchMuscle;
+    return exercises.filter((exercise) => {
+      const matchSearch = exercise.name.toLowerCase().includes(search.toLowerCase());
+      const mainGroup = getWorkoutExerciseMainGroup(exercise.muscle_group);
+      const subtype = getWorkoutExerciseSubtype(exercise.name);
+      const matchGroup = selectedGroup === 'Todos' || mainGroup === selectedGroup;
+      const matchSubtype = selectedSubtype === 'Todos' || subtype === selectedSubtype;
+      const matchEquipment = matchesEquipment(exercise, equipmentType);
+      return matchSearch && matchGroup && matchSubtype && matchEquipment;
     });
-  }, [exercises, search, selectedMuscle]);
+  }, [equipmentType, exercises, search, selectedGroup, selectedSubtype]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -50,12 +98,11 @@ export function ExercisePickerModal({
         <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Seleccionar ejercicio</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Text style={styles.closeBtn}>✕</Text>
+            <TouchableOpacity onPress={onClose} accessibilityRole="button">
+              <Text style={styles.closeBtn}>X</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Búsqueda */}
           <TextInput
             style={styles.searchInput}
             value={search}
@@ -65,35 +112,61 @@ export function ExercisePickerModal({
             autoFocus
           />
 
-          {/* Filtro por músculo */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.muscleScroll}
-            contentContainerStyle={styles.muscleList}
-          >
-            {MUSCLE_GROUPS.map((muscle) => (
-              <TouchableOpacity
-                key={muscle}
-                style={[
-                  styles.musclePill,
-                  selectedMuscle === muscle && styles.musclePillActive,
-                ]}
-                onPress={() => setSelectedMuscle(muscle)}
-              >
-                <Text
-                  style={[
-                    styles.musclePillText,
-                    selectedMuscle === muscle && styles.musclePillTextActive,
-                  ]}
-                >
-                  {muscle}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <View style={styles.filterBlock}>
+            <Text style={styles.filterLabel}>Grupo principal</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.pillList}
+            >
+              {MAIN_GROUPS.map((group) => {
+                const active = selectedGroup === group;
+                return (
+                  <TouchableOpacity
+                    key={group}
+                    style={[styles.pill, active && styles.pillActive]}
+                    onPress={() => {
+                      setSelectedGroup(group);
+                      setSelectedSubtype('Todos');
+                    }}
+                  >
+                    <Text style={[styles.pillText, active && styles.pillTextActive]}>{group}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
 
-          {/* Lista */}
+          <View style={styles.filterBlock}>
+            <Text style={styles.filterLabel}>Subtipo</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.pillList}
+            >
+              {subtypeOptions.map((subtype) => {
+                const active = selectedSubtype === subtype;
+                return (
+                  <TouchableOpacity
+                    key={subtype}
+                    style={[styles.pill, styles.subtypePill, active && styles.subtypePillActive]}
+                    onPress={() => setSelectedSubtype(subtype)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        styles.subtypePillText,
+                        active && styles.pillTextActive,
+                      ]}
+                    >
+                      {subtype}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
@@ -105,17 +178,16 @@ export function ExercisePickerModal({
                 <View style={styles.exerciseLeft}>
                   <Text style={styles.exerciseName}>{item.name}</Text>
                   <Text style={styles.exerciseMuscle}>
-                    {item.muscle_group} · {item.equipment}
+                    {getWorkoutExerciseMainGroup(item.muscle_group)} · {getWorkoutExerciseSubtype(item.name)} ·{' '}
+                    {item.equipment}
                   </Text>
                 </View>
-                <Text style={styles.exerciseArrow}>→</Text>
+                <Text style={styles.exerciseArrow}>{'>'}</Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>
-                  No encontré ejercicios con ese filtro
-                </Text>
+                <Text style={styles.emptyText}>No encontre ejercicios con ese filtro.</Text>
               </View>
             }
             ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -138,7 +210,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: Radius['2xl'],
     borderTopRightRadius: Radius['2xl'],
     paddingTop: Spacing[5],
-    height: '80%',
+    height: '84%',
   },
   header: {
     flexDirection: 'row',
@@ -154,7 +226,7 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     fontFamily: FontFamily.bold,
-    fontSize: 20,
+    fontSize: 18,
     color: Colors.textSecondary,
     padding: Spacing[1],
   },
@@ -169,28 +241,52 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: Spacing[3],
   },
-  muscleScroll: {
+  filterBlock: {
+    gap: Spacing[2],
     marginBottom: Spacing[3],
   },
-  muscleList: {
+  filterLabel: {
+    paddingHorizontal: Spacing[5],
+    fontFamily: FontFamily.semibold,
+    fontSize: 12,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  pillList: {
     paddingHorizontal: Spacing[5],
     gap: Spacing[2],
   },
-  musclePill: {
+  pill: {
+    minHeight: 44,
+    justifyContent: 'center',
     backgroundColor: Colors.bgElevated,
     borderRadius: Radius.full,
     paddingHorizontal: Spacing[3],
     paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  musclePillActive: {
-    backgroundColor: Colors.workout,
+  pillActive: {
+    backgroundColor: Colors.action,
+    borderColor: Colors.action,
   },
-  musclePillText: {
+  subtypePill: {
+    backgroundColor: Colors.bgSurface,
+  },
+  subtypePillActive: {
+    backgroundColor: Colors.actionBg,
+    borderColor: Colors.action,
+  },
+  pillText: {
     fontFamily: FontFamily.medium,
     fontSize: 13,
     color: Colors.textSecondary,
   },
-  musclePillTextActive: {
+  subtypePillText: {
+    color: Colors.textMuted,
+  },
+  pillTextActive: {
     color: '#fff',
   },
   exerciseItem: {
@@ -198,6 +294,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing[5],
     paddingVertical: Spacing[4],
+    minHeight: 56,
   },
   exerciseLeft: {
     flex: 1,

@@ -3,7 +3,6 @@ export type VyraMessageContext =
   | 'streak_hit'
   | 'streak_lost'
   | 'streak_danger'
-  | 'level_close'
   | 'inactive_nudge'
   | 'recovery_low'
   | 'good_morning'
@@ -11,48 +10,43 @@ export type VyraMessageContext =
 
 export const VYRA_MESSAGES_ES: Record<VyraMessageContext, string[]> = {
   celebration_pr: [
-    'Nuevo récord. Eso es consistencia real.',
-    'PR desbloqueado. Estás en modo imparable.',
-    'Ese progreso se nota. Seguimos.',
+    'Nuevo record. Eso es progreso real.',
+    'Nuevo PR. Se nota que vienes empujando bien.',
+    'Eso fue mas fuerte que la ultima vez. Seguimos.',
   ],
   streak_hit: [
-    'Otro día más. Tu racha sigue viva.',
-    'Constancia activa. Buen trabajo hoy.',
-    'Sumaste otro día a la racha. Orgullo total.',
+    'Otro dia dentro. La racha sigue viva.',
+    'Sumaste otro dia de constancia.',
+    'Buen cierre de hoy. La racha sigue.',
   ],
   streak_lost: [
-    'No pasa nada. Mañana empezamos de nuevo.',
-    'Un día no define tu camino. Vamos de nuevo.',
-    'Cerramos este día y seguimos. Tu ritmo vuelve.',
+    'No pasa nada. Mañana volvemos.',
+    'Un dia no borra lo que construiste.',
+    'Cerramos este dia y retomamos.',
   ],
   streak_danger: [
-    'Tu racha esta en riesgo. Vamos con una sesion corta y la sostenemos.',
-    'Todavia llegamos. Un entreno hoy protege todo lo que ya construiste.',
-    'No hace falta hacerlo perfecto. Hace falta hacerlo hoy.',
-  ],
-  level_close: [
-    'Estas muy cerca del siguiente nivel. Un empujon mas y subes.',
-    'Te faltan pocos XP. Cerremos algo hoy y lo desbloqueamos.',
-    'Ese nivel ya esta a la vista. Vamos por el cierre.',
+    'Tu racha esta en riesgo. Una accion corta hoy la sostiene.',
+    'Todavia llegamos. Haz algo simple y protege lo que ya sumaste.',
+    'No tiene que ser perfecto. Tiene que pasar hoy.',
   ],
   inactive_nudge: [
-    'Llevamos unos dias flojos. Volvamos con una accion simple.',
-    'No hace falta recuperar todo hoy. Solo volver a mover el sistema.',
-    'Retomar con algo pequeno sigue contando. Vamos.',
+    'Llevamos unos dias flojos. Volvamos con algo facil.',
+    'No hace falta recuperar todo hoy. Solo volver.',
+    'Retomar con una accion pequeña ya cuenta.',
   ],
   recovery_low: [
-    'Hoy toca criterio. Recupera bien y suma una victoria facil.',
-    'Dia suave. Mejor cerrar agua, pasos o sueno antes de cargar fuerte.',
+    'Hoy toca control. Mejor una victoria simple.',
+    'Dia suave. Prioriza sueño, agua y una sesion ligera.',
     'No fuerces. Ordena lo basico y mañana empujamos mejor.',
   ],
   good_morning: [
-    'Buenos días. Hoy puede ser un gran día.',
-    'Buen día. Te acompaño con el primer paso.',
-    '¿Listo para hoy? Yo sí.',
+    'Buen dia. Vamos paso a paso.',
+    'Buen dia. Hoy tambien cuenta.',
+    'Listo para hoy. Vamos.',
   ],
   general: [
-    'Vamos con un paso pequeño pero firme.',
-    'Hoy cuenta. Lo hacemos simple.',
+    'Hoy cuenta. Hazlo simple.',
     'Constancia primero. El resto aparece.',
+    'Un paso pequeño sigue siendo avance.',
   ],
 };

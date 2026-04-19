@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import Header from '@/components/layout/Header';
@@ -113,7 +113,7 @@ export default function WorkoutSessionDetailScreen() {
                 key={muscle}
                 style={[
                   styles.chip,
-                  { borderColor: withOpacity(index % 2 === 0 ? Colors.workout : Colors.coach, 0.18) },
+                  { borderColor: withOpacity(index % 2 === 0 ? Colors.workout : Colors.info, 0.18) },
                 ]}
               >
                 <Text style={styles.chipText}>{muscle}</Text>
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   breakdownPr: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
-    color: Colors.coins,
+    color: Colors.success,
   },
   setRow: {
     flexDirection: 'row',

@@ -1,240 +1,227 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
-import { Header } from '@/components/layout/Header';
+import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing } from '@/constants/theme';
+import Button from '@/components/ui/Button';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { usePremium } from '@/hooks/usePremium';
 
-const ACTIVE_BENEFITS = [
-  'Coach IA sin limite diario',
-  'Correlaciones premium en progreso, sueno y bienestar',
-  'Barcode scanner ilimitado',
-  'Sin anuncios de Unity Ads',
-];
+const ACTIVE_ZONES = [
+  { title: 'Progreso', body: 'Lecturas premium y correlaciones mas finas.', route: Routes.tabs.progress, accent: Colors.premium },
+  { title: 'Nutricion IA', body: 'Registro mas rapido con foto y sin limite diario.', route: Routes.nutrition.log, accent: Colors.success },
+  { title: 'Historial', body: 'Mas contexto y mas profundidad para leer tus semanas.', route: Routes.dailySummary, accent: Colors.brand },
+] as const;
 
 export default function ManageSubscriptionScreen() {
   const { status, loading, cancelling, handleCancel, trialDaysLeft, isInTrial } = usePremium();
 
-  const nextBillingLabel =
-    status?.status === 'cancelled' ? 'Acceso hasta' : isInTrial ? 'Trial vence' : 'Proxima renovacion';
-
+  const isActive = Boolean(status?.isActive);
+  const nextBillingLabel = status?.status === 'cancelled'
+    ? 'Acceso hasta'
+    : isInTrial
+      ? 'Trial hasta'
+      : 'Proxima renovacion';
   const nextBillingDate = isInTrial ? status?.trialEndsAt ?? null : status?.expiresAt ?? null;
+  const planLabel =
+    status?.plan === 'monthly'
+      ? 'Mensual'
+      : status?.plan === 'yearly'
+        ? 'Anual'
+        : 'Sin plan activo';
 
-  const onCancelPress = () => {
+  function onCancelPress() {
     const message = isInTrial
-      ? `Todavia tenes ${trialDaysLeft} dias de trial heredado. Si cancelas ahora, el acceso termina al finalizar ese periodo.`
-      : 'Se detendra la renovacion automatica y conservaras Premium hasta el fin del periodo ya pago.';
+      ? `Tienes ${trialDaysLeft} dias de trial por delante. Si cancelas, el acceso termina cuando cierre ese periodo.`
+      : 'Se corta la siguiente renovacion, pero mantienes el acceso hasta el final del periodo ya pagado.';
 
-    Alert.alert(
-      'Cancelar suscripcion',
-      message,
-      [
-        { text: 'Mantener Premium', style: 'cancel' },
-        {
-          text: 'Si, cancelar',
-          style: 'destructive',
-          onPress: async () => {
-            const success = await handleCancel();
-            if (success) {
-              Alert.alert(
-                'Suscripcion cancelada',
-                'La renovacion quedo cancelada. Tu acceso Premium sigue activo hasta el fin del periodo actual.',
-              );
-              router.back();
-            } else {
-              Alert.alert('Error', 'No pudimos cancelar la suscripcion. Intenta de nuevo.');
-            }
-          },
+    Alert.alert('Cancelar Premium', message, [
+      { text: 'Seguir con Premium', style: 'cancel' },
+      {
+        text: 'Cancelar renovacion',
+        style: 'destructive',
+        onPress: async () => {
+          const success = await handleCancel();
+          if (success) {
+            Alert.alert('Renovacion cancelada', 'Tu acceso sigue activo hasta que termine el periodo actual.');
+            router.back();
+          } else {
+            Alert.alert('No se pudo cancelar', 'Intenta de nuevo en unos segundos.');
+          }
         },
-      ],
-    );
-  };
+      },
+    ]);
+  }
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Mi suscripcion" showBack color={Colors.premium} />
+      <Header title="Mi Premium" showBack color={Colors.premium} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Card style={styles.statusCard}>
-          <View style={styles.statusHeader}>
-            <Text style={styles.statusEmoji}>PRO</Text>
-            <View>
-              <Text style={styles.statusTitle}>Vyra Premium</Text>
-              <Text style={[
-                styles.statusBadge,
-                { color: status?.isActive ? Colors.success : Colors.error },
-              ]}>
-                {status?.isActive ? 'Activa' : 'Inactiva'}
+        <Card accentColor={Colors.premium}>
+          <Text style={styles.eyebrow}>{isActive ? 'Premium activo' : 'Estado de suscripcion'}</Text>
+          <Text style={styles.heroTitle}>
+            {isActive ? 'Tu inversion esta encendida.' : 'No hay un plan activo ahora mismo.'}
+          </Text>
+          <Text style={styles.heroBody}>
+            {isActive
+              ? isInTrial
+                ? `Estas dentro del trial y quedan ${trialDaysLeft} dias para decidir si quieres continuidad.`
+                : 'La capa Premium esta lista para notarse en progreso, historial y registro rapido con menos friccion.'
+              : 'Si quieres volver, el paywall contextual sigue siendo la entrada mas limpia.'}
+          </Text>
+
+          <View style={styles.metaStack}>
+            <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Plan</Text>
+              <Text style={styles.metaValue}>{planLabel}</Text>
+            </View>
+            {nextBillingDate ? (
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>{nextBillingLabel}</Text>
+                <Text style={styles.metaValue}>
+                  {new Date(nextBillingDate).toLocaleDateString('es-UY', {
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Estado</Text>
+              <Text style={[styles.metaValue, isActive ? { color: Colors.success } : null]}>
+                {isActive ? 'Activo' : 'Inactivo'}
               </Text>
             </View>
           </View>
-
-          <View style={styles.statusDetails}>
-            <StatusRow
-              label="Plan"
-              value={
-                status?.plan === 'monthly'
-                  ? 'Mensual - $12.99/mes'
-                  : status?.plan === 'yearly'
-                    ? 'Anual - $99.99/ano'
-                    : '-'
-              }
-            />
-
-            {nextBillingDate ? (
-              <StatusRow
-                label={nextBillingLabel}
-                value={new Date(nextBillingDate).toLocaleDateString('es-AR', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              />
-            ) : null}
-
-            <StatusRow
-              label="Estado local"
-              value={status?.status ? status.status : '-'}
-              valueColor={status?.isActive ? Colors.success : Colors.textPrimary}
-            />
-          </View>
         </Card>
 
-        <Card>
-          <Text style={styles.sectionTitle}>Beneficios activos</Text>
-          {ACTIVE_BENEFITS.map((feature) => (
-            <Text key={feature} style={styles.feature}>- {feature}</Text>
-          ))}
-        </Card>
+        {isActive ? (
+          <Card>
+            <Text style={styles.sectionTitle}>Donde mas se nota hoy</Text>
+            <View style={styles.zoneStack}>
+              {ACTIVE_ZONES.map((item) => (
+                <TouchableOpacity
+                  key={item.title}
+                  style={[styles.zoneCard, { borderColor: withOpacity(item.accent, 0.24) }]}
+                  onPress={() => router.push(item.route as never)}
+                >
+                  <Text style={[styles.zoneTitle, { color: item.accent }]}>{item.title}</Text>
+                  <Text style={styles.zoneBody}>{item.body}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Card>
+        ) : null}
 
-        <TouchableOpacity
-          style={styles.cancelBtn}
-          onPress={onCancelPress}
-          disabled={cancelling || loading || !status?.isActive}
-        >
-          <Text style={styles.cancelBtnText}>
-            {cancelling ? 'Cancelando...' : 'Cancelar suscripcion'}
-          </Text>
-        </TouchableOpacity>
+        {isActive ? (
+          <Button
+            onPress={onCancelPress}
+            disabled={cancelling || loading}
+            variant="secondary"
+            fullWidth
+            color={Colors.premium}
+          >
+            {cancelling ? 'Cancelando...' : 'Cancelar renovacion'}
+          </Button>
+        ) : (
+          <Button onPress={() => router.push(Routes.premium.paywall as never)} fullWidth color={Colors.premium}>
+            Volver a planes
+          </Button>
+        )}
 
         <Text style={styles.disclaimer}>
-          La cancelacion detiene la siguiente renovacion en PayPal. No elimina el acceso ya pagado ni tus datos.
+          Cancelar no borra tus datos ni lo ya pagado. Solo evita la siguiente renovacion.
         </Text>
       </ScrollView>
     </SafeScreen>
   );
 }
 
-function StatusRow({
-  label,
-  value,
-  valueColor,
-}: {
-  label: string;
-  value: string;
-  valueColor?: string;
-}) {
-  return (
-    <View style={styles.statusRow}>
-      <Text style={styles.statusLabel}>{label}</Text>
-      <Text style={[styles.statusValue, valueColor ? { color: valueColor } : {}]}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
-    paddingBottom: Spacing[10],
     paddingTop: Spacing[4],
+    paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
-  statusCard: { gap: Spacing[4] },
-  statusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[4],
-  },
-  statusEmoji: {
-    fontFamily: FontFamily.bold,
-    fontSize: 40,
+  eyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
     color: Colors.premium,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
-  statusTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 22,
+  heroTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: 30,
+    lineHeight: 32,
     color: Colors.textPrimary,
+    marginBottom: 6,
   },
-  statusBadge: {
-    fontFamily: FontFamily.medium,
-    fontSize: 14,
-    marginTop: 2,
+  heroBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
   },
-  statusDetails: {
-    gap: Spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: Spacing[3],
+  metaStack: {
+    gap: Spacing[2],
+    marginTop: Spacing[3],
   },
-  statusRow: {
+  metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing[3],
   },
-  statusLabel: {
+  metaLabel: {
     fontFamily: FontFamily.regular,
-    fontSize: 14,
+    fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  statusValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    maxWidth: '55%',
+  metaValue: {
+    flexShrink: 1,
     textAlign: 'right',
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
   },
   sectionTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 16,
+    fontSize: FontSize.base,
     color: Colors.textPrimary,
     marginBottom: Spacing[3],
   },
-  feature: {
-    fontFamily: FontFamily.regular,
-    fontSize: 15,
-    color: Colors.textSecondary,
-    paddingVertical: Spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: `${Colors.border}50`,
+  zoneStack: {
+    gap: Spacing[2],
   },
-  cancelBtn: {
-    alignItems: 'center',
-    paddingVertical: Spacing[4],
+  zoneCard: {
+    borderRadius: Radius.xl,
     borderWidth: 1,
-    borderColor: Colors.error,
-    borderRadius: 16,
+    backgroundColor: Colors.surface2,
+    padding: Spacing[3],
+    gap: 4,
   },
-  cancelBtnText: {
+  zoneTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 15,
-    color: Colors.error,
+    fontSize: FontSize.sm,
+  },
+  zoneBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
   },
   disclaimer: {
     fontFamily: FontFamily.regular,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
     color: Colors.textMuted,
     textAlign: 'center',
   },

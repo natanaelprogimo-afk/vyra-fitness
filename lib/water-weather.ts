@@ -1,5 +1,6 @@
-import * as Location from 'expo-location';
 import type { WaterClimate } from '@/lib/water-context';
+
+type ExpoLocationModule = typeof import('expo-location');
 
 export type WaterWeatherSnapshot = {
   climate: WaterClimate;
@@ -12,6 +13,16 @@ export type WaterWeatherSnapshot = {
   longitude: number;
 };
 
+let cachedLocationModule: ExpoLocationModule | null = null;
+
+function getLocationModule(): ExpoLocationModule {
+  if (!cachedLocationModule) {
+    cachedLocationModule = require('expo-location') as ExpoLocationModule;
+  }
+
+  return cachedLocationModule;
+}
+
 function resolveClimate(tempC: number, humidityPct: number, apparentC: number | null): WaterClimate {
   const felt = Number.isFinite(Number(apparentC ?? NaN)) ? (apparentC as number) : tempC;
   if (felt >= 34) return 'hot';
@@ -22,6 +33,7 @@ function resolveClimate(tempC: number, humidityPct: number, apparentC: number | 
 }
 
 async function getCoords(): Promise<{ latitude: number; longitude: number } | null> {
+  const Location = getLocationModule();
   const permission = await Location.requestForegroundPermissionsAsync().catch(() => null);
   if (!permission?.granted) return null;
 
@@ -97,7 +109,7 @@ export async function fetchAutoWaterClimate(): Promise<WaterWeatherSnapshot | nu
     const temperatureC = Number(current.temperature_2m);
     const humidityPct = Number(current.relative_humidity_2m);
     const apparentTemperatureC = Number.isFinite(Number(current.apparent_temperature))
-      ? Number(current.apparent_temperature)
+      ?  Number(current.apparent_temperature)
       : null;
 
     if (!Number.isFinite(temperatureC) || !Number.isFinite(humidityPct)) return null;

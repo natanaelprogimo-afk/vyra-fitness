@@ -1,10 +1,12 @@
-type ProfileLike = { coach_memory_json?: unknown } | null | undefined;
+import { getProfileContextMemory } from '@/lib/profile-context';
+
+type ProfileLike = {
+  context_memory_json?: unknown;
+  coach_memory_json?: unknown;
+} | null | undefined;
 
 export function getCoachMemory(profile: ProfileLike): Record<string, unknown> {
-  if (profile?.coach_memory_json && typeof profile.coach_memory_json === 'object') {
-    return profile.coach_memory_json as Record<string, unknown>;
-  }
-  return {};
+  return getProfileContextMemory(profile);
 }
 
 export function isStrictSensitiveMode(profile: ProfileLike): boolean {

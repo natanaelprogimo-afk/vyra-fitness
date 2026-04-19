@@ -1,253 +1,221 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
+import { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import SafeScreen from '@/components/ui/SafeScreen';
-import { Header } from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
+import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
-import Skeleton from '@/components/ui/Skeleton';
+import Card from '@/components/ui/Card';
 import EmptyState from '@/components/ui/EmptyState';
-import { Colors } from '@/constants/colors';
-import { Spacing, Radius, FontFamily } from '@/constants/theme';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
+import { getWorkoutPlanSnapshot } from '@/lib/workout-plan';
 
-export default function WorkoutScreen() {
-  const { routines, history, loading, getWeeklyStats, startSession, fatigueRisk } = useWorkout();
-  const [starting, setStarting] = useState(false);
+function levelDots(exerciseCount: number) {
+  const filled = Math.min(4, Math.max(1, Math.round(exerciseCount / 2)));
+  return `${'●'.repeat(filled)}${'○'.repeat(Math.max(0, 4 - filled))}`;
+}
 
-  const weeklyStats = getWeeklyStats();
+export default function WorkoutScreen({ showBack = true }: { showBack?: boolean }) {
+  const { activeSession, routines, history, getActiveProgram, getRecommendedRoutine } = useWorkout();
+
+  const activeProgram = useMemo(() => getActiveProgram(), [getActiveProgram]);
+  const recommendedRoutine = useMemo(() => getRecommendedRoutine().routine, [getRecommendedRoutine]);
+  const workoutPlan = useMemo(
+    () =>
+      getWorkoutPlanSnapshot({
+        routines,
+        history,
+        activeProgram,
+        fallbackRoutine: recommendedRoutine,
+      }),
+    [activeProgram, history, recommendedRoutine, routines],
+  );
+
+  const currentRoutine = workoutPlan.todayRoutine ?? workoutPlan.nextRoutine ?? recommendedRoutine;
+  const activeProgramWeek = useMemo(() => {
+    if (!activeProgram) return 1;
+    const sessionsPerWeek = Math.max(1, activeProgram.days_per_week || 4);
+    return Math.min(
+      activeProgram.duration_weeks || 4,
+      Math.max(1, Math.floor(history.length / sessionsPerWeek) + 1),
+    );
+  }, [activeProgram, history.length]);
+
+  const handleStart = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
+    if (activeSession) {
+      router.push(Routes.workout.session as never);
+      return;
+    }
+
+    if (currentRoutine) {
+      router.push({
+        pathname: Routes.workout.preview,
+        params: { routineId: currentRoutine.id, name: currentRoutine.name },
+      } as never);
+      return;
+    }
+
+    router.push({
+      pathname: Routes.workout.preview,
+      params: { free: '1', name: 'Sesion libre' },
+    } as never);
+  };
 
   const handleStartFree = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setStarting(true);
-    await startSession('Entreno libre');
-    setStarting(false);
-    router.push('/modules/workout/session' as any);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    router.push({
+      pathname: Routes.workout.preview,
+      params: { free: '1', name: 'Sesion libre' },
+    } as never);
   };
-
-  const handleStartRoutine = async (routineId: string, routineName: string) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setStarting(true);
-    await startSession(routineName, routineId);
-    setStarting(false);
-    router.push('/modules/workout/session' as any);
-  };
-
-  if (loading) {
-    return (
-      <SafeScreen padHorizontal={false} padBottom>
-        <Header title="Entrenamientos" showBack color={Colors.workout} />
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <Skeleton height={100} style={styles.skeleton} />
-          <Skeleton height={180} style={styles.skeleton} />
-          <Skeleton height={200} style={styles.skeleton} />
-        </ScrollView>
-      </SafeScreen>
-    );
-  }
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Entrenamientos" showBack color={Colors.workout} />
+      <Header title="Entreno" showBack={showBack} color={Colors.workout} />
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Stats semana */}
-        <Card style={styles.statsCard}>
-          <Text style={styles.sectionTitle}>Esta semana</Text>
-          <View style={styles.statsRow}>
-            <StatItem value={weeklyStats.sessions} label="Entrenos" />
-            <StatItem
-              value={weeklyStats.volume > 0 ? `${Math.round(weeklyStats.volume / 1000)}k` : '0'}
-              label="Volumen (kg)"
-            />
-            <StatItem value={weeklyStats.muscles.length} label="Músculos" />
-          </View>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Card style={styles.heroCard} shadow={false}>
+          <View style={styles.heroAccent} />
+          <Text style={styles.heroEyebrow}>Plan de hoy</Text>
+          <Text style={styles.heroTitle}>
+            {activeSession ? activeSession.name : currentRoutine?.name ?? 'Sesion libre'}
+          </Text>
+          <Text style={styles.heroMeta}>
+            {activeSession
+              ? `${activeSession.exercises.length || activeSession.sets.length} ejercicios · sesion abierta`
+              : `${currentRoutine?.exercises.length ?? 4} ejercicios · ~${currentRoutine?.estimated_duration_min ?? 30} min · Semana ${activeProgramWeek}/${activeProgram?.duration_weeks ?? 4}`}
+          </Text>
+          <Text style={styles.heroHint}>
+            Nivel: {levelDots(currentRoutine?.exercises.length ?? 4)}
+          </Text>
+          <Button onPress={() => void handleStart()} fullWidth size="lg" haptic="medium">
+            {activeSession ? 'Volver al entreno' : 'Entrenar ahora'}
+          </Button>
+          <Button onPress={() => void handleStartFree()} variant="secondary" fullWidth>
+            Sesion libre
+          </Button>
         </Card>
 
-        {fatigueRisk.level !== 'low' && fatigueRisk.message ? (
-          <Card
-            style={[
-              styles.fatigueCard,
-              fatigueRisk.level === 'high' ? styles.fatigueHigh : styles.fatigueModerate,
-            ]}
-          >
-            <Text style={styles.fatigueTitle}>
-              {fatigueRisk.level === 'high' ? 'Fatiga acumulada alta' : 'Atencion a la fatiga'}
+        {activeProgram ? (
+          <Card style={styles.infoCard} shadow={false}>
+            <Text style={styles.sectionLabel}>Bloque activo</Text>
+            <Text style={styles.sectionTitle}>{activeProgram.name}</Text>
+            <Text style={styles.sectionBody}>
+              Semana {activeProgramWeek} de {activeProgram.duration_weeks}. Este bloque ya esta ordenando el dia y el historial reciente.
             </Text>
-            <Text style={styles.fatigueMessage}>{fatigueRisk.message}</Text>
-            <View style={styles.fatigueMetaRow}>
-              <Text style={styles.fatigueMetaText}>Dias seguidos: {fatigueRisk.consecutiveTrainingDays}</Text>
-              {typeof fatigueRisk.avgSleepHoursLast3 === 'number' ? (
-                <Text style={styles.fatigueMetaText}>Sueno: {fatigueRisk.avgSleepHoursLast3}h</Text>
-              ) : null}
-              {typeof fatigueRisk.avgStressLast3 === 'number' ? (
-                <Text style={styles.fatigueMetaText}>Estres: {fatigueRisk.avgStressLast3}/10</Text>
-              ) : null}
-            </View>
           </Card>
         ) : null}
 
-        {fatigueRisk.cycleAdjustedRecommendation ? (
-          <Card style={styles.cycleAdjustCard}>
-            <Text style={styles.cycleAdjustTitle}>Ajuste por fase del ciclo</Text>
-            <Text style={styles.cycleAdjustText}>{fatigueRisk.cycleAdjustedRecommendation}</Text>
-            {fatigueRisk.cycleLoadProfile ? (
-              <View style={styles.cycleMetaGrid}>
-                <Text style={styles.cycleMetaText}>
-                  RPE max: {fatigueRisk.cycleLoadProfile.intensityCapRpe}
-                </Text>
-                <Text style={styles.cycleMetaText}>
-                  Volumen: {Math.round(fatigueRisk.cycleLoadProfile.volumeMultiplier * 100)}%
-                </Text>
-                <Text style={styles.cycleMetaText}>
-                  Pasos: {fatigueRisk.cycleLoadProfile.stepGoalAdjustmentPct > 0 ? '+' : ''}
-                  {fatigueRisk.cycleLoadProfile.stepGoalAdjustmentPct}%
-                </Text>
-                <Text style={styles.cycleMetaText}>
-                  Prioriza: {fatigueRisk.cycleLoadProfile.preferredFocus}
-                </Text>
-                <Text style={styles.cycleMetaText}>
-                  Evita: {fatigueRisk.cycleLoadProfile.avoidFocus}
-                </Text>
-              </View>
-            ) : null}
-          </Card>
-        ) : null}
+        <Card style={styles.infoCard} shadow={false}>
+          <Text style={styles.sectionLabel}>Esta semana</Text>
+          <Text style={styles.sectionTitle}>{history.filter((item) => {
+            const date = new Date(item.started_at);
+            const start = new Date();
+            start.setDate(start.getDate() - 6);
+            start.setHours(0, 0, 0, 0);
+            return date.getTime() >= start.getTime();
+          }).length} sesiones</Text>
+          <Text style={styles.sectionBody}>
+            El foco del modulo es que vuelvas rapido al siguiente entreno, no navegar un dashboard.
+          </Text>
+        </Card>
 
-        {/* Botón sesión libre */}
-        <Button
-          label={starting ? 'Iniciando...' : '🏋️ Sesión libre'}
-          onPress={handleStartFree}
-          disabled={starting}
-          color={Colors.workout}
-          size="large"
-          style={styles.freeBtn}
-        />
-
-        {/* Rutinas */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Mis rutinas</Text>
-          <TouchableOpacity onPress={() => router.push('/modules/workout/routines' as any)}>
-            <Text style={styles.seeAll}>Gestionar →</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionHeaderTitle}>Rutinas</Text>
+          <Pressable onPress={() => router.push(Routes.workout.routines as never)}>
+            <Text style={styles.sectionLink}>Ver todo</Text>
+          </Pressable>
         </View>
 
         {routines.length === 0 ? (
           <EmptyState
-            icon="📋"
-            title="Sin rutinas aún"
-            description="Creá tu primera rutina o usá una sesión libre para empezar"
+            icon="Barra"
+            title="Sin rutinas aun"
+            description="Puedes arrancar con una sesion libre y dejar el historial igual de ordenado."
           />
         ) : (
-          routines.map((routine) => (
-            <Card key={routine.id} style={styles.routineCard}>
+          routines.slice(0, 4).map((routine) => (
+            <Card key={routine.id} style={styles.routineCard} shadow={false}>
               <View style={styles.routineHeader}>
                 <Text style={styles.routineName}>{routine.name}</Text>
-                <Text style={styles.routineExercises}>
-                  {routine.exercises.length} ejercicios
+                <Text style={styles.routineMeta}>
+                  {routine.exercises.length} ejercicios · {routine.estimated_duration_min ?? 30} min
                 </Text>
               </View>
-
-              <View style={styles.routineExList}>
-                {routine.exercises.slice(0, 3).map((ex, i) => (
-                  <Text key={i} style={styles.routineEx}>
-                    • {ex.exercise_name} — {ex.sets_target}×{ex.reps_target}
-                  </Text>
+              <View style={styles.exerciseList}>
+                {routine.exercises.slice(0, 4).map((exercise) => (
+                  <View key={`${routine.id}-${exercise.exercise_id}`} style={styles.exerciseRow}>
+                    <Text style={styles.exerciseBullet}>○</Text>
+                    <Text style={styles.exerciseName}>{exercise.exercise_name}</Text>
+                    <Text style={styles.exerciseTarget}>
+                      {exercise.sets_target}×{exercise.reps_target}
+                    </Text>
+                  </View>
                 ))}
-                {routine.exercises.length > 3 && (
-                  <Text style={styles.routineMore}>
-                    +{routine.exercises.length - 3} más...
-                  </Text>
-                )}
               </View>
-
               <Button
-                label="▶ Iniciar"
-                onPress={() => handleStartRoutine(routine.id, routine.name)}
-                color={Colors.workout}
-                size="small"
-                disabled={starting}
-                style={styles.startBtn}
-              />
+                onPress={() =>
+                  router.push({
+                    pathname: Routes.workout.preview,
+                    params: { routineId: routine.id, name: routine.name },
+                  } as never)
+                }
+                fullWidth
+              >
+                Empezar
+              </Button>
             </Card>
           ))
         )}
 
-        {/* Historial reciente */}
-        {history.length > 0 && (
+        {history.length ? (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Últimos entrenos</Text>
-              <TouchableOpacity onPress={() => router.push('/modules/workout/history' as any)}>
-                <Text style={styles.seeAll}>Ver todo →</Text>
-              </TouchableOpacity>
+              <Text style={styles.sectionHeaderTitle}>Ultimos entrenos</Text>
+              <Pressable onPress={() => router.push(Routes.workout.history as never)}>
+                <Text style={styles.sectionLink}>Historial</Text>
+              </Pressable>
             </View>
 
-            {history.slice(0, 3).map((session) => {
-              const durationMin = session.ended_at
-                ? Math.round(
-                    (new Date(session.ended_at).getTime() -
-                      new Date(session.started_at).getTime()) /
-                      60000,
-                  )
-                : null;
-
-              return (
-                <Card key={session.id} style={styles.historyCard}>
-                  <View style={styles.historyRow}>
-                    <View style={styles.historyLeft}>
-                      <Text style={styles.historyName}>{session.name}</Text>
-                      <Text style={styles.historyDate}>
-                        {new Date(session.started_at).toLocaleDateString('es-AR', {
-                          weekday: 'short',
-                          day: '2-digit',
-                          month: 'short',
-                        })}
-                        {durationMin ? ` · ${durationMin} min` : ''}
+            <Card style={styles.historyCard} shadow={false}>
+              {history.slice(0, 4).map((session, index) => (
+                <View key={session.id}>
+                  <Pressable
+                    style={styles.historyRow}
+                    onPress={() =>
+                      router.push({
+                        pathname: Routes.workout.sessionDetail,
+                        params: { id: session.id },
+                      } as never)
+                    }
+                  >
+                    <View style={styles.historyCopy}>
+                      <Text style={styles.historyTitle}>{session.name}</Text>
+                      <Text style={styles.historyMeta}>
+                        {Math.round(session.duration_min ?? 0)} min ·{' '}
+                        {Math.round(session.total_volume_kg ?? 0).toLocaleString('es-UY')} kg
                       </Text>
-                      {session.muscles_worked.length > 0 && (
-                        <View style={styles.musclePills}>
-                          {session.muscles_worked.slice(0, 3).map((m) => (
-                            <View key={m} style={styles.musclePill}>
-                              <Text style={styles.musclePillText}>{m}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
                     </View>
-                    <View style={styles.historyRight}>
-                      <Text style={styles.historyVolume}>
-                        {session.total_volume_kg.toLocaleString()} kg
-                      </Text>
-                      <Text style={styles.historyVolumeLabel}>volumen</Text>
-                    </View>
-                  </View>
-                </Card>
-              );
-            })}
+                    <Text style={styles.historyDate}>
+                      {new Date(session.started_at).toLocaleDateString('es-UY', {
+                        day: '2-digit',
+                        month: 'short',
+                      })}
+                    </Text>
+                  </Pressable>
+                  {index < Math.min(history.length, 4) - 1 ? <View style={styles.divider} /> : null}
+                </View>
+              ))}
+            </Card>
           </>
-        )}
+        ) : null}
       </ScrollView>
     </SafeScreen>
-  );
-}
-
-function StatItem({ value, label }: { value: number | string; label: string }) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
   );
 }
 
@@ -255,193 +223,155 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
     paddingBottom: Spacing[10],
-    paddingTop: Spacing[4],
     gap: Spacing[4],
   },
-  skeleton: {
-    borderRadius: Radius.xl,
-    marginBottom: Spacing[3],
+  heroCard: {
+    gap: Spacing[3],
+    overflow: 'hidden',
   },
-  statsCard: {},
-  fatigueCard: {
-    borderWidth: 1,
-    gap: Spacing[1],
+  heroAccent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 4,
+    backgroundColor: Colors.workout,
   },
-  fatigueHigh: {
-    borderColor: `${Colors.warning}66`,
-    backgroundColor: `${Colors.warning}16`,
-  },
-  fatigueModerate: {
-    borderColor: `${Colors.workout}55`,
-    backgroundColor: `${Colors.workout}10`,
-  },
-  fatigueTitle: {
+  heroEyebrow: {
     fontFamily: FontFamily.bold,
-    fontSize: 16,
-    color: Colors.textPrimary,
-  },
-  fatigueMessage: {
-    fontFamily: FontFamily.medium,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 19,
-  },
-  fatigueMetaRow: {
-    marginTop: 2,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing[2],
-  },
-  fatigueMetaText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  cycleAdjustCard: {
-    borderWidth: 1,
-    borderColor: `${Colors.female}55`,
-    backgroundColor: `${Colors.female}10`,
-    gap: Spacing[1],
-  },
-  cycleAdjustTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 15,
-    color: Colors.female,
-  },
-  cycleAdjustText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 19,
-  },
-  cycleMetaGrid: {
-    marginTop: Spacing[2],
-    gap: Spacing[1],
-  },
-  cycleMetaText: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statItem: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  statValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 28,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     color: Colors.workout,
   },
-  statLabel: {
+  heroTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
+    lineHeight: 32,
+    color: Colors.textPrimary,
+  },
+  heroMeta: {
     fontFamily: FontFamily.regular,
-    fontSize: 13,
+    fontSize: FontSize.base,
     color: Colors.textSecondary,
   },
-  freeBtn: {
-    marginTop: Spacing[2],
+  heroHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  infoCard: {
+    gap: Spacing[2],
+  },
+  sectionLabel: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  sectionBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 22,
   },
   sectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
   },
-  sectionTitle: {
+  sectionHeaderTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 18,
     color: Colors.textPrimary,
   },
-  seeAll: {
+  sectionLink: {
     fontFamily: FontFamily.medium,
-    fontSize: 14,
-    color: Colors.workout,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   routineCard: {
     gap: Spacing[3],
   },
   routineHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  routineName: {
-    fontFamily: FontFamily.bold,
-    fontSize: 17,
-    color: Colors.textPrimary,
-  },
-  routineExercises: {
-    fontFamily: FontFamily.medium,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  routineExList: {
     gap: 4,
   },
-  routineEx: {
+  routineName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  routineMeta: {
     fontFamily: FontFamily.regular,
-    fontSize: 14,
+    fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  routineMore: {
+  exerciseList: {
+    gap: Spacing[2],
+    paddingTop: Spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: withOpacity(Colors.white, 0.06),
+  },
+  exerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  exerciseBullet: {
     fontFamily: FontFamily.regular,
-    fontSize: 13,
+    fontSize: FontSize.base,
     color: Colors.textMuted,
   },
-  startBtn: {
-    alignSelf: 'flex-end',
+  exerciseName: {
+    flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
   },
-  historyCard: {},
+  exerciseTarget: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  historyCard: {
+    paddingVertical: 0,
+  },
   historyRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    gap: Spacing[3],
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[4],
   },
-  historyLeft: {
+  historyCopy: {
     flex: 1,
-    gap: Spacing[1],
+    gap: 2,
   },
-  historyName: {
-    fontFamily: FontFamily.bold,
-    fontSize: 16,
+  historyTitle: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
     color: Colors.textPrimary,
+  },
+  historyMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   historyDate: {
     fontFamily: FontFamily.regular,
-    fontSize: 13,
-    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
   },
-  musclePills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
-  },
-  musclePill: {
-    backgroundColor: `${Colors.workout}20`,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  musclePillText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 11,
-    color: Colors.workout,
-  },
-  historyRight: {
-    alignItems: 'center',
-  },
-  historyVolume: {
-    fontFamily: FontFamily.bold,
-    fontSize: 20,
-    color: Colors.workout,
-  },
-  historyVolumeLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 11,
-    color: Colors.textSecondary,
+  divider: {
+    height: 1,
+    backgroundColor: withOpacity(Colors.white, 0.06),
   },
 });

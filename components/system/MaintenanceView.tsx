@@ -1,196 +1,147 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import SafeScreen from '@/components/ui/SafeScreen';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
-
-interface MaintenanceViewProps {
-  onRetry?: () => void;
-  lastCheckedAt?: number | null;
-  error?: string | null;
-  compact?: boolean;
-}
-
-function formatLastChecked(value?: number | null) {
-  if (!value) return 'Recien';
-  return new Date(value).toLocaleTimeString('es-AR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
-
-export default function MaintenanceView({
-  onRetry,
-  lastCheckedAt,
-  error,
-  compact = false,
-}: MaintenanceViewProps) {
-  return (
-    <SafeScreen>
-      <View style={styles.container}>
-        <Card style={styles.card} accentColor={Colors.warning}>
-          <View style={styles.heroRow}>
-            <View style={styles.iconWrap}>
-              <Ionicons name="construct" size={28} color={Colors.warning} />
-            </View>
-            <View style={styles.heroBadge}>
-              <Ionicons name="pulse" size={13} color={Colors.warning} />
-              <Text style={styles.heroBadgeText}>Servicio pausado</Text>
-            </View>
-          </View>
-          <Text style={styles.eyebrow}>Estado del servicio</Text>
-          <Text style={styles.title}>Estamos en mantenimiento</Text>
-          <Text style={styles.subtitle}>
-            El backend no responde por ahora. Tus registros offline siguen guardados y se
-            sincronizan cuando vuelva la senal.
-          </Text>
-          <View style={styles.bulletList}>
-            <View style={styles.bulletRow}>
-              <Ionicons name="shield-checkmark" size={14} color={Colors.warning} />
-              <Text style={styles.bulletItem}>Tus datos locales siguen seguros.</Text>
-            </View>
-            <View style={styles.bulletRow}>
-              <Ionicons name="sync" size={14} color={Colors.warning} />
-              <Text style={styles.bulletItem}>La app retomara el sync cuando el servicio vuelva.</Text>
-            </View>
-          </View>
-          {error ? <Text style={styles.errorText}>Detalle: {error}</Text> : null}
-          <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Ultimo chequeo</Text>
-            <Text style={styles.metaValue}>{formatLastChecked(lastCheckedAt)}</Text>
-          </View>
-          {onRetry ? (
-            <Button
-              label="Reintentar"
-              onPress={onRetry}
-              size="primary"
-              variant="primary"
-              fullWidth
-            />
-          ) : null}
-        </Card>
-        {!compact ? (
-          <Text style={styles.footnote}>
-            Si el problema persiste, revisa la pagina de estado o intenta mas tarde.
-          </Text>
-        ) : null}
-      </View>
-    </SafeScreen>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing[5],
-  },
-  card: {
-    gap: Spacing[4],
-    paddingVertical: Spacing[5],
-  },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing[3],
-  },
-  eyebrow: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 12,
-    color: Colors.warning,
-    letterSpacing: 0.2,
-    
-  },
-  iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: `${Colors.warning}18`,
-  },
-  heroBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[1.5],
-    paddingHorizontal: Spacing[3],
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: `${Colors.warning}38`,
-    backgroundColor: `${Colors.warning}12`,
-  },
-  heroBadgeText: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 12,
-    color: Colors.warning,
-  },
-  title: {
-    fontFamily: FontFamily.bold,
-    fontSize: 20,
-    color: Colors.textPrimary,
-  },
-  subtitle: {
-    fontFamily: FontFamily.regular,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-  },
-  bulletList: {
-    gap: Spacing[1.5],
-    padding: Spacing[3],
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.bgElevated,
-  },
-  bulletRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing[2],
-  },
-  bulletItem: {
-    flex: 1,
-    fontFamily: FontFamily.medium,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textPrimary,
-  },
-  errorText: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing[2],
-    paddingHorizontal: Spacing[3],
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
-  },
-  metaLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  metaValue: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 12,
-    color: Colors.textPrimary,
-    flexShrink: 0,
-  },
-  footnote: {
-    marginTop: Spacing[4],
-    textAlign: 'center',
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-});
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import SafeScreen from '@/components/ui/SafeScreen';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+
+interface MaintenanceViewProps {
+  onRetry?: () => void;
+  lastCheckedAt?: number | null;
+  compact?: boolean;
+  error?: string | null;
+}
+
+function formatLastChecked(value?: number | null) {
+  if (!value) return 'Hace un momento';
+  const diffMinutes = Math.max(1, Math.floor((Date.now() - value) / 60_000));
+  if (diffMinutes < 60) return `Hace ${diffMinutes} min`;
+  const hours = Math.floor(diffMinutes / 60);
+  return `Hace ${hours} h`;
+}
+
+export default function MaintenanceView({
+  onRetry,
+  lastCheckedAt,
+  compact = false,
+  error,
+}: MaintenanceViewProps) {
+  const [retryCooldown, setRetryCooldown] = useState(0);
+
+  useEffect(() => {
+    if (retryCooldown <= 0) return undefined;
+    const interval = setInterval(() => {
+      setRetryCooldown((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [retryCooldown]);
+
+  const handleRetry = () => {
+    if (!onRetry || retryCooldown > 0) return;
+    onRetry();
+    setRetryCooldown(30);
+  };
+
+  return (
+    <SafeScreen>
+      <View style={styles.container}>
+        <View style={styles.noise} pointerEvents="none" />
+        <Card style={styles.card}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="construct-outline" size={38} color={withOpacity(Colors.brand, 0.72)} />
+          </View>
+          <Text style={styles.title}>Volvemos pronto</Text>
+          <Text style={styles.subtitle}>Estamos ajustando algo. Tus datos estan bien y no deberias perder nada.</Text>
+          <View style={styles.metaPill}>
+            <Text style={styles.metaText}>Ultimo chequeo: {formatLastChecked(lastCheckedAt)}</Text>
+          </View>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {onRetry ? (
+            <Button onPress={handleRetry} disabled={retryCooldown > 0} variant="ghost" fullWidth>
+              {retryCooldown > 0 ? `Reintentar en ${retryCooldown}s` : 'Reintentar'}
+            </Button>
+          ) : null}
+        </Card>
+        {!compact ? (
+          <Text style={styles.footnote}>
+            Si estabas usando la app sin conexion, lo local sigue guardado. Solo falta que el sistema vuelva.
+          </Text>
+        ) : null}
+      </View>
+    </SafeScreen>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing[5],
+  },
+  noise: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: withOpacity(Colors.white, 0.015),
+  },
+  card: {
+    alignItems: 'center',
+    gap: Spacing[4],
+    borderColor: withOpacity(Colors.white, 0.05),
+    backgroundColor: withOpacity(Colors.surface1, 0.9),
+  },
+  iconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(Colors.brand, 0.06),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.brand, 0.1),
+  },
+  title: {
+    fontFamily: FontFamily.display,
+    fontSize: 34,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    lineHeight: 24,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  metaPill: {
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[2],
+    backgroundColor: withOpacity(Colors.white, 0.04),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+  },
+  metaText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  errorText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  footnote: {
+    marginTop: Spacing[4],
+    textAlign: 'center',
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+});

@@ -1,4 +1,5 @@
 import { MODULES, type ModuleId } from '@/constants/modules';
+import { getProfileContextMemory } from '@/lib/profile-context';
 import type { UserProfile } from '@/types/user';
 
 const ALL_MODULE_IDS: ModuleId[] = MODULES.map((module) => module.id as ModuleId);
@@ -22,33 +23,26 @@ export function getActiveModules(profile: UserProfile | null | undefined): Modul
   if (!profile) return ALL_MODULE_IDS;
 
   const direct = sanitizeModules((profile as unknown as Record<string, unknown>).active_modules);
-  if (direct.length > 0) return direct;
+  if (direct.length >= 1) return direct;
 
-  const memory =
-    profile.coach_memory_json && typeof profile.coach_memory_json === 'object'
-      ? (profile.coach_memory_json as Record<string, unknown>)
-      : null;
-
-  const fromMemory = sanitizeModules(memory?.active_modules);
-  if (fromMemory.length > 0) return fromMemory;
+  const memory = getProfileContextMemory(profile);
+  const fromMemory = sanitizeModules(memory.active_modules);
+  if (fromMemory.length >= 1) return fromMemory;
 
   return ALL_MODULE_IDS;
 }
 
-export function buildCoachMemoryWithActiveModules(
+export function buildProfileContextWithActiveModules(
   profile: UserProfile | null | undefined,
   modules: ModuleId[],
 ): Record<string, unknown> {
-  const existing =
-    profile?.coach_memory_json && typeof profile.coach_memory_json === 'object'
-      ? (profile.coach_memory_json as Record<string, unknown>)
-      : {};
+  const existing = getProfileContextMemory(profile);
 
   const sanitized = sanitizeModules(modules);
 
   return {
     ...existing,
-    active_modules: sanitized.length > 0 ? sanitized : ALL_MODULE_IDS,
+    active_modules: sanitized.length >= 1 ? sanitized : ALL_MODULE_IDS,
   };
 }
 

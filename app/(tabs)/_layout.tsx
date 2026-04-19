@@ -1,44 +1,39 @@
-// ============================================================
-// VYRA FITNESS — Tabs Layout
-// 5 tabs con TabBar custom y guard de auth
-// ============================================================
-
 import { useEffect } from 'react';
-import { Tabs } from 'expo-router';
-import { router } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
+import { Tabs, router } from 'expo-router';
 import TabBar from '@/components/layout/TabBar';
+import { Routes } from '@/constants/routes';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function TabsLayout() {
-  const isInitialized = useAuthStore((s) => s.isInitialized);
-  const session = useAuthStore((s) => s.session);
-  const user = useAuthStore((s) => s.user);
-  const profile = useAuthStore((s) => s.profile);
+  const isInitialized = useAuthStore((state) => state.isInitialized);
+  const hasResolvedProfile = useAuthStore((state) => state.hasResolvedProfile);
+  const session = useAuthStore((state) => state.session);
+  const user = useAuthStore((state) => state.user);
+  const profile = useAuthStore((state) => state.profile);
 
   const isAuthenticated = session !== null && user !== null;
   const isOnboarded = profile?.onboarding_completed ?? false;
 
   useEffect(() => {
     if (!isInitialized) return;
+    if (isAuthenticated && !hasResolvedProfile) return;
+
     if (!isAuthenticated) {
-      router.replace('/(auth)/welcome' as any);
+      router.replace(Routes.auth.welcome as never);
       return;
     }
+
     if (!isOnboarded) {
-      router.replace('/(auth)/onboarding/step1-goals' as any);
+      router.replace(Routes.auth.onboarding.goals as never);
     }
-  }, [isInitialized, isAuthenticated, isOnboarded]);
+  }, [hasResolvedProfile, isAuthenticated, isInitialized, isOnboarded]);
 
   return (
-    <Tabs
-      tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false }}
-    >
-      <Tabs.Screen name="index"    options={{ title: 'Home'     }} />
-      <Tabs.Screen name="log"      options={{ title: 'Log'      }} />
+    <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
+      <Tabs.Screen name="index" options={{ title: 'Inicio' }} />
       <Tabs.Screen name="progress" options={{ title: 'Progreso' }} />
-      <Tabs.Screen name="coach"    options={{ title: 'Coach'    }} />
-      <Tabs.Screen name="profile"  options={{ title: 'Perfil'   }} />
+      <Tabs.Screen name="workout" options={{ href: null, title: 'Alias Entreno' }} />
+      <Tabs.Screen name="nutrition" options={{ href: null, title: 'Nutricion' }} />
     </Tabs>
   );
 }

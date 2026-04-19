@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -91,7 +91,7 @@ export const useAI = (options?: UseAIOptions) => {
 
       const historyPayload = messages.map((m) => ({ role: m.role, content: m.content }));
 
-      const response = await fetch(`${apiUrl}/api/ai/chat`, {
+      const response = await fetch(`${apiUrl}/api/ai/context-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,7 +110,7 @@ export const useAI = (options?: UseAIOptions) => {
         if (response.status === 429) {
           setDailyMessagesLeft(0);
         }
-        throw new Error(payload?.error ?? `AI Coach responded with ${response.status}`);
+        throw new Error(payload?.error ?? `Vyra AI responded with ${response.status}`);
       }
 
       const reply = payload.reply ?? 'Mi cerebro IA está tomando un descanso 😅';

@@ -1,18 +1,16 @@
 // ============================================================
 // VYRA FITNESS — useFasting Hook
-// Ayuno intermitente con fases metabólicas, timer en vivo,
-// notificaciones de fase, coins por completar
+// Ayuno intermitente con fases metabólicas, timer en vivo
+// y notificaciones de fase.
 // ============================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { addCoins, addXP } from '@/services/supabase/profiles';
-import { captureError } from '@/lib/sentry';
 import { trackLogCreated } from '@/lib/analytics';
 import { todayISO } from '@/utils/dates';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
@@ -357,13 +355,13 @@ export function useFasting() {
       return {
         sleepHours:
           sleepRes.data?.duration_min !== undefined && sleepRes.data?.duration_min !== null
-            ? Math.round((Number(sleepRes.data.duration_min) / 60) * 10) / 10
+            ?  Math.round((Number(sleepRes.data.duration_min) / 60) * 10) / 10
             : null,
         stress:
           decryptedStress !== null
-            ? Number(decryptedStress)
+            ?  Number(decryptedStress)
             : mentalRes.data?.stress !== undefined && mentalRes.data?.stress !== null
-              ? Number(mentalRes.data.stress)
+              ?  Number(mentalRes.data.stress)
               : null,
       };
     },
@@ -438,7 +436,7 @@ export function useFasting() {
 
   // Tiempo para la siguiente fase
   const nextPhaseIn = nextPhase
-    ? Math.max(0, nextPhase.hours * 3600 - elapsedSeconds)
+    ?  Math.max(0, nextPhase.hours * 3600 - elapsedSeconds)
     : null;
 
   // ─── Iniciar ayuno ────────────────────────────────────────
@@ -487,21 +485,15 @@ export function useFasting() {
       if (error) throw error;
     },
     onSuccess: async () => {
-      // Recompensas según duración
-      const coinsEarned = isComplete ? 20 : 10;
-      const xpEarned    = isComplete ? 200 : 100;
-      await addCoins(userId, coinsEarned, 'fasting_complete', `Ayuno completado: ${elapsedHours.toFixed(1)}h`);
-      await addXP(userId, xpEarned);
-
       queryClient.invalidateQueries({ queryKey: ['fasting_active'] });
       queryClient.invalidateQueries({ queryKey: ['today_summary'] });
       queryClient.invalidateQueries({ queryKey: ['daily_score'] });
 
       showToast(
         isComplete
-          ? `¡Ayuno completado! ${elapsedHours.toFixed(1)}h 🎉 +${coinsEarned} 🪙`
-          : `Ayuno de ${elapsedHours.toFixed(1)}h registrado +${coinsEarned} 🪙`,
-        'coins'
+          ? `Ayuno completado: ${elapsedHours.toFixed(1)}h.`
+          : `Ayuno de ${elapsedHours.toFixed(1)}h registrado.`,
+        'success'
       );
 
       if (isOnline) void supabase.rpc('calculate_daily_score', { p_user_id: userId });
@@ -580,10 +572,10 @@ export function useFasting() {
   // Stats historial
   const completedFasts  = history.filter(h => h.completed);
   const avgHours        = completedFasts.length
-    ? completedFasts.reduce((s, h) => s + (h.total_hours ?? 0), 0) / completedFasts.length
+    ?  completedFasts.reduce((s, h) => s + (h.total_hours ?? 0), 0) / completedFasts.length
     : 0;
   const longestFast     = completedFasts.length
-    ? Math.max(...completedFasts.map(h => h.total_hours ?? 0))
+    ?  Math.max(...completedFasts.map(h => h.total_hours ?? 0))
     : 0;
   const fastingStreakDays = (() => {
     if (!history || !history.length) return 0;

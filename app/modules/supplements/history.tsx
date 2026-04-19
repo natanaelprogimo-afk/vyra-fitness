@@ -6,13 +6,11 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import HistoryAdBanner from '@/components/ui/HistoryAdBanner';
 import { EmptyStateFirstUse } from '@/components/ui/EmptyStateVariants';
 import { Colors, getModuleBg, getModuleColor, withOpacity } from '@/constants/colors';
 import { FontFamily, Radius, Spacing, FontSize } from '@/constants/theme';
 import { useSupplements } from '@/hooks/useSupplements';
 import { useReadiness } from '@/hooks/useReadiness';
-import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { Routes } from '@/constants/routes';
 
@@ -71,7 +69,6 @@ function RouteStat({
 }
 
 export default function SupplementsHistoryScreen() {
-  const profile = useAuthStore((state) => state.profile);
   const {
     dailyScore,
     predictedScore,
@@ -147,11 +144,10 @@ export default function SupplementsHistoryScreen() {
   });
 
   const weeklyAdherencePct = activeSupps.length
-    ? Math.round((dailyCounts.filter((day) => day.count === activeSupps.length).length / recentDayKeys.length) * 100)
+    ?  Math.round((dailyCounts.filter((day) => day.count === activeSupps.length).length / recentDayKeys.length) * 100)
     : 0;
   const maxCount = Math.max(1, ...dailyCounts.map((day) => day.count));
   const hasActiveSupplements = activeSupps.length > 0;
-  const coachName = profile?.coach_name_preference ?? 'Vyra';
   const focusAction = focusActions[0] ?? null;
   const dayScore = dailyScore?.score != null ? Math.round(dailyScore.score) : null;
   const dayScoreAccent = dayScore !== null ? scoreColor(dayScore) : accent;
@@ -164,70 +160,70 @@ export default function SupplementsHistoryScreen() {
   const strongestSupplement = adherenceEntries.length ? adherenceEntries[adherenceEntries.length - 1] : null;
 
   const returnMode = !hasActiveSupplements
-    ? 'Configurar'
+    ?  'Configurar'
     : interactionWarnings.length > 0
-      ? 'Revisar'
+      ?  'Revisar'
       : weeklyAdherencePct < 60
-        ? 'Corregir'
+        ?  'Corregir'
         : dailyAdherenceStreak >= 3
-          ? 'Sostener'
+          ?  'Sostener'
           : 'Ordenar';
   const coachTitle = !hasActiveSupplements
-    ? `${coachName} quiere construir un stack simple antes de hablar de adherencia`
+    ?  'La lectura actual quiere construir un stack simple antes de hablar de adherencia'
     : interactionWarnings.length > 0
-      ? `${coachName} quiere revisar riesgos antes de seguir acumulando tomas`
+      ?  'La lectura actual quiere revisar riesgos antes de seguir acumulando tomas'
       : weeklyAdherencePct < 60
-        ? `${coachName} quiere corregir el ritmo del stack antes de que se enfrie la semana`
+        ?  'La lectura actual quiere corregir el ritmo del stack antes de que se enfrie la semana'
         : atRiskSupplement && atRiskSupplement.value < 75
-          ? `${coachName} detecta un suplemento que esta rompiendo la constancia del stack`
-          : `${coachName} ve una adherencia util y quiere sostenerla sin ruido`;
+          ?  'La lectura actual detecta un suplemento que esta rompiendo la constancia del stack'
+          : 'La adherencia se ve util y conviene sostenerla sin ruido';
   const coachBody =
     interactionWarnings[0]?.message ??
     similarDayComparison?.message ??
     morningNarrative ??
     (!hasActiveSupplements
-      ? 'Sin un stack minimo, el historial no puede darte una lectura util del retorno semanal.'
+      ?  'Sin un stack minimo, el historial no puede darte una lectura útil del retorno semanal.'
       : atRiskSupplement && atRiskSupplement.value < 75
-        ? `${atRiskSupplement.item.name} esta en ${atRiskSupplement.value}% de adherencia y hoy conviene decidir si lo sostienes, lo ajustas o lo pausas.`
-        : 'La adherencia gana valor cuando deja de depender de memoria y se vuelve un ritmo claro del dia.');
+        ?  `${atRiskSupplement.item.name} esta en ${atRiskSupplement.value}% de adherencia y hoy conviene decidir si lo sostienes, lo ajustas o lo pausas.`
+        : 'La adherencia gana valor cuando deja de depender de memoria y se vuelve un ritmo claro del día.');
   const coachHint = !hasActiveSupplements
-    ? 'Siguiente lectura util: agrega el primer suplemento y define una frecuencia clara.'
+    ? 'Siguiente lectura útil: agrega el primer suplemento y define una frecuencia clara.'
     : interactionWarnings.length > 0
-      ? 'Siguiente lectura util: abre ajustes y revisa si conviene separar horarios o pausar una combinacion.'
+      ? 'Siguiente lectura útil: abre ajustes y revisa si conviene separar horarios o pausar una combinacion.'
       : atRiskSupplement && atRiskSupplement.value < 75
-        ? `Siguiente lectura util: revisa ${atRiskSupplement.item.name}, porque hoy esta marcando el retorno de la semana.`
+        ? `Siguiente lectura útil: revisa ${atRiskSupplement.item.name}, porque hoy esta marcando el retorno de la semana.`
         : focusAction
-          ? `Siguiente lectura util: ${focusAction.title}.`
-          : 'Siguiente lectura util: vuelve al hub y confirma si hoy toca completar el stack o solo sostenerlo.';
+          ? `Siguiente lectura útil: ${focusAction.title}.`
+          : 'Siguiente lectura útil: vuelve al hub y confirma si hoy toca completar el stack o solo sostenerlo.';
   const primaryActionLabel = !hasActiveSupplements
-    ? 'Abrir suplementos'
+    ?  'Abrir suplementos'
     : interactionWarnings.length > 0
-      ? 'Abrir ajustes'
+      ?  'Abrir ajustes'
       : weeklyAdherencePct < 100
-        ? 'Volver a hoy'
+        ?  'Volver a hoy'
         : 'Abrir resumen';
   const routeActionTitle = !hasActiveSupplements
-    ? 'Construir la primera base'
+    ?  'Construir la primera base'
     : interactionWarnings.length > 0
-      ? 'Revisar riesgos del stack'
+      ?  'Revisar riesgos del stack'
       : weeklyAdherencePct < 100
-        ? 'Corregir la semana activa'
+        ?  'Corregir la semana activa'
         : 'Sostener el ritmo del stack';
 
   const handlePrimaryAction = () => {
     if (!hasActiveSupplements) {
-      router.push(Routes.supplements.index as any);
+      router.push(Routes.supplements.index as never);
       return;
     }
     if (interactionWarnings.length > 0) {
-      router.push(Routes.supplements.settings as any);
+      router.push(Routes.supplements.settings as never);
       return;
     }
     if (weeklyAdherencePct < 100) {
-      router.push(Routes.supplements.index as any);
+      router.push(Routes.supplements.index as never);
       return;
     }
-    router.push(Routes.dailySummary as any);
+    router.push(Routes.dailySummary as never);
   };
 
   return (
@@ -237,11 +233,11 @@ export default function SupplementsHistoryScreen() {
           color={accent}
           eyebrow="Suplementos"
           title="La adherencia gana valor cuando puedes leerla por semana y por suplemento en una sola pasada."
-          subtitle={`Adherencia global ${weeklyAdherencePct}% | Racha ${dailyAdherenceStreak} dias`}
+          subtitle={`Adherencia global ${weeklyAdherencePct}% | Racha ${dailyAdherenceStreak} días`}
           rightElement={
             <Pressable
               style={[styles.headerIconButton, { borderColor: withOpacity(accent, 0.24) }]}
-              onPress={() => router.push(Routes.supplements.settings as any)}
+              onPress={() => router.push(Routes.supplements.settings as never)}
             >
               <Ionicons name="settings-outline" size={18} color={Colors.textPrimary} />
             </Pressable>
@@ -258,7 +254,7 @@ export default function SupplementsHistoryScreen() {
               <Text style={styles.heroValue}>{weeklyAdherencePct}%</Text>
               <Text style={styles.heroUnit}>cumplimiento global</Text>
               <Text style={styles.heroHint}>
-                Lo importante aqui no es tomarlo perfecto un dia, sino ver si el stack realmente se sostiene.
+                Lo importante aqui no es tomarlo perfecto un día, sino ver si el stack realmente se sostiene.
               </Text>
             </View>
             <View style={styles.heroMetaColumn}>
@@ -272,7 +268,7 @@ export default function SupplementsHistoryScreen() {
               </View>
               <View style={styles.metaCard}>
                 <Text style={styles.metaLabel}>Ventana</Text>
-                <Text style={styles.metaValue}>7 dias</Text>
+                <Text style={styles.metaValue}>7 días</Text>
               </View>
             </View>
           </View>
@@ -280,7 +276,7 @@ export default function SupplementsHistoryScreen() {
 
         <Card style={styles.coachCard}>
           <View style={styles.coachSectionHeader}>
-            <Text style={styles.coachEyebrow}>Coach contextual</Text>
+            <Text style={styles.coachEyebrow}>Lectura contextual</Text>
             <Text style={styles.coachTitle}>{coachTitle}</Text>
             <Text style={styles.coachBody}>{coachBody}</Text>
           </View>
@@ -289,19 +285,19 @@ export default function SupplementsHistoryScreen() {
             <RouteStat
               label="Score"
               value={dayScore !== null ? `${dayScore}` : '--'}
-              hint={dayScore !== null ? `cierre ${predictedScore ?? dayScore}` : 'sin lectura todavia'}
+              hint={dayScore !== null ? `cierre ${predictedScore ?? dayScore}` : 'sin lectura todavía'}
               accent={dayScoreAccent}
             />
             <RouteStat
               label="Retorno"
               value={returnMode}
               hint={!hasActiveSupplements ? 'sin stack' : `${weeklyAdherencePct}% semana`}
-              accent={Colors.coach}
+              accent={Colors.info}
             />
             <RouteStat
               label="Ritmo"
               value={scoreVsWeek !== null ? `${scoreVsWeek > 0 ? '+' : ''}${scoreVsWeek}` : `${dailyAdherenceStreak}`}
-              hint={scoreVsWeek !== null ? 'vs. semana' : 'racha util'}
+              hint={scoreVsWeek !== null ? 'vs. semana' : 'racha útil'}
               accent={scoreVsWeek !== null && scoreVsWeek < 0 ? Colors.warning : Colors.textPrimary}
             />
           </View>
@@ -313,9 +309,9 @@ export default function SupplementsHistoryScreen() {
               <Text style={styles.routeActionHint}>{coachHint}</Text>
             </View>
             <View style={styles.routeButtons}>
-              <Button onPress={handlePrimaryAction} label={primaryActionLabel} size="sm" color={Colors.coach} />
-              <Button onPress={() => router.push(Routes.coach.index as any)} label="Abrir coach" size="sm" variant="secondary" color={Colors.coach} />
-              <Button onPress={() => router.push(Routes.dailySummary as any)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.coach} />
+              <Button onPress={handlePrimaryAction} label={primaryActionLabel} size="sm" color={Colors.info} />
+              <Button onPress={() => router.push(Routes.tabs.home as never)} label="Abrir inicio" size="sm" variant="secondary" color={Colors.info} />
+              <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.info} />
             </View>
           </View>
         </Card>
@@ -330,7 +326,7 @@ export default function SupplementsHistoryScreen() {
                   styles.tab,
                   isActive && { borderColor: withOpacity(accent, 0.32), backgroundColor: accentBg },
                 ]}
-                onPress={() => router.push(tab.route as any)}
+                onPress={() => router.push(tab.route as never)}
               >
                 <Text style={[styles.tabText, isActive && { color: accent }]}>{tab.label}</Text>
               </Pressable>
@@ -346,7 +342,7 @@ export default function SupplementsHistoryScreen() {
               emoji="SUPP"
               tone="brand"
               ctaLabel="Agregar suplemento"
-              onCta={() => router.push(Routes.supplements.index as any)}
+              onCta={() => router.push(Routes.supplements.index as never)}
               subtitle="Activa tu primer suplemento y esta pantalla empezara a mostrar adherencia, racha y cumplimiento semanal."
             />
           </Card>
@@ -356,20 +352,20 @@ export default function SupplementsHistoryScreen() {
               <Text style={styles.contextTitle}>Ruta del historial</Text>
               <Text style={styles.contextText}>
                 {atRiskSupplement && atRiskSupplement.value < 75
-                  ? `${atRiskSupplement.item.name} esta frenando la constancia del stack con ${atRiskSupplement.value}% de adherencia.`
+                  ?  `${atRiskSupplement.item.name} esta frenando la constancia del stack con ${atRiskSupplement.value}% de adherencia.`
                   : `El stack esta sosteniendo ${weeklyAdherencePct}% de adherencia semanal con ${activeSupps.length} suplementos activos.`}
               </Text>
               <Text style={styles.contextMeta}>
                 {strongestSupplement
                   ? `Base mas estable: ${strongestSupplement.item.name} con ${strongestSupplement.value}% de adherencia.`
-                  : 'Sin base estable todavia.'}
+                  : 'Sin base estable todavía.'}
               </Text>
             </Card>
 
             <Card accentColor={accent}>
               <SectionHeader
-                title="Ultimos 7 dias"
-                hint="Una lectura corta de cumplimiento dia por dia frente a todo lo que tenias activo."
+                title="últimos 7 días"
+                hint="Una lectura corta de cumplimiento día por día frente a todo lo que tenias activo."
               />
               <View style={styles.weekRow}>
                 {dailyCounts.map((item) => {
@@ -392,7 +388,7 @@ export default function SupplementsHistoryScreen() {
             <Card>
               <SectionHeader
                 title="Por suplemento"
-                hint="Lectura de adherencia a 30 dias para detectar que si sostienes y que esta quedando atras."
+                hint="Lectura de adherencia a 30 días para detectar que si sostienes y que esta quedando atras."
               />
               {activeSupps.map((item) => (
                 <View key={item.id} style={styles.suppRow}>
@@ -411,8 +407,6 @@ export default function SupplementsHistoryScreen() {
             </Card>
           </>
         )}
-
-        <HistoryAdBanner />
       </ScrollView>
     </SafeScreen>
   );
@@ -468,7 +462,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: Colors.coach,
+    color: Colors.info,
   },
   coachTitle: {
     fontFamily: FontFamily.bold,
@@ -518,7 +512,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: Colors.coach,
+    color: Colors.info,
   },
   routeActionTitle: {
     fontFamily: FontFamily.bold,

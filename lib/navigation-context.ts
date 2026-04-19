@@ -19,13 +19,13 @@ export function isQuickLogOrigin(origin: OriginParam): boolean {
 }
 
 export function getQuickLogSuccessRoute(success: QuickLogSuccessKey): string {
-  return `${Routes.log}?success=${success}`;
+  return `${Routes.tabs.home}?success=${success}`;
 }
 
 export function getWorkoutSummaryRoute(origin: OriginParam): string {
   return isQuickLogOrigin(origin)
-    ? `${Routes.workout.summary}?origin=quick-log`
-    : Routes.workout.summary;
+    ?  `${Routes.workout.done}?origin=quick-log`
+    : Routes.workout.done;
 }
 
 export function buildRouteWithParams(pathname: string, params?: RouteIntentParams): string {
@@ -46,5 +46,5 @@ export function buildRouteWithParams(pathname: string, params?: RouteIntentParam
   }
 
   const query = search.toString();
-  return query ? `${pathname}?${query}` : pathname;
+  return query ? `${pathname}??${query}` : pathname;
 }

@@ -38,6 +38,9 @@ export interface OnboardingData {
   wake_time_minutes?: number;
   sleep_time_minutes?: number;
   fasting_protocol?: string | null;
+  context_display_name?: string | null;
+  coach_display_name?: string | null; // alias legacy de onboarding
+  notifications_permission_state?: 'granted' | 'denied' | 'skipped';
   terms_accepted: boolean;
   privacy_accepted: boolean;
 }
@@ -90,24 +93,24 @@ export interface UserProfile {
   founding_member?: boolean;
   founding_member_rank?: number | null;
 
-  // Gamificación
-  coins: number;
-  xp: number;
-  level: number;
   streak: number;
   best_streak: number;
   current_streak?: number; // alias legacy
   longest_streak?: number; // alias legacy
+  streak_freeze_count?: number | null;
+  streak_freeze_last_used_at?: string | null;
 
   // Notificaciones
-  push_token?: string | null; // alias legacy (hoy se guarda en coach_memory_json)
+  push_token?: string | null; // alias legacy (hoy se guarda en context_memory_json y se espeja al campo legacy)
 
   // Features opcionales
   female_health_enabled: boolean;
   female_cycle_length?: number | null;
   female_last_period_date?: string | null;
-  coach_name_preference: string | null;
-  coach_memory_json?: Record<string, unknown> | null;
+  context_name_preference?: string | null;
+  context_memory_json?: Record<string, unknown> | null;
+  coach_name_preference: string | null; // alias legacy espejado para compatibilidad
+  coach_memory_json?: Record<string, unknown> | null; // alias legacy espejado para compatibilidad
   onboarding_completed: boolean;
   first_week_completed: boolean;
 
@@ -121,9 +124,6 @@ export type CreateProfilePayload = Omit<
   UserProfile,
   | 'id'
   | 'email'
-  | 'coins'
-  | 'xp'
-  | 'level'
   | 'streak'
   | 'best_streak'
   | 'current_streak'

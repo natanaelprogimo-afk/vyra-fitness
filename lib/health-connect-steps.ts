@@ -26,6 +26,11 @@ export interface HealthConnectStepsResult {
   dataOrigins: string[];
 }
 
+type StepsAggregateResult = {
+  COUNT_TOTAL?: number;
+  dataOrigins?: string[];
+};
+
 function hasStepsReadPermission(permissions: Array<Permission | { accessType: string; recordType: string }>) {
   return permissions.some((permission) => permission.accessType === 'read' && permission.recordType === 'Steps');
 }
@@ -97,7 +102,7 @@ export async function readTodayStepsFromHealthConnect(options?: {
         status: 'permissions_missing',
         permissionsGranted: false,
         steps: 0,
-        message: 'Permite lectura de pasos en Health Connect para recuperar actividad aunque cierres la app.',
+        message: 'Permite lectura de pasos en Health Connect para recuperar actividad aúnque cierres la app.',
         dataOrigins: [],
       };
     }
@@ -111,7 +116,7 @@ export async function readTodayStepsFromHealthConnect(options?: {
         startTime: start.toISOString(),
         endTime: new Date().toISOString(),
       },
-    }).catch(() => null);
+    }).catch(() => null) as StepsAggregateResult | null;
 
     return {
       status: 'ready',
@@ -130,3 +135,6 @@ export async function readTodayStepsFromHealthConnect(options?: {
     };
   }
 }
+
+
+

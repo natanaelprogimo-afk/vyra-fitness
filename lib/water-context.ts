@@ -1,3 +1,4 @@
+import { getProfileContextMemory } from '@/lib/profile-context';
 import type { UserProfile } from '@/types/user';
 
 export type WaterClimate = 'normal' | 'warm' | 'hot' | 'humid' | 'dry';
@@ -55,15 +56,15 @@ const DEFAULT_CONTEXT: WaterContextSettings = {
 };
 
 export function getWaterContext(profile: UserProfile | null | undefined): WaterContextSettings {
-  if (!profile?.coach_memory_json || typeof profile.coach_memory_json !== 'object') {
+  const memory = getProfileContextMemory(profile);
+  if (!Object.keys(memory).length) {
     return DEFAULT_CONTEXT;
   }
-  const memory = profile.coach_memory_json as Record<string, unknown>;
   const context = memory.water_context && typeof memory.water_context === 'object'
-    ? (memory.water_context as Record<string, unknown>)
+    ?  (memory.water_context as Record<string, unknown>)
     : {};
   const auto = memory.water_context_auto && typeof memory.water_context_auto === 'object'
-    ? (memory.water_context_auto as Record<string, unknown>)
+    ?  (memory.water_context_auto as Record<string, unknown>)
     : {};
 
   const climate = typeof context.climate === 'string' ? (context.climate as WaterClimate) : DEFAULT_CONTEXT.climate;
@@ -98,13 +99,13 @@ export function getWaterContext(profile: UserProfile | null | undefined): WaterC
 }
 
 export function withWaterContext(
-  coachMemory: Record<string, unknown> | null | undefined,
+  contextMemory: Record<string, unknown> | null | undefined,
   context: Pick<WaterContextSettings, 'climate' | 'illness' | 'sweatLevel'>,
 ): Record<string, unknown> {
-  const memory = coachMemory ? coachMemory : {};
+  const memory = contextMemory ? contextMemory : {};
   const existingAuto =
     memory && (memory as any).water_context_auto && typeof (memory as any).water_context_auto === 'object'
-      ? ((memory as any).water_context_auto as Record<string, unknown>)
+      ?  ((memory as any).water_context_auto as Record<string, unknown>)
       : {};
 
   return {
@@ -119,13 +120,13 @@ export function withWaterContext(
 }
 
 export function withWaterAutoContext(
-  coachMemory: Record<string, unknown> | null | undefined,
+  contextMemory: Record<string, unknown> | null | undefined,
   auto: Partial<WaterAutoContext>,
 ): Record<string, unknown> {
-  const memory = coachMemory ? coachMemory : {};
+  const memory = contextMemory ? contextMemory : {};
   const current =
     memory && (memory as any).water_context_auto && typeof (memory as any).water_context_auto === 'object'
-      ? ((memory as any).water_context_auto as Record<string, any>)
+      ?  ((memory as any).water_context_auto as Record<string, any>)
       : {};
 
   const currentEnabled = typeof current.enabled === 'boolean' ? current.enabled : undefined;

@@ -250,23 +250,9 @@ export function trackSubscriptionCancelled(plan: string, tenureDays: number) {
   );
 }
 
-export function trackAdRewarded(context: string, coinsEarned: number, adUnit: string) {
+export function trackContextMessage(isPremium: boolean, countToday: number) {
   dispatch((analytics) =>
-    analytics.capture('unity_ad_rewarded_completed', {
-      context,
-      coins_earned: coinsEarned,
-      ad_unit: adUnit,
-    }),
-  );
-}
-
-export function trackAdRewardedWatched(context: string, adUnit: string) {
-  dispatch((analytics) => analytics.capture('ad_rewarded_watched', { context, ad_unit: adUnit }));
-}
-
-export function trackCoachMessage(isPremium: boolean, countToday: number) {
-  dispatch((analytics) =>
-    analytics.capture('coach_message_sent', {
+    analytics.capture('context_message_sent', {
       is_premium: isPremium,
       message_count_today: countToday,
     }),
@@ -281,26 +267,8 @@ export function trackStreakBroken(days: number) {
   dispatch((analytics) => analytics.capture('streak_broken', { streak_days: days }));
 }
 
-export function trackBadgeUnlocked(badgeId: string, rarity: string) {
-  dispatch((analytics) => analytics.capture('badge_unlocked', { badge_id: badgeId, rarity }));
-}
-
-export function trackLevelUp(level: number) {
-  dispatch((analytics) => analytics.capture('level_up', { level }));
-}
-
 export function trackStepsGoalReached(goal: number, steps: number) {
   dispatch((analytics) => analytics.capture('steps_goal_reached', { goal, steps }));
-}
-
-export function trackStorePurchase(itemId: string, tier: string, coinsSpent: number) {
-  dispatch((analytics) =>
-    analytics.capture('store_purchase_completed', {
-      item_id: itemId,
-      tier,
-      coins_spent: coinsSpent,
-    }),
-  );
 }
 
 export function flushAnalytics() {

@@ -16,7 +16,7 @@
 - Brindar el servicio principal de seguimiento de salud y bienestar.
 - Sincronizar datos entre dispositivos y mantener tu cuenta.
 - Calcular score, metricas, progreso y beneficios Premium.
-- Personalizar respuestas del Coach IA.
+- Personalizar lecturas contextuales y cierres inteligentes.
 - Procesar suscripciones, renovaciones y cancelaciones.
 - Detectar errores y mejorar el producto.
 
@@ -28,11 +28,12 @@
 ## 5. Terceros que intervienen
 - Supabase: autenticacion y base de datos.
 - Render: backend y operacion del API.
-- Groq: procesamiento del Coach IA.
+- Groq y Anthropic: procesamiento de IA contextual y funciones generativas habilitadas.
 - PayPal: cobro y gestion de suscripciones.
-- Unity Ads: anuncios para usuarios Free.
 - PostHog: analitica de producto.
 - Sentry: monitoreo de errores.
+- Expo Push: entrega de notificaciones push.
+- Open Food Facts: busqueda y validacion de alimentos cuando usas barcode o catalogo nutricional.
 
 ## 6. Seguridad
 - HTTPS en transito.
@@ -58,4 +59,3 @@
 
 ## 10. Contacto
 - Privacidad: privacy@vyrafitness.app
-

@@ -20,8 +20,6 @@ export type RouteSurface =
 
   | 'growth'
 
-  | 'gamification'
-
   | 'legal'
 
   | 'special'
@@ -42,7 +40,7 @@ export interface RouteMeta {
 
   moduleId?: ModuleId;
 
-  tabKey?: 'home' | 'workout' | 'nutrition' | 'progress' | 'profile' | 'quick-log' | 'shop';
+  tabKey?: 'home' | 'progress';
 
   aliasOf?: string;
 
@@ -58,12 +56,12 @@ const MODULE_TITLES: Record<ModuleId, string> = {
 
   fasting: 'Ayuno',
 
-  sleep: 'Sueno',
+  sleep: 'Sueño',
 
-  nutrition: 'Nutricion',
+  nutrition: 'Nutrición',
   weight: 'Peso',
   workout: 'Entreno',
-  recovery: 'Recovery',
+  recovery: 'Descanso',
   mental: 'Mental',
   supplements: 'Suplementos',
   female: 'Salud femenina',
@@ -72,19 +70,17 @@ const MODULE_TITLES: Record<ModuleId, string> = {
 
 const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
 
-  '/': { screenKey: 'home_tab', title: 'Hoy', surface: 'tabs', tabKey: 'home' },
+  '/': { screenKey: 'home_tab', title: 'Inicio', surface: 'tabs', tabKey: 'home' },
 
-  '/workout': { screenKey: 'workout_tab', title: 'Entreno', surface: 'tabs', tabKey: 'workout' },
+  '/workout': { screenKey: 'workout_tab_alias', title: 'Entreno', surface: 'tabs', aliasOf: '/modules/workout' },
 
-  '/nutrition': { screenKey: 'nutrition_tab', title: 'Nutricion', surface: 'tabs', tabKey: 'nutrition' },
+  '/nutrition': { screenKey: 'nutrition_tab_alias', title: 'Nutrición', surface: 'tabs', aliasOf: '/modules/nutrition' },
 
   '/progress': { screenKey: 'progress_tab', title: 'Progreso', surface: 'tabs', tabKey: 'progress' },
 
-  '/profile': { screenKey: 'profile_tab', title: 'Perfil', surface: 'tabs', tabKey: 'profile' },
+  '/profile/sheet': { screenKey: 'profile_sheet', title: 'Perfil', surface: 'profile' },
 
-  '/log': { screenKey: 'quick_log', title: 'Registro rapido', surface: 'tabs', tabKey: 'quick-log' },
-
-  '/shop': { screenKey: 'shop_tab', title: 'Tienda', surface: 'tabs', tabKey: 'shop' },
+  '/shop': { screenKey: 'shop_alias_paywall', title: 'Premium', surface: 'premium', aliasOf: '/premium/paywall' },
 
   '/welcome': { screenKey: 'auth_welcome', title: 'Bienvenida', surface: 'auth' },
 
@@ -96,25 +92,14 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
 
   '/reset-password': { screenKey: 'auth_reset_password', title: 'Nueva clave', surface: 'auth' },
 
-  '/daily-summary': { screenKey: 'daily_summary', title: 'Resumen diario', surface: 'special' },
+  '/daily-summary': { screenKey: 'daily_summary_alias_progress', title: 'Tu progreso', surface: 'special', aliasOf: '/progress' },
 
-  '/first-week': { screenKey: 'first_week', title: 'Primera semana', surface: 'special' },
-
-  '/kora': { screenKey: 'kora', title: 'Kora', surface: 'special' },
+  '/kora': { screenKey: 'kora_alias', title: 'Tu progreso', surface: 'special', aliasOf: '/progress' },
 
   '/referral': { screenKey: 'referral', title: 'Referidos', surface: 'growth' },
 
   '/premium/paywall': { screenKey: 'premium_paywall', title: 'Premium', surface: 'premium' },
   '/premium/manage': { screenKey: 'premium_manage', title: 'Gestion premium', surface: 'premium' },
-  '/premium/value': { screenKey: 'premium_value', title: 'Valor premium', surface: 'premium' },
-  '/premium/pricing': { screenKey: 'premium_pricing', title: 'Pricing premium', surface: 'premium' },
-  '/premium/economy': { screenKey: 'premium_economy', title: 'Economia VYRA', surface: 'premium' },
-  '/store/shop': { screenKey: 'store_shop', title: 'Tienda', surface: 'premium', aliasOf: '/shop' },
-  '/store/item-detail': { screenKey: 'store_item_detail', title: 'Detalle de item', surface: 'premium' },
-  '/store/rewarded': { screenKey: 'store_rewarded', title: 'Ruta rewarded', surface: 'premium' },
-  '/modules/coach': { screenKey: 'coach_hub', title: 'Coach', surface: 'module' },
-  '/modules/coach/history': { screenKey: 'coach_history', title: 'Coach - Historial', surface: 'module' },
-  '/modules/coach/settings': { screenKey: 'coach_settings', title: 'Coach - Ajustes', surface: 'module' },
   '/modules/progress/history': { screenKey: 'progress_history', title: 'Progreso - Historial', surface: 'module' },
   '/modules/progress/insights': { screenKey: 'progress_insights', title: 'Progreso - Insights', surface: 'module' },
   '/modules/fasting/history': {
@@ -126,15 +111,24 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
   },
   '/modules/female/symptoms': {
     screenKey: 'female_symptoms',
-    title: 'Sintomas',
+    title: 'Síntomas',
     surface: 'module',
     moduleId: 'female',
+    aliasOf: '/modules/female',
+  },
+  '/modules/female/history': {
+    screenKey: 'female_history_alias',
+    title: 'Ciclo - Historial',
+    surface: 'module',
+    moduleId: 'female',
+    aliasOf: '/modules/female',
   },
   '/modules/nutrition/food-detail': {
     screenKey: 'nutrition_food_detail',
     title: 'Detalle de alimento',
     surface: 'module',
     moduleId: 'nutrition',
+    aliasOf: '/modules/nutrition/log',
   },
   '/modules/nutrition/search': {
     screenKey: 'nutrition_search_alias',
@@ -143,58 +137,28 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
     moduleId: 'nutrition',
     aliasOf: '/modules/nutrition/log',
   },
-  '/modules/nutrition/photo-log': {
-    screenKey: 'nutrition_photo_log',
-    title: 'Captura de comida',
-    surface: 'module',
-    moduleId: 'nutrition',
-  },
   '/modules/nutrition/recipes': {
     screenKey: 'nutrition_recipes',
     title: 'Recetas',
     surface: 'module',
     moduleId: 'nutrition',
-  },
-  '/modules/nutrition/competition-checkin': {
-    screenKey: 'nutrition_competition_checkin',
-    title: 'Competition check-in',
-    surface: 'module',
-    moduleId: 'nutrition',
-  },
-  '/modules/nutrition/voice-log': {
-    screenKey: 'nutrition_voice_log',
-    title: 'Dictado de comida',
-    surface: 'module',
-    moduleId: 'nutrition',
-  },
-  '/modules/weight/log': {
-    screenKey: 'weight_log',
-    title: 'Registrar peso',
-    surface: 'module',
-    moduleId: 'weight',
-  },
-  '/modules/weight/photos': {
-    screenKey: 'weight_photos',
-    title: 'Fotos de progreso',
-    surface: 'module',
-    moduleId: 'weight',
+    aliasOf: '/modules/nutrition',
   },
   '/modules/sleep/history': {
-    screenKey: 'sleep_history_alias',
-    title: 'Sueno',
+    screenKey: 'sleep_history',
+    title: 'Historial de sueño',
     surface: 'module',
     moduleId: 'sleep',
-    aliasOf: '/modules/sleep',
   },
   '/modules/sleep/log': {
     screenKey: 'sleep_log',
-    title: 'Registrar sueno',
+    title: 'Registrar sueño',
     surface: 'module',
     moduleId: 'sleep',
   },
   '/modules/sleep/insights': {
     screenKey: 'sleep_insights',
-    title: 'Insights de sueno',
+    title: 'Insights de sueño',
     surface: 'module',
     moduleId: 'sleep',
   },
@@ -203,6 +167,14 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
     title: 'Cardio activo',
     surface: 'module',
     moduleId: 'steps',
+    aliasOf: '/modules/steps',
+  },
+  '/modules/steps/map': {
+    screenKey: 'steps_map_alias',
+    title: 'Pasos - Ruta',
+    surface: 'module',
+    moduleId: 'steps',
+    aliasOf: '/modules/steps',
   },
   '/modules/steps/history': {
     screenKey: 'steps_history',
@@ -215,24 +187,62 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
     title: 'Calibracion',
     surface: 'module',
     moduleId: 'steps',
+    aliasOf: '/modules/steps/settings',
   },
   '/modules/water/day': {
     screenKey: 'water_day',
     title: 'Registros de agua',
     surface: 'module',
     moduleId: 'water',
+    aliasOf: '/modules/water',
   },
   '/modules/water/custom': {
     screenKey: 'water_custom',
     title: 'Registrar bebida',
     surface: 'module',
     moduleId: 'water',
+    aliasOf: '/modules/water',
   },
   '/modules/water/drink-builder': {
     screenKey: 'water_drink_builder',
     title: 'Bebida personalizada',
     surface: 'module',
     moduleId: 'water',
+    aliasOf: '/modules/water',
+  },
+  '/modules/water/reminders': {
+    screenKey: 'water_reminders_alias',
+    title: 'Avisos de hidratacion',
+    surface: 'module',
+    moduleId: 'water',
+    aliasOf: '/modules/water/settings',
+  },
+  '/modules/workout/insights': {
+    screenKey: 'workout_insights',
+    title: 'Entreno - Insights',
+    surface: 'module',
+    moduleId: 'workout',
+  },
+  '/modules/workout/history': {
+    screenKey: 'workout_history_alias',
+    title: 'Entreno - Historial',
+    surface: 'module',
+    moduleId: 'workout',
+    aliasOf: '/modules/workout/insights',
+  },
+  '/modules/workout/prs': {
+    screenKey: 'workout_prs_alias',
+    title: 'Entreno - Records',
+    surface: 'module',
+    moduleId: 'workout',
+    aliasOf: '/modules/workout/insights',
+  },
+  '/modules/workout/stats': {
+    screenKey: 'workout_stats_alias',
+    title: 'Entreno - Estadisticas',
+    surface: 'module',
+    moduleId: 'workout',
+    aliasOf: '/modules/workout/insights',
   },
   '/modules/workout/routines': {
     screenKey: 'workout_routines_alias',
@@ -248,24 +258,23 @@ const EXPLICIT_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
     moduleId: 'workout',
     aliasOf: '/modules/workout',
   },
-  '/modules/workout/active': {
-    screenKey: 'workout_active',
-    title: 'Modo activo',
+  '/modules/workout/session-preview': {
+    screenKey: 'workout_session_preview',
+    title: 'Entreno - Preview',
     surface: 'module',
     moduleId: 'workout',
   },
-  '/modules/workout/rest-timer': {
-    screenKey: 'workout_rest_timer',
-    title: 'Descanso inteligente',
-    surface: 'module',
-    moduleId: 'workout',
-  },
-  '/intelligence/why-vyra': { screenKey: 'why_vyra', title: 'Why Vyra', surface: 'special' },
-  '/settings/account': { screenKey: 'profile_edit_alias', title: 'Editar perfil', surface: 'settings', aliasOf: '/profile/edit' },
-  '/settings/notifications': { screenKey: 'profile_notifications_alias', title: 'Notificaciones', surface: 'settings', aliasOf: '/profile/notifications' },
-  '/settings/notifications-history': { screenKey: 'profile_notifications_history_alias', title: 'Notificaciones - Historial', surface: 'settings', aliasOf: '/profile/notifications-history' },
-  '/settings/notifications-settings': { screenKey: 'profile_notifications_settings_alias', title: 'Notificaciones - Ajustes', surface: 'settings', aliasOf: '/profile/notifications-settings' },
-  '/settings/danger': { screenKey: 'profile_delete_account_alias', title: 'Eliminar cuenta', surface: 'settings', aliasOf: '/profile/delete-account' },
+  '/intelligence/why-vyra': { screenKey: 'why_vyra', title: 'Why Vyra', surface: 'special', aliasOf: '/' },
+  '/settings/account': { screenKey: 'settings_account', title: 'Cuenta y seguridad', surface: 'settings' },
+  '/settings/appearance': { screenKey: 'settings_appearance', title: 'Apariencia y region', surface: 'settings' },
+  '/settings/notifications': { screenKey: 'settings_notifications_alias', title: 'Notificaciones', surface: 'settings', aliasOf: '/settings/notifications-settings' },
+  '/settings/notifications-history': { screenKey: 'settings_notifications_history', title: 'Historial de notificaciones', surface: 'settings' },
+  '/settings/notifications-settings': { screenKey: 'settings_notifications_settings', title: 'Notificaciones - Ajustes', surface: 'settings' },
+  '/settings/sessions': { screenKey: 'settings_sessions_alias', title: 'Sesiones', surface: 'settings', aliasOf: '/settings/account' },
+  '/settings/theme': { screenKey: 'settings_theme_alias', title: 'Tema', surface: 'settings', aliasOf: '/settings/appearance' },
+  '/settings/units': { screenKey: 'settings_units_alias', title: 'Unidades', surface: 'settings', aliasOf: '/settings/appearance' },
+  '/settings/language': { screenKey: 'settings_language_alias', title: 'Idioma', surface: 'settings', aliasOf: '/settings/appearance' },
+  '/settings/danger': { screenKey: 'settings_danger_alias', title: 'Eliminar cuenta', surface: 'settings', aliasOf: '/settings/account' },
 };
 
 
@@ -273,7 +282,7 @@ export function normalizePathname(pathname: string | null | undefined): string {
 
   if (!pathname) return '/';
 
-  const [pathOnly] = pathname.split('?');
+  const [pathOnly] = pathname.split('??');
 
   const trimmed = pathOnly.trim();
 
@@ -348,15 +357,13 @@ function inferSurface(pathname: string): RouteSurface {
 
   if (pathname.startsWith('/growth')) return 'growth';
 
-  if (pathname.startsWith('/gamification')) return 'gamification';
-
   if (pathname.startsWith('/legal')) return 'legal';
 
   if (pathname.startsWith('/premium')) return 'premium';
 
   if (pathname.startsWith('/modules')) return 'module';
 
-  if (['/', '/workout', '/nutrition', '/progress', '/profile', '/log', '/shop'].includes(pathname)) return 'tabs';
+  if (['/', '/workout', '/nutrition', '/progress'].includes(pathname)) return 'tabs';
 
   if (['/welcome', '/login', '/register', '/forgot-password', '/reset-password'].includes(pathname)) return 'auth';
 

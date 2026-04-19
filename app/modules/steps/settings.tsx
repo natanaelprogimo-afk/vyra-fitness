@@ -9,19 +9,18 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/stores/authStore';
 import { Colors } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 
 const PRESETS = [
-  { label: '5.000',  value: 5000,  desc: 'Poco activo'     },
-  { label: '7.500',  value: 7500,  desc: 'Moderado'        },
-  { label: '10.000', value: 10000, desc: 'OMS recomienda'  },
-  { label: '12.000', value: 12000, desc: 'Activo'          },
-  { label: '15.000', value: 15000, desc: 'Muy activo'      },
-  { label: '20.000', value: 20000, desc: 'Atleta'          },
+  { label: '6.000',  value: 6000,  desc: 'Base realista'   },
+  { label: '7.500',  value: 7500,  desc: 'Buen ritmo'      },
+  { label: '9.000',  value: 9000,  desc: 'Activo'          },
+  { label: '10.500', value: 10500, desc: 'Muy activo'      },
+  { label: '12.000', value: 12000, desc: 'Reto fuerte'     },
+  { label: '15.000', value: 15000, desc: 'Nivel atleta'    },
 ];
 
 export default function StepsSettingsScreen() {
@@ -40,8 +39,8 @@ export default function StepsSettingsScreen() {
 
   return (
     <SafeScreen scrollable>
-      <Header title="Meta de pasos" showBack />
-      <Text style={styles.sub}>La OMS recomienda 10.000 pasos diarios para adultos.</Text>
+      <Header eyebrow="Pasos" title="Meta" showBack color={Colors.steps} />
+      <Text style={styles.sub}>Empieza con una meta que puedas sostener de verdad. Si luego te queda corta, la subes.</Text>
 
       <View style={styles.presets}>
         {PRESETS.map((p) => (
