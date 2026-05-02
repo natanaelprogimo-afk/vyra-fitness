@@ -1,187 +1,506 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
-
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import Button from '@/components/ui/Button';
 import FastingModuleTabs from '@/components/fasting/FastingModuleTabs';
-import SafeScreen from '@/components/ui/SafeScreen';
+import ModuleScaffold from '@/components/modules/ModuleScaffold';
+import Card from '@/components/ui/Card';
+import TimePicker from '@/components/ui/TimePicker';
+import NoticeCard from '@/components/ui/NoticeCard';
+import SectionHeader from '@/components/ui/SectionHeader';
+import SettingToggleRow from '@/components/ui/SettingToggleRow';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Spacing } from '@/constants/theme';
-import { loadFastingSettings, parseTimeInput, saveFastingSettings, type FastingSettings } from '@/lib/fasting-settings';
+import { FontFamily, FontSize, Spacing, Radius } from '@/constants/theme';
+import {
+  loadFastingSettings,
+  parseTimeInput,
+  saveFastingSettings,
+  type FastingSettings,
+} from '@/lib/fasting-settings';
+import supabase, { getCurrentUserId } from '@/lib/supabase';
+import { useUIStore } from '@/stores/uiStore';
 
-const SCREEN_BG = '#160f0d';
-const CARD_BG = '#1e1412';
-const TILE_BG = '#261916';
-const BORDER = 'rgba(243, 112, 53, 0.14)';
+// FIX #17: StartTimePreview now accepts fastingHours prop to show the
+// real eating window instead of always assuming 16:8 (8h hardcoded).
+function StartTimePreview({ timeValue: _timeValue, parsedTime, fastingHours = 16 }: {
+  timeValue: string;
+  parsedTime: { hour: number; minute: number } | null;
+  fastingHours?: number;
+}) {
+  if (!parsedTime) return null;
 
-function ToggleRow({ title, body, value, onValueChange }: { title: string; body: string; value: boolean; onValueChange: (value: boolean) => void }) {
+  const startHour = parsedTime.hour + parsedTime.minute / 60;
+  const eatingHours = 24 - fastingHours;
+  const eatingEndHour = (startHour + eatingHours) % 24;
+  const fastStartHour = eatingEndHour;
+
+  const formatHour = (h: number) => {
+    const hInt = Math.floor(h);
+    const m = Math.round((h - hInt) * 60);
+    return `${String(hInt).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
   return (
-    <View style={styles.toggleRow}>
-      <View style={styles.toggleCopy}>
-        <Text style={styles.toggleTitle}>{title}</Text>
-        <Text style={styles.toggleBody}>{body}</Text>
+    <View style={previewStyles.container}>
+      {/* FIX #17: Show actual protocol name in the preview title */}
+      <Text style={previewStyles.title}>Preview ventana {fastingHours}:{eatingHours}</Text>
+      <View style={previewStyles.timeline}>
+        {/* Comida */}
+        <View style={previewStyles.timelineBlock}>
+          <View style={[previewStyles.block, previewStyles.eatingBlock]}>
+            <Text style={previewStyles.blockLabel}>🍽 Comer</Text>
+            <Text style={previewStyles.blockTime}>{formatHour(startHour)} – {formatHour(eatingEndHour)}</Text>
+          </View>
+        </View>
+        {/* Ayuno */}
+        <View style={previewStyles.timelineBlock}>
+          <View style={[previewStyles.block, previewStyles.fastingBlock]}>
+            <Text style={previewStyles.blockLabel}>🌙 Ayuno</Text>
+            <Text style={previewStyles.blockTime}>{formatHour(fastStartHour)} – {formatHour(startHour)}</Text>
+          </View>
+        </View>
       </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: '#3a2620', true: withOpacity(Colors.fasting, 0.42) }}
-        thumbColor={value ? Colors.fasting : '#a9928b'}
-      />
     </View>
   );
 }
 
-export default function FastingSettingsScreen() {
-  const [settings, setSettings] = useState<FastingSettings | null>(null);
-  const [timeValue, setTimeValue] = useState('12:00');
-  const [saving, setSaving] = useState(false);
+const previewStyles = StyleSheet.create({
+  container: {
+    gap: Spacing[2],
+  },
+  title: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  timeline: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  timelineBlock: { flex: 1 },
+  block: {
+    borderRadius: Radius.lg,
+    padding: Spacing[3],
+    gap: 2,
+    borderWidth: 1,
+  },
+  eatingBlock: {
+    backgroundColor: withOpacity(Colors.success, 0.08),
+    borderColor: withOpacity(Colors.success, 0.2),
+  },
+  fastingBlock: {
+    backgroundColor: withOpacity(Colors.fasting, 0.08),
+    borderColor: withOpacity(Colors.fasting, 0.2),
+  },
+  blockLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+  },
+  blockTime: {
+    fontFamily: FontFamily.regular,
+    fontSize: 10,
+    color: Colors.textSecondary,
+  },
+});
 
-  useEffect(() => {
-    let mounted = true;
-    void loadFastingSettings().then((value) => {
-      if (!mounted) return;
+export default function FastingSettingsScreen() {
+  const showToast = useUIStore((state) => state.showToast);
+  const [settings, setSettings] = useState<FastingSettings | null>(null);
+  // FIX #18: Added loadError state to surface settings load failures
+  const [loadError, setLoadError] = useState(false);
+  const [timeValue, setTimeValue] = useState('12:00');
+  const [fiveTwoTimeValue, setFiveTwoTimeValue] = useState('12:00');
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    setLoadError(false);
+    try {
+      const value = await loadFastingSettings();
       setSettings(value);
       setTimeValue(value.defaultStartTime ?? '12:00');
-    });
-    return () => {
-      mounted = false;
-    };
+      setFiveTwoTimeValue(value.fiveTwoStartTime ?? '12:00');
+    } catch (e) {
+      // FIX #18: Surface load failure instead of hanging on "Cargando ajustes..."
+      // eslint-disable-next-line no-console
+      console.warn('[Settings] loadFastingSettings failed', e);
+      setLoadError(true);
+    }
   }, []);
 
-  if (!settings) return null;
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
-  const handleSave = async () => {
-    const parsed = parseTimeInput(timeValue);
-    if (!parsed) return;
-    setSaving(true);
-    const next = await saveFastingSettings({
-      ...settings,
-      defaultStartTime: `${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute).padStart(2, '0')}`,
-    });
-    setSettings(next);
-    setSaving(false);
-    router.back();
+  const parsedTime = useMemo(() => parseTimeInput(timeValue), [timeValue]);
+
+  // FIX #19: Memoize fiveTwoTime parse — was called inline on every render/keystroke
+  const parsedFiveTwoTime = useMemo(() => parseTimeInput(fiveTwoTimeValue), [fiveTwoTimeValue]);
+
+  const updateSetting = <K extends keyof FastingSettings>(key: K, value: FastingSettings[K]) => {
+    setSettings((current) => current ? { ...current, [key]: value } : current);
+    setIsDirty(true);
   };
 
+  const handleSave = async () => {
+    if (!settings || !parsedTime) return;
+    setSaving(true);
+    const payload = {
+      ...settings,
+      defaultStartTime: `${String(parsedTime.hour).padStart(2, '0')}:${String(parsedTime.minute).padStart(2, '0')}`,
+      // FIX #19: use memoized parsedFiveTwoTime instead of re-parsing inline
+      fiveTwoStartTime: parsedFiveTwoTime
+        ? `${String(parsedFiveTwoTime.hour).padStart(2, '0')}:${String(parsedFiveTwoTime.minute).padStart(2, '0')}`
+        : null,
+    };
+    // Validate 5:2 settings: if auto-start enabled, user must pick at least one day
+    if (payload.fiveTwoAutoStart && (!payload.fiveTwoDays || payload.fiveTwoDays.length === 0)) {
+      showToast('Si activás Auto-iniciar 5:2, elegí al menos un día.', 'warning');
+      setSaving(false);
+      return;
+    }
+
+    const next = await saveFastingSettings(payload);
+    setSettings(next);
+
+    // Persist 5:2 preferences server-side (profiles)
+    try {
+      const userId = await getCurrentUserId();
+      let fiveTwoStartUtc: string | null = null;
+      if (parsedFiveTwoTime) {
+        const tmp = new Date();
+        tmp.setHours(parsedFiveTwoTime.hour, parsedFiveTwoTime.minute, 0, 0);
+        fiveTwoStartUtc = `${String(tmp.getUTCHours()).padStart(2, '0')}:${String(tmp.getUTCMinutes()).padStart(2, '0')}`;
+      }
+
+      let timeZone: string | null = null;
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (typeof tz === 'string' && tz.length) timeZone = tz;
+      } catch (e) {
+        // If timezone resolution fails (very rare), log and continue without it.
+        // Avoid empty catch blocks to satisfy lint rules.
+        // eslint-disable-next-line no-console
+        console.warn('[Settings] Could not detect timezone:', e);
+      }
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          five_two_days: next.fiveTwoDays,
+          five_two_start_time_utc: fiveTwoStartUtc,
+          five_two_auto: next.fiveTwoAutoStart,
+          five_two_time_zone: timeZone,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId);
+
+      if (updateError) {
+        console.warn('[Settings] Failed saving 5:2 to profile:', updateError.message);
+        // FIX #20: Surface remote save failure to the user instead of silently
+        // showing "Ajustes guardados" when the server update actually failed.
+        showToast('Ajustes locales guardados, pero no se sincronizaron al servidor.', 'warning');
+        setSaving(false);
+        setIsDirty(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('[Settings] Could not persist 5:2 preferences:', e);
+      showToast('Ajustes locales guardados, pero no se sincronizaron al servidor.', 'warning');
+      setSaving(false);
+      setIsDirty(false);
+      return;
+    }
+
+    setSaving(false);
+    setIsDirty(false);
+    showToast('Ajustes de ayuno guardados.', 'success');
+  };
+
+  // FIX #17: Derive fastingHours from current protocol setting so the
+  // preview shows the correct eating window. `activeProtocol` is now part
+  // of `FastingSettings` so we can access it directly.
+  const activeProtocolId: string = settings?.activeProtocol ?? '16:8';
+  const fastingHoursForPreview = useMemo(() => {
+    const match = activeProtocolId.match(/^(\d+):/);
+    return match ? parseInt(match[1], 10) : 16;
+  }, [activeProtocolId]);
+
   return (
-    <SafeScreen backgroundColor={SCREEN_BG} disableAtmosphere padHorizontal={false} padBottom>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.title}>Ajustes de ayuno</Text>
-            <Text style={styles.subtitle}>Timer · fases · avisos</Text>
-          </View>
-          <Text style={styles.headerLink}>timer</Text>
-        </View>
+    <ModuleScaffold
+      title="Ajustes de ayuno"
+      subtitle="Timer, fases y avisos"
+      color={Colors.fasting}
+      tabs={<FastingModuleTabs active="settings" />}
+    >
+      {/* FIX #18: Show error state with retry option if settings load failed */}
+      {loadError ? (
+        <NoticeCard
+          title="No se pudieron cargar los ajustes"
+          body="Hubo un problema al cargar tu configuración. Tocá reintentar."
+          tone="error"
+          actionLabel="Reintentar"
+          onAction={() => void loadSettings()}
+        />
+      ) : !settings ? (
+        <NoticeCard
+          title="Cargando ajustes"
+          body="Preparando tu configuración base..."
+          tone="info"
+        />
+      ) : (
+        <>
+          {/* ─── Notificaciones ─────────────────────────── */}
+          <Card style={styles.card}>
+            <SectionHeader
+              eyebrow="Notificaciones"
+              title="Avisos del protocolo"
+              subtitle="Configurá cuándo querés recibir recordatorios durante el ayuno."
+            />
 
-        <FastingModuleTabs active="settings" />
+            <SettingToggleRow
+              title="Aviso de inicio"
+              description="Te recuerda cuando empieza tu ventana elegida."
+              value={settings.notifyStart}
+              onValueChange={(value) => updateSetting('notifyStart', value)}
+              accentColor={Colors.fasting}
+            />
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>Notificaciones</Text>
-          <ToggleRow title="Aviso de inicio" body="Te recuerda cuando empieza tu ventana elegida." value={settings.notifyStart} onValueChange={(value) => setSettings((current) => (current ? { ...current, notifyStart: value } : current))} />
-          <ToggleRow title="Meta de horas" body="Avisa cuando cerraste el objetivo del protocolo." value={settings.notifyComplete} onValueChange={(value) => setSettings((current) => (current ? { ...current, notifyComplete: value } : current))} />
-        </View>
+            <View style={styles.divider} />
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>Experiencia</Text>
-          <ToggleRow title="Mostrar fases" body="Mantiene mensajes simples dentro del timer mientras ayunás." value={settings.showPhaseLabels} onValueChange={(value) => setSettings((current) => (current ? { ...current, showPhaseLabels: value } : current))} />
-          <ToggleRow title="Predicciones" body='Ejemplo: "En 2h entrás en quema máxima".' value={settings.showPredictions} onValueChange={(value) => setSettings((current) => (current ? { ...current, showPredictions: value } : current))} />
-        </View>
+            <SettingToggleRow
+              title="Meta de horas"
+              description="Avisa cuando cerraste el objetivo del protocolo."
+              value={settings.notifyComplete}
+              onValueChange={(value) => updateSetting('notifyComplete', value)}
+              accentColor={Colors.fasting}
+            />
+          </Card>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>Hora base</Text>
-          <TextInput value={timeValue} onChangeText={setTimeValue} placeholder="12:00" placeholderTextColor="#866f69" style={styles.input} />
-          <Text style={styles.baseHint}>Es la primera comida del día. De ahí parte la ventana por defecto.</Text>
-        </View>
+          {/* ─── Experiencia del timer ──────────────────── */}
+          <Card style={styles.card}>
+            <SectionHeader
+              eyebrow="Experiencia"
+              title="Lectura del timer"
+              subtitle="Qué información aparece mientras ayunás."
+            />
 
-        <Button label={saving ? 'Guardando...' : 'Guardar ajustes'} onPress={handleSave} color={Colors.fasting} disabled={saving || !parseTimeInput(timeValue)} fullWidth />
-      </ScrollView>
-    </SafeScreen>
+            <SettingToggleRow
+              title="Mostrar fases"
+              description="Mantiene mensajes simples dentro del timer mientras ayunás."
+              value={settings.showPhaseLabels}
+              onValueChange={(value) => updateSetting('showPhaseLabels', value)}
+              accentColor={Colors.fasting}
+            />
+
+            <View style={styles.divider} />
+
+            <SettingToggleRow
+              title="Predicciones"
+              description='Muestra tips como: "En 2h entrás en quema máxima".'
+              value={settings.showPredictions}
+              onValueChange={(value) => updateSetting('showPredictions', value)}
+              accentColor={Colors.fasting}
+            />
+          </Card>
+
+          {/* ─── Hora base ──────────────────────────────── */}
+          <Card style={styles.card}>
+            <SectionHeader
+              eyebrow="Hora base"
+              title="Inicio sugerido"
+              subtitle="Primera comida del día. Desde ahí parte la ventana por defecto."
+            />
+
+            <View style={styles.timeInputWrapper}>
+              <TimePicker
+                label="Hora de inicio"
+                value={timeValue}
+                onChange={(v) => { setTimeValue(v); setIsDirty(true); }}
+                placeholder="12:00"
+                error={timeValue.length > 0 && !parsedTime ? 'Usá formato HH:MM (ej: 12:00)' : null}
+                inputStyle={styles.timeInput}
+              />
+              {parsedTime && (
+                <View style={styles.timeValidBadge}>
+                  <Text style={styles.timeValidText}>✓ Hora válida</Text>
+                </View>
+              )}
+            </View>
+
+            {/* FIX #17: Pass fastingHoursForPreview so the preview reflects
+                the user's actual active protocol eating window */}
+            <StartTimePreview
+              timeValue={timeValue}
+              parsedTime={parsedTime}
+              fastingHours={fastingHoursForPreview}
+            />
+
+            <Text style={styles.baseHint}>
+              Este valor no dispara una alerta del sistema: queda guardado junto al resto de tus ajustes.
+            </Text>
+          </Card>
+
+          {/* ─── Protocolo 5:2 ───────────────────────────── */}
+          <Card style={styles.card}>
+            <SectionHeader
+              eyebrow="5:2"
+              title="Programa 5:2"
+              subtitle="Elegí dos días por semana para ayunar y una hora de inicio automática si querés."
+            />
+
+            <SettingToggleRow
+              title="Auto-iniciar 5:2"
+              description="Si está activado, VYRA intentará iniciar el ayuno en los días seleccionados a la hora indicada cuando la app esté activa."
+              value={settings.fiveTwoAutoStart}
+              onValueChange={(v) => {
+                // Require at least one selected day when enabling auto-start
+                if (v && (!settings.fiveTwoDays || settings.fiveTwoDays.length === 0)) {
+                  showToast('Si activás Auto-iniciar 5:2, elegí al menos un día.', 'warning');
+                  return;
+                }
+                updateSetting('fiveTwoAutoStart', v);
+              }}
+              accentColor={Colors.fasting}
+            />
+
+            <View style={{ height: 8 }} />
+
+            <Text style={[previewStyles.title, { marginBottom: 8 }]}>Días de ayuno</Text>
+            <View style={styles.daysRow}>
+              {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((label, idx) => {
+                const active = settings.fiveTwoDays.includes(idx);
+                return (
+                  <Button
+                    key={label}
+                    label={label}
+                    onPress={() => {
+                      const current = settings.fiveTwoDays ?? [];
+                      if (current.includes(idx)) {
+                        updateSetting('fiveTwoDays', current.filter((d) => d !== idx));
+                        return;
+                      }
+                      if (current.length >= 2) {
+                        showToast('Solo podés seleccionar hasta 2 días para el 5:2', 'info');
+                        return;
+                      }
+                      updateSetting('fiveTwoDays', [...current, idx]);
+                    }}
+                    variant={active ? 'primary' : 'ghost'}
+                    color={Colors.fasting}
+                    style={active ? styles.dayBtnActive : styles.dayBtn}
+                  />
+                );
+              })}
+            </View>
+
+            <Text style={styles.daysCount}>
+              {settings.fiveTwoDays.length}/2 días seleccionados{settings.fiveTwoDays.length === 2 ? ' ✓' : ''}
+            </Text>
+
+            <View style={{ height: 8 }} />
+
+            <TimePicker
+              label="Hora de inicio 5:2"
+              value={fiveTwoTimeValue}
+              onChange={(v) => { setFiveTwoTimeValue(v); setIsDirty(true); }}
+              placeholder="08:00"
+              error={fiveTwoTimeValue.length > 0 && !parsedFiveTwoTime ? 'Usá formato HH:MM' : null}
+              inputStyle={styles.timeInput}
+            />
+            <Text style={styles.baseHint}>VYRA intentará iniciar el ayuno en los días seleccionados a esta hora.</Text>
+          </Card>
+
+          {/* ─── Botón de guardado ──────────────────────── */}
+          {isDirty && (
+            <View style={styles.saveNotice}>
+              <Text style={styles.saveNoticeText}>Tenés cambios sin guardar</Text>
+            </View>
+          )}
+
+          <Button
+            label={saving ? 'Guardando...' : 'Guardar ajustes'}
+            onPress={() => void handleSave()}
+            color={Colors.fasting}
+            disabled={saving || !parsedTime}
+            loading={saving}
+            fullWidth
+          />
+        </>
+      )}
+    </ModuleScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: Spacing[5],
-    paddingBottom: Spacing[8],
-    gap: Spacing[3],
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingTop: Spacing[2],
-  },
-  title: {
-    fontFamily: FontFamily.bold,
-    fontSize: 28,
-    color: '#fff',
-  },
-  subtitle: {
-    marginTop: 2,
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: '#a9928b',
-  },
-  headerLink: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: '#ffd2bf',
-    marginTop: 8,
-  },
   card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: Spacing[4],
+    gap: Spacing[4],
   },
-  sectionLabel: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
-    color: '#a9928b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: Spacing[2],
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginHorizontal: -Spacing[4],
   },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing[3],
-    paddingVertical: Spacing[2],
+  timeInputWrapper: {
+    gap: Spacing[1],
   },
-  toggleCopy: {
-    flex: 1,
+  timeInput: {
+    textAlign: 'center',
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
+    letterSpacing: 2,
   },
-  toggleTitle: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: '#fff',
+  timeValidBadge: {
+    alignSelf: 'center',
+    backgroundColor: withOpacity(Colors.success, 0.1),
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: 2,
   },
-  toggleBody: {
-    marginTop: 2,
+  timeValidText: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: '#a9928b',
-    lineHeight: 18,
-  },
-  input: {
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: TILE_BG,
-    paddingHorizontal: Spacing[3],
-    color: '#fff',
-    fontFamily: FontFamily.bold,
-    fontSize: 24,
-    textAlign: 'center',
+    color: Colors.success,
   },
   baseHint: {
-    marginTop: Spacing[2],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  saveNotice: {
+    backgroundColor: withOpacity(Colors.fasting, 0.08),
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.fasting, 0.2),
+    borderStyle: 'dashed',
+    paddingVertical: Spacing[2],
+    alignItems: 'center',
+  },
+  saveNoticeText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.fasting,
+  },
+  daysRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+    flexWrap: 'wrap',
+  },
+  dayBtn: {
+    marginRight: Spacing[2],
+    minWidth: 44,
+  },
+  dayBtnActive: {
+    marginRight: Spacing[2],
+    minWidth: 44,
+  },
+  daysCount: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: '#d3b5aa',
+    color: Colors.textSecondary,
+    marginTop: 8,
   },
 });

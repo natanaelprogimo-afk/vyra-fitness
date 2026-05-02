@@ -1,24 +1,5 @@
 import { useMemo, useCallback } from 'react';
 import { useWorkoutStore, useWorkoutActiveSession } from '@/stores/workoutStore';
-import type {
-  ActiveSession,
-  CreateRoutineInput,
-  Exercise,
-  MuscleRecoveryEntry,
-  RecommendedRoutine,
-  Routine,
-  RoutineExercise,
-  WorkoutConsistencyStats,
-  WorkoutFatigueRisk,
-  WorkoutHistory,
-  WorkoutMonthlyProgress,
-  WorkoutProgram,
-  WorkoutProgramPhase,
-  WorkoutSessionDetail,
-  WorkoutSet,
-  WorkoutSettings,
-  WorkoutSummaryData,
-} from '@/lib/workout-types';
 
 export type {
   ActiveSession,
@@ -55,12 +36,20 @@ export function useWorkout() {
   const saving = useWorkoutStore((state) => state.saving);
   const startSession = useWorkoutStore((state) => state.startSession);
   const rawAddSet = useWorkoutStore((state) => state.addSet);
-  const addSet = useCallback(async (...args: any[]) => {
+  type AddSetInput = Parameters<typeof rawAddSet>[0];
+  type LegacyAddSetArgs = [exerciseId: string, exerciseName: string | null | undefined, reps: number, weightKg: number];
+  const addSet = useCallback(async (...args: [AddSetInput] | LegacyAddSetArgs) => {
     // Backwards-compat: callers sometimes pass positional args (exerciseId, exerciseName, reps, weightKg)
-    if (args.length === 1 && typeof args[0] === 'object') {
+    if (
+      args.length === 1 &&
+      typeof args[0] === 'object' &&
+      args[0] !== null &&
+      'reps' in args[0] &&
+      'weightKg' in args[0]
+    ) {
       return rawAddSet(args[0]);
     }
-    const [exerciseId, _exerciseName, reps, weightKg] = args;
+    const [exerciseId, , reps, weightKg] = args as LegacyAddSetArgs;
     return rawAddSet({ exerciseId, reps, weightKg });
   }, [rawAddSet]);
   const finishSession = useWorkoutStore((state) => state.finishSession);

@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-
-type ExpoLocationModule = typeof import('expo-location');
 
 export const STEPS_ROUTE_TASK = 'VYRA_STEPS_ROUTE_TASK';
 export const STEPS_PASSIVE_ROUTE_TASK = 'VYRA_STEPS_PASSIVE_ROUTE_TASK';
@@ -25,14 +24,22 @@ export type StepsRoute = {
   source?: 'manual' | 'passive';
 };
 
-let cachedLocationModule: ExpoLocationModule | null = null;
+type RouteLocation = {
+  coords?: {
+    latitude: number;
+    longitude: number;
+  };
+  timestamp?: number;
+};
 
-function getLocationModule(): ExpoLocationModule {
-  if (!cachedLocationModule) {
-    cachedLocationModule = require('expo-location') as ExpoLocationModule;
-  }
+type RouteTaskPayload = {
+  locations?: RouteLocation[];
+};
 
-  return cachedLocationModule;
+function getTaskLocations(data: unknown): RouteLocation[] {
+  if (!data || typeof data !== 'object') return [];
+  const payload = data as RouteTaskPayload;
+  return Array.isArray(payload.locations) ? payload.locations : [];
 }
 
 function haversineKm(a: RoutePoint, b: RoutePoint): number {
@@ -55,7 +62,8 @@ async function readActiveRoute(): Promise<StepsRoute | null> {
     const parsed = JSON.parse(raw) as StepsRoute;
     if (!parsed?.id) return null;
     return { ...parsed, source: parsed.source ?? 'manual' };
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] readActiveRoute failed', e);
     return null;
   }
 }
@@ -67,7 +75,10 @@ async function writeActiveRoute(route: StepsRoute | null): Promise<void> {
       return;
     }
     await AsyncStorage.setItem(STEPS_ACTIVE_ROUTE_KEY, JSON.stringify(route));
-  } catch {}
+  } catch (e) {
+    console.debug?.('[steps-route-task] writeActiveRoute failed', e);
+    return;
+  }
 }
 
 async function readPassiveRoute(): Promise<StepsRoute | null> {
@@ -77,7 +88,8 @@ async function readPassiveRoute(): Promise<StepsRoute | null> {
     const parsed = JSON.parse(raw) as StepsRoute;
     if (!parsed?.id) return null;
     return { ...parsed, source: parsed.source ?? 'passive' };
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] readPassiveRoute failed', e);
     return null;
   }
 }
@@ -89,7 +101,10 @@ async function writePassiveRoute(route: StepsRoute | null): Promise<void> {
       return;
     }
     await AsyncStorage.setItem(STEPS_PASSIVE_ACTIVE_ROUTE_KEY, JSON.stringify(route));
-  } catch {}
+  } catch (e) {
+    console.debug?.('[steps-route-task] writePassiveRoute failed', e);
+    return;
+  }
 }
 
 async function readRoutes(): Promise<StepsRoute[]> {
@@ -102,7 +117,8 @@ async function readRoutes(): Promise<StepsRoute[]> {
       ...route,
       source: route?.source ?? 'manual',
     }));
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] readRoutes failed', e);
     return [];
   }
 }
@@ -110,7 +126,10 @@ async function readRoutes(): Promise<StepsRoute[]> {
 async function writeRoutes(routes: StepsRoute[]): Promise<void> {
   try {
     await AsyncStorage.setItem(STEPS_ROUTES_KEY, JSON.stringify(routes));
-  } catch {}
+  } catch (e) {
+    console.debug?.('[steps-route-task] writeRoutes failed', e);
+    return;
+  }
 }
 
 async function storeRoute(route: StepsRoute): Promise<void> {
@@ -125,7 +144,7 @@ if (!TaskManager.isTaskDefined(STEPS_ROUTE_TASK)) {
       return;
     }
 
-    const locations = (data as any)?.locations ?? [];
+    const locations = getTaskLocations(data);
     if (!locations.length) return;
 
     let route = await readActiveRoute();
@@ -171,7 +190,7 @@ if (!TaskManager.isTaskDefined(STEPS_PASSIVE_ROUTE_TASK)) {
       return;
     }
 
-    const locations = (data as any)?.locations ?? [];
+    const locations = getTaskLocations(data);
     if (!locations.length) return;
 
     let route = await readPassiveRoute();
@@ -249,18 +268,18 @@ export async function getActivePassiveStepsRoute(): Promise<StepsRoute | null> {
 
 export async function isStepsRouteTracking(): Promise<boolean> {
   try {
-    const Location = getLocationModule();
     return await Location.hasStartedLocationUpdatesAsync(STEPS_ROUTE_TASK);
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] isStepsRouteTracking failed', e);
     return false;
   }
 }
 
 export async function isPassiveStepsRouteTracking(): Promise<boolean> {
   try {
-    const Location = getLocationModule();
     return await Location.hasStartedLocationUpdatesAsync(STEPS_PASSIVE_ROUTE_TASK);
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] isPassiveStepsRouteTracking failed', e);
     return false;
   }
 }
@@ -269,22 +288,25 @@ export async function getPassiveStepsRouteEnabled(): Promise<boolean> {
   try {
     const raw = await AsyncStorage.getItem(STEPS_PASSIVE_ENABLED_KEY);
     return raw === 'true';
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] getPassiveStepsRouteEnabled failed', e);
     return false;
   }
 }
 
 export async function startPassiveStepsRouteTracking(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const Location = getLocationModule();
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (!foreground.granted) {
       return { ok: false, error: 'Permiso de ubicación denegado.' };
     }
 
-    const background = await Location.requestBackgroundPermissionsAsync().catch(() => ({
-      granted: false,
-    }));
+    const background = await Location.requestBackgroundPermissionsAsync().catch((e) => {
+      console.debug?.('[steps-route-task] requestBackgroundPermissionsAsync failed', e);
+      return {
+        granted: false,
+      };
+    });
     if (!background.granted) {
       return { ok: false, error: 'Necesitas permiso de ubicación en segundo plano.' };
     }
@@ -331,7 +353,6 @@ export async function startPassiveStepsRouteTracking(): Promise<{ ok: boolean; e
 
 export async function stopPassiveStepsRouteTracking(): Promise<StepsRoute | null> {
   try {
-    const Location = getLocationModule();
     const active = await readPassiveRoute();
     const hasUpdates = await Location.hasStartedLocationUpdatesAsync(STEPS_PASSIVE_ROUTE_TASK);
     if (hasUpdates) {
@@ -362,6 +383,7 @@ export async function stopPassiveStepsRouteTracking(): Promise<StepsRoute | null
     await writePassiveRoute(null);
     return route;
   } catch {
+    console.debug?.('[steps-route-task] stopPassiveStepsRouteTracking failed');
     return null;
   }
 }
@@ -378,15 +400,17 @@ export async function setPassiveStepsRouteEnabled(
 
 export async function startStepsRouteTracking(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const Location = getLocationModule();
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (!foreground.granted) {
       return { ok: false, error: 'Permiso de ubicación denegado.' };
     }
 
-    const background = await Location.requestBackgroundPermissionsAsync().catch(() => ({
-      granted: false,
-    }));
+    const background = await Location.requestBackgroundPermissionsAsync().catch((e) => {
+      console.debug?.('[steps-route-task] requestBackgroundPermissionsAsync failed', e);
+      return {
+        granted: false,
+      };
+    });
     if (!background.granted) {
       // Continuar igual, pero la ruta no seguirá en segundo plano.
     }
@@ -411,7 +435,7 @@ export async function startStepsRouteTracking(): Promise<{ ok: boolean; error?: 
       distanceInterval: 15,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
-        notificationTitle: 'Vyra esta registrando tu ruta',
+        notificationTitle: 'Vyra está registrando tu ruta',
         notificationBody: 'Tu caminata sigue activa en segundo plano.',
       },
       pausesUpdatesAutomatically: true,
@@ -429,7 +453,6 @@ export async function startStepsRouteTracking(): Promise<{ ok: boolean; error?: 
 
 export async function stopStepsRouteTracking(): Promise<StepsRoute | null> {
   try {
-    const Location = getLocationModule();
     const active = await readActiveRoute();
     if (!active) {
       await Location.stopLocationUpdatesAsync(STEPS_ROUTE_TASK);
@@ -457,7 +480,8 @@ export async function stopStepsRouteTracking(): Promise<StepsRoute | null> {
     await storeRoute(route);
     await writeActiveRoute(null);
     return route;
-  } catch {
+  } catch (e) {
+    console.debug?.('[steps-route-task] stopStepsRouteTracking failed', e);
     return null;
   }
 }

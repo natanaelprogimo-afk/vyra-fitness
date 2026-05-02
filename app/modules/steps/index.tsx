@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Header from '@/components/layout/Header';
 import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
@@ -9,6 +9,7 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useSteps } from '@/hooks/useSteps';
+import { visibleRatioPercent } from '@/lib/visual-progress';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 function formatDistance(valueKm: number | string, unit: 'km' | 'mi') {
@@ -40,6 +41,7 @@ export default function StepsScreen() {
     weeklyAvg,
     bestDaySteps,
     daysMetGoal,
+    healthConnectStatus,
   } = useSteps();
 
   const maxWeekly = Math.max(...weeklyData.map((day) => Number(day.steps ?? 0)), goal, 1);
@@ -52,8 +54,8 @@ export default function StepsScreen() {
           accentColor={Colors.steps}
           icon="🚶"
           title="Pasos"
-          body="Este modulo se actualiza solo. Aqui ves meta, recorrido semanal y cuanto te falta para cerrar el dia."
-          ctaLabel="Entrar al modulo"
+          body="Este módulo se actualiza solo. Aquí ves meta, recorrido semanal y cuánto te falta para cerrar el día."
+          ctaLabel="Entrar al módulo"
           onContinue={() => markModuleIntroSeen('steps')}
         />
       </SafeScreen>
@@ -92,7 +94,7 @@ export default function StepsScreen() {
 
             <View style={styles.heroStats}>
               <Metric label="Distancia" value={formatDistance(distanceKm, distUnit)} />
-              <Metric label="Energia" value={`${Math.round(calories)} kcal`} />
+              <Metric label="Energía" value={`${Math.round(calories)} kcal`} />
               <Metric
                 label="Restantes"
                 value={remaining > 0 ? remaining.toLocaleString('es') : 'Meta'}
@@ -101,25 +103,54 @@ export default function StepsScreen() {
           </View>
 
           <Text style={styles.message}>{buildStepsMessage(progressPct, remaining, totalSteps)}</Text>
+          <Text style={styles.sourceNote}>
+            {healthConnectStatus === 'ready'
+              ? 'Health Connect activo para recuperar pasos incluso cuando no abres la app.'
+              : Platform.OS === 'android'
+                ? 'Puedes conectar Health Connect desde Meta para recuperar pasos del día completo.'
+                : 'Usando el sensor del dispositivo para contar tus pasos.'}
+          </Text>
 
           <View style={styles.actionsRow}>
-            <Pressable style={styles.ghostAction} onPress={() => router.push(Routes.steps.history as never)}>
+            <Pressable
+              style={styles.ghostAction}
+              onPress={() => router.push(Routes.steps.week as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Ver ruta de hoy"
+              accessibilityHint="Abre el detalle diario de pasos."
+              hitSlop={8}
+            >
               <Text style={styles.ghostActionText}>Ver ruta de hoy</Text>
             </Pressable>
-            <Pressable style={styles.ghostAction} onPress={() => router.push(Routes.steps.settings as never)}>
-              <Text style={styles.ghostActionText}>Ajustar meta diaria</Text>
+            <Pressable
+              style={styles.ghostAction}
+              onPress={() => router.push(Routes.steps.settings as never)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                Platform.OS === 'android' && healthConnectStatus !== 'ready'
+                  ? 'Conectar Health Connect'
+                  : 'Ajustar meta diaria'
+              }
+              accessibilityHint="Abre la configuración del módulo de pasos."
+              hitSlop={8}
+            >
+              <Text style={styles.ghostActionText}>
+                {Platform.OS === 'android' && healthConnectStatus !== 'ready'
+                  ? 'Conectar Health Connect'
+                  : 'Ajustar meta diaria'}
+              </Text>
             </Pressable>
           </View>
         </Card>
 
         <Card style={styles.weekCard} shadow={false}>
-          <Text style={styles.sectionTitle}>Ultimos 7 dias</Text>
+          <Text style={styles.sectionTitle}>Últimos 7 días</Text>
           <View style={styles.weekBars}>
             {weeklyData.map((day) => {
               const daySteps = Number(day.steps ?? 0);
               const isGoalMet = daySteps >= goal;
               const isToday = day.logged_date === new Date().toISOString().split('T')[0];
-              const fillHeight = Math.max(8, (daySteps / maxWeekly) * 100);
+              const fillHeight = visibleRatioPercent(daySteps, maxWeekly);
               const label = new Date(`${day.logged_date}T12:00:00`)
                 .toLocaleDateString('es-UY', { weekday: 'short' })
                 .slice(0, 1)
@@ -147,8 +178,8 @@ export default function StepsScreen() {
 
         <View style={styles.statsGrid}>
           <StatCard label="Promedio diario" value={`${weeklyAvg.toLocaleString('es')}`} />
-          <StatCard label="Dias con meta" value={`${daysMetGoal}/7`} />
-          <StatCard label="Mejor dia" value={bestDaySteps.toLocaleString('es')} />
+          <StatCard label="Días con meta" value={`${daysMetGoal}/7`} />
+          <StatCard label="Mejor día" value={bestDaySteps.toLocaleString('es')} />
           <StatCard
             label="Total semana"
             value={weeklyData.reduce((sum, day) => sum + Number(day.steps ?? 0), 0).toLocaleString('es')}
@@ -236,6 +267,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textSecondary,
     lineHeight: 22,
+  },
+  sourceNote: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    lineHeight: 18,
   },
   actionsRow: {
     flexDirection: 'row',

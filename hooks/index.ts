@@ -28,9 +28,6 @@ export { useReadiness } from './useReadiness';
 // AI
 export { useAI } from './useAI';
 
-// Premium
-export { usePremium } from './usePremium';
-
 // System
 export { useNotifications } from './useNotifications';
 export { useSync } from './useSync';

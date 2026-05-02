@@ -1,11 +1,12 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { Modules } from '@/constants/modules';
 import type { ModuleId } from '@/constants/modules';
+import { triggerImpactHaptic } from '@/lib/haptics';
+import { visibleProgressPercent } from '@/lib/visual-progress';
 
 export interface ModuleProgress {
   water?: { current: number; goal: number };
@@ -64,7 +65,7 @@ function formatModuleStatus(id: ModuleId, progress: ModuleProgress): ModuleStatu
     }
     case 'sleep': {
       const sleep = progress.sleep;
-      if (!sleep) return { value: '--', detail: 'Sin sueno', pct: null };
+      if (!sleep) return { value: '--', detail: 'Sin sueño', pct: null };
       return {
         value: `${sleep.hours.toFixed(1)} h`,
         detail: sleep.quality >= 80 ? 'buen cierre' : 'anoche',
@@ -85,13 +86,13 @@ function formatModuleStatus(id: ModuleId, progress: ModuleProgress): ModuleStatu
       const weight = progress.weight?.lastKg;
       return {
         value: weight != null ? `${weight.toFixed(1)} kg` : '--',
-        detail: 'ultimo peso',
+        detail: 'último peso',
         pct: null,
       };
     }
     case 'workout': {
       const workout = progress.workout;
-      if (!workout?.done) return { value: 'Pendiente', detail: 'sin sesion', pct: null };
+      if (!workout?.done) return { value: 'Pendiente', detail: 'sin sesión', pct: null };
       return {
         value: `${workout.setsToday}`,
         detail: 'series hoy',
@@ -102,7 +103,7 @@ function formatModuleStatus(id: ModuleId, progress: ModuleProgress): ModuleStatu
       const mental = progress.mental;
       if (!mental?.done) return { value: 'Pendiente', detail: 'check-in', pct: null };
       return {
-        value: mental.mood ? `Animo ${mental.mood}/5` : 'Hecho',
+        value: mental.mood ? `Ánimo ${mental.mood}/5` : 'Hecho',
         detail: 'resumen',
         pct: 100,
       };
@@ -139,9 +140,13 @@ export function ModuleGrid({ progress = {}, activeModules }: ModuleGridProps) {
           <Pressable
             key={module.id}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              void triggerImpactHaptic('light');
               router.push(module.route as never);
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`${module.shortName ?? module.name}: ${status.value}${status.detail ? `, ${status.detail}` : ''}`}
+            accessibilityHint={`Abre el modulo de ${module.name}.`}
+            hitSlop={8}
             style={[
               styles.cell,
               {
@@ -174,7 +179,7 @@ export function ModuleGrid({ progress = {}, activeModules }: ModuleGridProps) {
                   style={[
                     styles.fill,
                     {
-                      width: `${Math.max(8, Math.min(100, status.pct))}%`,
+                      width: `${visibleProgressPercent(status.pct)}%`,
                       backgroundColor: module.color,
                     },
                   ]}

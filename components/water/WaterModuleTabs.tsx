@@ -16,15 +16,28 @@ const TABS: Array<{ key: WaterTabKey; label: string; route: string }> = [
 
 export default function WaterModuleTabs({ active }: { active: WaterTabKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de agua"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de agua.`
+              }
+              hitSlop={8}
               onPress={() => {
-                if (!isActive) router.push(tab.route as any);
+                if (!isActive) router.push(tab.route as never);
               }}
               style={[styles.pill, isActive && styles.pillActive]}
             >
@@ -46,6 +59,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
   },
   pill: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),

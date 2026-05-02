@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
@@ -35,21 +35,8 @@ interface SupplementRow {
   active: boolean | null;
 }
 
-interface SupplementLogRow {
-  supplement_id: string;
-  taken_at: string;
-  supplements:
-    | {
-        name: string;
-      }
-    | Array<{
-        name: string;
-      }>
-    | null;
-}
-
 interface SupplementTimeRow {
-  supplement_id?: string;
+  supplement_id: string;
   taken_at: string;
 }
 
@@ -126,7 +113,7 @@ function buildInteractionWarnings(items: Supplement[]): SupplementInteractionWar
     warnings.push({
       id: 'iron_calcium',
       message:
-        'Hierro + calcio juntos pueden reducir la absorcion del hierro. Si aplica, separarlos 2-3 horas suele ser mas ordenado.',
+        'Hierro + calcio juntos pueden reducir la absorción del hierro. Si aplica, separarlos 2-3 horas suele ser más ordenado.',
     });
   }
 
@@ -134,7 +121,7 @@ function buildInteractionWarnings(items: Supplement[]): SupplementInteractionWar
     warnings.push({
       id: 'calcium_zinc',
       message:
-        'Calcio + zinc juntos pueden competir por absorcion. Si tu profesional lo avala, separarlos 2 horas suele ser mas claro.',
+        'Calcio + zinc juntos pueden competir por absorción. Si tu profesional lo avala, separarlos 2 horas suele ser más claro.',
     });
   }
 
@@ -151,6 +138,7 @@ export function useSupplements() {
   const [saving, setSaving] = useState(false);
   const [dailyAdherenceStreak, setDailyAdherenceStreak] = useState(0);
   const [interactionWarnings, setInteractionWarnings] = useState<SupplementInteractionWarning[]>([]);
+  const supplementsRef = useRef<Supplement[]>([]);
 
   const todayBounds = useMemo(() => getDayBounds(), []);
 
@@ -177,6 +165,7 @@ export function useSupplements() {
         active: supplement.active !== false,
       }));
 
+      supplementsRef.current = mapped;
       setSupplements(mapped);
       setInteractionWarnings(buildInteractionWarnings(mapped));
       return mapped;
@@ -184,6 +173,7 @@ export function useSupplements() {
       captureError(err instanceof Error ? err : new Error(String(err)), {
         action: 'useSupplements.fetch',
       });
+      supplementsRef.current = [];
       setSupplements([]);
       setInteractionWarnings([]);
       return [];
@@ -195,7 +185,7 @@ export function useSupplements() {
       if (!userId) return;
 
       try {
-        const items = sourceSupplements ?? supplements;
+        const items = sourceSupplements ?? supplementsRef.current;
         const dailySupplements = items.filter((supplement) => supplement.frequency === 'daily' && supplement.active);
 
         if (!dailySupplements.length) {
@@ -247,32 +237,30 @@ export function useSupplements() {
         });
       }
     },
-    [supplements, userId]
+    [userId]
   );
 
-  const fetchTodayLogs = useCallback(async () => {
+  const fetchTodayLogs = useCallback(async (sourceSupplements?: Supplement[]) => {
     if (!userId) return [] as SupplementLog[];
 
     try {
+      const items = sourceSupplements ?? supplementsRef.current;
+      const namesById = new Map(items.map((item) => [item.id, item.name]));
       const { data, error } = await supabase
         .from('supplement_logs')
-        .select('supplement_id, taken_at, supplements(name)')
+        .select('supplement_id, taken_at')
         .eq('user_id', userId)
         .gte('taken_at', todayBounds.startIso)
         .lt('taken_at', todayBounds.endIso);
 
       if (error) throw error;
 
-      const mapped: SupplementLog[] = ((data ?? []) as SupplementLogRow[]).map((log) => {
-        const related = Array.isArray(log.supplements) ? log.supplements[0] : log.supplements;
-
-        return {
-          supplement_id: log.supplement_id,
-          supplement_name: related?.name ?? '-',
-          taken_at: log.taken_at,
-          date: getLocalDateKey(new Date(log.taken_at)),
-        };
-      });
+      const mapped: SupplementLog[] = ((data ?? []) as SupplementTimeRow[]).map((log) => ({
+        supplement_id: log.supplement_id,
+        supplement_name: namesById.get(log.supplement_id) ?? '-',
+        taken_at: log.taken_at,
+        date: getLocalDateKey(new Date(log.taken_at)),
+      }));
 
       setTodayLogs(mapped);
       return mapped;
@@ -288,8 +276,10 @@ export function useSupplements() {
   }, [todayBounds.endIso, todayBounds.startIso, userId]);
 
   const refresh = useCallback(async () => {
-    const [nextSupplements] = await Promise.all([fetchSupplements(), fetchTodayLogs()]);
-    await fetchAdherenceStreak(nextSupplements);
+    const nextSupplements = await fetchSupplements();
+    setLoading(false);
+    void fetchTodayLogs(nextSupplements);
+    void fetchAdherenceStreak(nextSupplements);
   }, [fetchAdherenceStreak, fetchSupplements, fetchTodayLogs]);
 
   const markTaken = useCallback(
@@ -484,6 +474,7 @@ export function useSupplements() {
 
   useEffect(() => {
     if (!userId) {
+      supplementsRef.current = [];
       setSupplements([]);
       setTodayLogs([]);
       setDailyAdherenceStreak(0);
@@ -493,7 +484,13 @@ export function useSupplements() {
     }
 
     setLoading(true);
+    const loadingGuard = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
     void refresh();
+    return () => {
+      clearTimeout(loadingGuard);
+    };
   }, [refresh, userId]);
 
   return {

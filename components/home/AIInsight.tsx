@@ -1,6 +1,6 @@
 // ============================================================
 // VYRA FITNESS - AIInsight
-// Card con lectura contextual basada en datos del dia.
+// Card con lectura contextual basada en datos del día.
 // ============================================================
 
 import React from 'react';
@@ -24,7 +24,14 @@ export const AIInsight = ({ insight, onPress, actionLabel = 'Ver contexto' }: AI
       <Text style={styles.header}>Lectura contextual</Text>
       <Text style={styles.text}>{insight}</Text>
       {onPress ? (
-        <Pressable onPress={onPress} style={styles.button}>
+        <Pressable
+          onPress={onPress}
+          style={styles.button}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+          accessibilityHint="Abre la lectura contextual completa."
+          hitSlop={8}
+        >
           <Text style={styles.buttonText}>{actionLabel}</Text>
         </Pressable>
       ) : null}

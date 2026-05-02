@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 import { Tabs, router } from 'expo-router';
 import TabBar from '@/components/layout/TabBar';
 import { Routes } from '@/constants/routes';
@@ -31,9 +31,9 @@ export default function TabsLayout() {
   return (
     <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio' }} />
+      <Tabs.Screen name="explore" options={{ title: 'Explorar' }} />
       <Tabs.Screen name="progress" options={{ title: 'Progreso' }} />
-      <Tabs.Screen name="workout" options={{ href: null, title: 'Alias Entreno' }} />
-      <Tabs.Screen name="nutrition" options={{ href: null, title: 'Nutricion' }} />
     </Tabs>
   );
 }
+

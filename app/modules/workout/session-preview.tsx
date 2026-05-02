@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
+import { getWorkoutDisplayName } from '@/lib/workout-data';
 import { getWorkoutWarmupPlan } from '@/lib/workout-session';
 import type { Routine } from '@/lib/workout-types';
 
@@ -17,11 +19,11 @@ function lastSessionLabel(routine: Routine | null, history: Array<{ routine_id?:
     routine ? entry.routine_id === routine.id || entry.name === routine.name : false,
   );
 
-  if (!match) return 'Ultima vez: primera vez';
+  if (!match) return 'Última vez: primera vez';
   const days = Math.max(0, Math.round((Date.now() - new Date(match.started_at).getTime()) / 86400000));
-  if (days === 0) return 'Ultima vez: hoy';
-  if (days === 1) return 'Ultima vez: hace 1 dia';
-  return `Ultima vez: hace ${days} dias`;
+  if (days === 0) return 'Última vez: hoy';
+  if (days === 1) return 'Última vez: hace 1 día';
+  return `Última vez: hace ${days} días`;
 }
 
 export default function WorkoutSessionPreviewScreen() {
@@ -35,13 +37,28 @@ export default function WorkoutSessionPreviewScreen() {
   }, [params.routineId, routines]);
 
   const isFreeSession = params.free === '1' || !selectedRoutine;
-  const routineName = selectedRoutine?.name ?? params.name ?? 'Sesion libre';
+  const routineName = getWorkoutDisplayName(selectedRoutine?.name ?? params.name ?? 'Sesión libre');
   const exerciseList = selectedRoutine?.exercises ?? [];
   const warmupPlan = useMemo(
     () => getWorkoutWarmupPlan(exerciseList.map((item) => item.exercise_name)),
     [exerciseList],
   );
   const lastSession = useMemo(() => lastSessionLabel(selectedRoutine, history), [history, selectedRoutine]);
+
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return true;
+    }
+
+    router.replace(Routes.workout.index as never);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', handleBack);
+    return () => subscription.remove();
+  }, [handleBack]);
 
   const handleStart = async () => {
     if (activeSession) {
@@ -62,7 +79,14 @@ export default function WorkoutSessionPreviewScreen() {
     <SafeScreen padHorizontal={false} padBottom>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable
+            onPress={handleBack}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+            accessibilityHint="Regresa a la pantalla anterior del modulo de entrenamiento."
+            hitSlop={10}
+          >
             <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -75,7 +99,7 @@ export default function WorkoutSessionPreviewScreen() {
         <Text style={styles.heroMeta}>
           {selectedRoutine
             ? `Bloque listo · ${selectedRoutine.exercises.length} ejercicios · ${selectedRoutine.estimated_duration_min ?? 30} min`
-            : 'Sesion libre para entrenar hoy sin plan fijo.'}
+            : 'Sesión libre para entrenar hoy sin plan fijo.'}
         </Text>
 
         <Card style={styles.planCard} shadow={false}>
@@ -84,7 +108,7 @@ export default function WorkoutSessionPreviewScreen() {
           <Text style={styles.planMeta}>
             {selectedRoutine
               ? `${selectedRoutine.exercises.length} ejercicios · ${selectedRoutine.estimated_duration_min ?? 30} min`
-              : 'Agrega ejercicios sobre la marcha y deja la sesion igualmente registrada.'}
+              : 'Agrega ejercicios sobre la marcha y deja la sesión igualmente registrada.'}
           </Text>
           <Text style={styles.planHint}>{lastSession}</Text>
 
@@ -101,7 +125,7 @@ export default function WorkoutSessionPreviewScreen() {
               ))}
             </View>
           ) : (
-            <Text style={styles.emptyText}>Puedes arrancar vacio y sumar ejercicios durante la sesion.</Text>
+            <Text style={styles.emptyText}>Puedes arrancar vacío y sumar ejercicios durante la sesión.</Text>
           )}
         </Card>
 
@@ -122,10 +146,12 @@ export default function WorkoutSessionPreviewScreen() {
           <Button onPress={() => void handleStart()} fullWidth size="lg" loading={starting}>
             Empezar
           </Button>
-          <Button onPress={() => router.push(Routes.workout.exercises as never)} variant="ghost" fullWidth>
-            Ver ejercicios
+          <Button onPress={() => router.push(Routes.workout.index as never)} variant="ghost" fullWidth>
+            Volver al hub
           </Button>
         </View>
+
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );
@@ -135,7 +161,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[4],
-    paddingBottom: 48,
     gap: Spacing[4],
   },
   header: {

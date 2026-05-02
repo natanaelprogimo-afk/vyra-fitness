@@ -1,142 +1,101 @@
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { Colors, withOpacity } from '@/constants/colors';
+import NoticeCard from '@/components/ui/NoticeCard';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
+import SectionHeader from '@/components/ui/SectionHeader';
+import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { usePremium } from '@/hooks/usePremium';
+import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 
 const ACTIVE_ZONES = [
-  { title: 'Progreso', body: 'Lecturas premium y correlaciones mas finas.', route: Routes.tabs.progress, accent: Colors.premium },
-  { title: 'Nutricion IA', body: 'Registro mas rapido con foto y sin limite diario.', route: Routes.nutrition.log, accent: Colors.success },
-  { title: 'Historial', body: 'Mas contexto y mas profundidad para leer tus semanas.', route: Routes.dailySummary, accent: Colors.brand },
+  {
+    title: 'Progreso',
+    body: 'Correlaciones, tendencias y lectura cruzada del avance.',
+    route: Routes.tabs.progress,
+    accent: Colors.brand,
+  },
+  {
+    title: 'Nutricion',
+    body: 'Scanner, historial y carga manual dentro del acceso actual.',
+    route: Routes.nutrition.index,
+    accent: Colors.nutrition,
+  },
+  {
+    title: 'Readiness',
+    body: 'Balance diario, contexto del dia y senales utiles en un solo lugar.',
+    route: Routes.readiness,
+    accent: Colors.steps,
+  },
+  {
+    title: 'Invitar',
+    body: 'Comparte tu codigo como flujo de comunidad, no como premio de pago.',
+    route: Routes.profile.referral,
+    accent: Colors.info,
+  },
 ] as const;
 
-export default function ManageSubscriptionScreen() {
-  const { status, loading, cancelling, handleCancel, trialDaysLeft, isInTrial } = usePremium();
-
-  const isActive = Boolean(status?.isActive);
-  const nextBillingLabel = status?.status === 'cancelled'
-    ? 'Acceso hasta'
-    : isInTrial
-      ? 'Trial hasta'
-      : 'Proxima renovacion';
-  const nextBillingDate = isInTrial ? status?.trialEndsAt ?? null : status?.expiresAt ?? null;
-  const planLabel =
-    status?.plan === 'monthly'
-      ? 'Mensual'
-      : status?.plan === 'yearly'
-        ? 'Anual'
-        : 'Sin plan activo';
-
-  function onCancelPress() {
-    const message = isInTrial
-      ? `Tienes ${trialDaysLeft} dias de trial por delante. Si cancelas, el acceso termina cuando cierre ese periodo.`
-      : 'Se corta la siguiente renovacion, pero mantienes el acceso hasta el final del periodo ya pagado.';
-
-    Alert.alert('Cancelar Premium', message, [
-      { text: 'Seguir con Premium', style: 'cancel' },
-      {
-        text: 'Cancelar renovacion',
-        style: 'destructive',
-        onPress: async () => {
-          const success = await handleCancel();
-          if (success) {
-            Alert.alert('Renovacion cancelada', 'Tu acceso sigue activo hasta que termine el periodo actual.');
-            router.back();
-          } else {
-            Alert.alert('No se pudo cancelar', 'Intenta de nuevo en unos segundos.');
-          }
-        },
-      },
-    ]);
-  }
-
+export default function ManageAccessScreen() {
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Mi Premium" showBack color={Colors.premium} />
+      <Header title="Acceso incluido" showBack color={Colors.brand} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Card accentColor={Colors.premium}>
-          <Text style={styles.eyebrow}>{isActive ? 'Premium activo' : 'Estado de suscripcion'}</Text>
-          <Text style={styles.heroTitle}>
-            {isActive ? 'Tu inversion esta encendida.' : 'No hay un plan activo ahora mismo.'}
-          </Text>
-          <Text style={styles.heroBody}>
-            {isActive
-              ? isInTrial
-                ? `Estas dentro del trial y quedan ${trialDaysLeft} dias para decidir si quieres continuidad.`
-                : 'La capa Premium esta lista para notarse en progreso, historial y registro rapido con menos friccion.'
-              : 'Si quieres volver, el paywall contextual sigue siendo la entrada mas limpia.'}
-          </Text>
+        <NoticeCard
+          title="Pantalla de compatibilidad"
+          body="Si llegaste aqui desde un enlace o boton viejo, no hace falta gestionar ningun plan. Esta ruta solo resume el acceso actual."
+          tone="info"
+        />
 
-          <View style={styles.metaStack}>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Plan</Text>
-              <Text style={styles.metaValue}>{planLabel}</Text>
-            </View>
-            {nextBillingDate ? (
-              <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>{nextBillingLabel}</Text>
-                <Text style={styles.metaValue}>
-                  {new Date(nextBillingDate).toLocaleDateString('es-UY', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </Text>
-              </View>
-            ) : null}
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Estado</Text>
-              <Text style={[styles.metaValue, isActive ? { color: Colors.success } : null]}>
-                {isActive ? 'Activo' : 'Inactivo'}
-              </Text>
-            </View>
+        <Card accentColor={Colors.brand}>
+          <Text style={styles.eyebrow}>Estado actual</Text>
+          <Text style={styles.heroTitle}>Tu cuenta ya tiene todo abierto.</Text>
+          <Text style={styles.heroBody}>
+            Esta superficie queda como apoyo para rutas legacy y para explicar rapidamente que el
+            producto hoy funciona con acceso incluido.
+          </Text>
+        </Card>
+
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Incluido"
+            title="Donde mas se nota"
+            subtitle="Atajos a las superficies donde el acceso abierto devuelve mas valor hoy."
+          />
+
+          <View style={styles.zoneStack}>
+            {ACTIVE_ZONES.map((item) => (
+              <Card
+                key={item.title}
+                onPress={() => router.push(item.route as never)}
+                style={styles.zoneCard}
+                accessibilityLabel={`Abrir ${item.title}`}
+                accessibilityHint={item.body}
+              >
+                <Text style={[styles.zoneTitle, { color: item.accent }]}>{item.title}</Text>
+                <Text style={styles.zoneBody}>{item.body}</Text>
+              </Card>
+            ))}
           </View>
         </Card>
 
-        {isActive ? (
-          <Card>
-            <Text style={styles.sectionTitle}>Donde mas se nota hoy</Text>
-            <View style={styles.zoneStack}>
-              {ACTIVE_ZONES.map((item) => (
-                <TouchableOpacity
-                  key={item.title}
-                  style={[styles.zoneCard, { borderColor: withOpacity(item.accent, 0.24) }]}
-                  onPress={() => router.push(item.route as never)}
-                >
-                  <Text style={[styles.zoneTitle, { color: item.accent }]}>{item.title}</Text>
-                  <Text style={styles.zoneBody}>{item.body}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Card>
-        ) : null}
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Siguiente paso"
+            title="Monetizacion actual"
+            subtitle="El acceso sigue abierto y el soporte del producto ahora se apoya en anuncios discretos y opcionales."
+          />
+        </Card>
 
-        {isActive ? (
-          <Button
-            onPress={onCancelPress}
-            disabled={cancelling || loading}
-            variant="secondary"
-            fullWidth
-            color={Colors.premium}
-          >
-            {cancelling ? 'Cancelando...' : 'Cancelar renovacion'}
-          </Button>
-        ) : (
-          <Button onPress={() => router.push(Routes.premium.paywall as never)} fullWidth color={Colors.premium}>
-            Volver a planes
-          </Button>
-        )}
+        <Button onPress={() => router.replace('/(tabs)' as never)} fullWidth color={Colors.brand}>
+          Volver al inicio
+        </Button>
 
-        <Text style={styles.disclaimer}>
-          Cancelar no borra tus datos ni lo ya pagado. Solo evita la siguiente renovacion.
-        </Text>
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );
@@ -146,13 +105,15 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[4],
-    paddingBottom: Spacing[10],
+    gap: Spacing[4],
+  },
+  card: {
     gap: Spacing[4],
   },
   eyebrow: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
-    color: Colors.premium,
+    color: Colors.brand,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
@@ -170,43 +131,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: Colors.textSecondary,
   },
-  metaStack: {
-    gap: Spacing[2],
-    marginTop: Spacing[3],
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing[3],
-  },
-  metaLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  metaValue: {
-    flexShrink: 1,
-    textAlign: 'right',
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  sectionTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
-    color: Colors.textPrimary,
-    marginBottom: Spacing[3],
-  },
   zoneStack: {
     gap: Spacing[2],
   },
   zoneCard: {
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    backgroundColor: Colors.surface2,
-    padding: Spacing[3],
     gap: 4,
+    backgroundColor: Colors.surface2,
   },
   zoneTitle: {
     fontFamily: FontFamily.bold,
@@ -217,12 +147,5 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     lineHeight: 18,
     color: Colors.textSecondary,
-  },
-  disclaimer: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    color: Colors.textMuted,
-    textAlign: 'center',
   },
 });

@@ -39,7 +39,6 @@ export interface OnboardingData {
   sleep_time_minutes?: number;
   fasting_protocol?: string | null;
   context_display_name?: string | null;
-  coach_display_name?: string | null; // alias legacy de onboarding
   notifications_permission_state?: 'granted' | 'denied' | 'skipped';
   terms_accepted: boolean;
   privacy_accepted: boolean;
@@ -85,7 +84,7 @@ export interface UserProfile {
   wake_time_minutes: number;   // minutos desde medianoche, e.g. 420 = 7:00am
   sleep_time_minutes: number;  // e.g. 1380 = 23:00
 
-  // Premium
+  // Billing-compat legacy fields
   is_premium: boolean;
   premium_expires_at: string | null;
   paypal_subscription_id?: string | null;
@@ -109,8 +108,6 @@ export interface UserProfile {
   female_last_period_date?: string | null;
   context_name_preference?: string | null;
   context_memory_json?: Record<string, unknown> | null;
-  coach_name_preference: string | null; // alias legacy espejado para compatibilidad
-  coach_memory_json?: Record<string, unknown> | null; // alias legacy espejado para compatibilidad
   onboarding_completed: boolean;
   first_week_completed: boolean;
 
@@ -270,7 +267,7 @@ export interface Exercise {
   muscle_group: string;
   equipment: string;
   description: string;
-  gif_url: string | null; // Premium only
+  gif_url: string | null; // Legacy media flag, currently open to everyone
   is_global: boolean;
   created_by: string | null;
 }
@@ -370,27 +367,6 @@ export interface Achievement {
 }
 
 // ─── SUSCRIPCIÓN ─────────────────────────────────────────────────────────────
-
-export type SubscriptionStatus =
-  | 'pending'
-  | 'active'
-  | 'cancelled'
-  | 'expired'
-  | 'suspended'
-  | 'trial';
-
-export type SubscriptionPlan = 'monthly' | 'yearly';
-
-export interface UserSubscription {
-  id: string;
-  user_id: string;
-  paypal_subscription_id: string;
-  plan: SubscriptionPlan;
-  status: SubscriptionStatus;
-  starts_at: string;
-  expires_at: string;
-  trial_ends_at: string | null;
-}
 
 // ─── CICLO FEMENINO ──────────────────────────────────────────────────────────
 

@@ -1,8 +1,13 @@
-import { MODULES, type ModuleId } from '@/constants/modules';
+import {
+  DEFAULT_ACTIVE_MODULES,
+  MODULES,
+  sortModuleIds,
+  type ModuleId,
+} from '@/constants/modules';
 import { getProfileContextMemory } from '@/lib/profile-context';
 import type { UserProfile } from '@/types/user';
 
-const ALL_MODULE_IDS: ModuleId[] = MODULES.map((module) => module.id as ModuleId);
+const ALL_MODULE_IDS: ModuleId[] = sortModuleIds(MODULES.map((module) => module.id as ModuleId));
 const MODULE_SET = new Set<string>(ALL_MODULE_IDS);
 
 function sanitizeModules(input: unknown): ModuleId[] {
@@ -16,11 +21,11 @@ function sanitizeModules(input: unknown): ModuleId[] {
     unique.add(trimmed as ModuleId);
   });
 
-  return [...unique];
+  return sortModuleIds([...unique]);
 }
 
 export function getActiveModules(profile: UserProfile | null | undefined): ModuleId[] {
-  if (!profile) return ALL_MODULE_IDS;
+  if (!profile) return DEFAULT_ACTIVE_MODULES;
 
   const direct = sanitizeModules((profile as unknown as Record<string, unknown>).active_modules);
   if (direct.length >= 1) return direct;
@@ -29,7 +34,7 @@ export function getActiveModules(profile: UserProfile | null | undefined): Modul
   const fromMemory = sanitizeModules(memory.active_modules);
   if (fromMemory.length >= 1) return fromMemory;
 
-  return ALL_MODULE_IDS;
+  return DEFAULT_ACTIVE_MODULES;
 }
 
 export function buildProfileContextWithActiveModules(
@@ -42,7 +47,7 @@ export function buildProfileContextWithActiveModules(
 
   return {
     ...existing,
-    active_modules: sanitized.length >= 1 ? sanitized : ALL_MODULE_IDS,
+    active_modules: sanitized.length >= 1 ? sanitized : DEFAULT_ACTIVE_MODULES,
   };
 }
 

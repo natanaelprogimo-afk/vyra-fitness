@@ -1,5 +1,9 @@
 import type { ActivityLevel, PrimaryGoal } from '@/types/user';
-import { Modules, type ModuleId } from '@/constants/modules';
+import {
+  DEFAULT_ACTIVE_MODULES as CANONICAL_DEFAULT_ACTIVE_MODULES,
+  Modules,
+  type ModuleId,
+} from '@/constants/modules';
 
 export const ONBOARDING_STEP_TOTAL = 4;
 
@@ -12,7 +16,7 @@ export const GOAL_OPTIONS: Array<{
   { id: 'lose_fat', label: 'Perder peso', subtitle: 'Definir y moverte', emoji: '🔥' },
   { id: 'gain_muscle', label: 'Ganar musculo', subtitle: 'Fuerza y volumen', emoji: '💪' },
   { id: 'general_health', label: 'Estar en forma', subtitle: 'Base simple y constante', emoji: '⚡' },
-  { id: 'sport_performance', label: 'Recuperar el habito', subtitle: 'Volver a entrenar seguido', emoji: '🧱' },
+  { id: 'sport_performance', label: 'Recuperar el hábito', subtitle: 'Volver a entrenar seguido', emoji: '🧱' },
 ] as const;
 
 export const EQUIPMENT_OPTIONS = [
@@ -24,7 +28,7 @@ export const EQUIPMENT_OPTIONS = [
   },
   {
     id: 'home_basic',
-    label: 'Casa con material basico',
+    label: 'Casa con material básico',
     subtitle: 'Mancuernas, gomas, esterilla',
     emoji: '🏠',
   },
@@ -41,7 +45,7 @@ export const ACTIVITY_OPTIONS: Array<{
   label: string;
   subtitle: string;
 }> = [
-  { id: 0, label: 'Sedentaria', subtitle: 'Casi todo el dia quieto' },
+  { id: 0, label: 'Sedentaria', subtitle: 'Casi todo el día quieto' },
   { id: 1, label: 'Suave', subtitle: 'Algo de movimiento' },
   { id: 2, label: 'Moderada', subtitle: 'Base equilibrada' },
   { id: 3, label: 'Activa', subtitle: 'Te mueves bastante' },
@@ -49,7 +53,7 @@ export const ACTIVITY_OPTIONS: Array<{
   { id: 5, label: 'Atleta', subtitle: 'Carga alta y frecuente' },
 ] as const;
 
-export const DEFAULT_ACTIVE_MODULES: ModuleId[] = ['workout'];
+export const DEFAULT_ACTIVE_MODULES: ModuleId[] = CANONICAL_DEFAULT_ACTIVE_MODULES;
 export const ONBOARDING_MODULES = Modules.filter((module) => module.id !== 'supplements');
 
 export function getGoalLabel(goal: PrimaryGoal | undefined | null) {

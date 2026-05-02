@@ -28,7 +28,7 @@ export default function ReferralScreen() {
     if (!isInitialized) return;
     if (isAuthenticated && !hasResolvedProfile) return;
     if (isAuthenticated) {
-      router.replace(Routes.growth.invite as never);
+      router.replace(Routes.profile.referral as never);
     }
   }, [hasResolvedProfile, isAuthenticated, isInitialized]);
 
@@ -49,11 +49,11 @@ export default function ReferralScreen() {
             {inviterName ? `${inviterName} te invito a entrar a VYRA.` : 'Alguien te invito a entrar a VYRA.'}
           </Text>
           <Text style={styles.body}>
-            Si te registras ahora, ambos ganan 7 dias premium. El codigo ya queda aplicado.
+            Si te registras ahora, el código queda aplicado y la invitación se vincula a tu cuenta.
           </Text>
 
           <View style={styles.codeCard}>
-            <Text style={styles.codeLabel}>{inviterName ? 'Codigo de tu amigo' : 'Codigo detectado'}</Text>
+            <Text style={styles.codeLabel}>{inviterName ? 'Código de tu amigo' : 'Código detectado'}</Text>
             <Text style={styles.codeValue}>{code || 'SIN CODIGO'}</Text>
           </View>
 

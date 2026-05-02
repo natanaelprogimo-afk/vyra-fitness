@@ -13,21 +13,34 @@ const TABS: Array<{ key: WorkoutTabKey; label: string; route: string; icon: keyo
   { key: 'routines', label: 'Rutinas', route: Routes.workout.routines, icon: 'albums-outline' },
   { key: 'exercises', label: 'Ejercicios', route: Routes.workout.exercises, icon: 'barbell-outline' },
   { key: 'programs', label: 'Programas', route: Routes.workout.programs, icon: 'layers-outline' },
-  { key: 'history', label: 'Historial', route: Routes.workout.history, icon: 'time-outline' },
+  { key: 'history', label: 'Progreso', route: Routes.tabs.progress, icon: 'time-outline' },
   { key: 'settings', label: 'Ajustes', route: Routes.workout.settings, icon: 'options-outline' },
 ];
 
 export default function WorkoutTabs({ active }: { active: WorkoutTabKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de entrenamiento"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de entrenamiento.`
+              }
+              hitSlop={8}
               onPress={() => {
-                if (!isActive) router.push(tab.route as any);
+                if (!isActive) router.push(tab.route as never);
               }}
               style={[styles.pill, isActive && styles.pillActive]}
             >
@@ -52,9 +65,10 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   pill: {
-    minHeight: 42,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: Spacing[1.5],
     borderRadius: Radius.full,
     borderWidth: 1,

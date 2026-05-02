@@ -1,0 +1,144 @@
+{
+  "updatedAt": "2026-04-28",
+  "privacyEmail": "privacy@vyrafitness.app",
+  "legalEmail": "legal@vyrafitness.app",
+  "privacy": {
+    "title": "Politica de privacidad",
+    "headerTitle": "Privacidad legal",
+    "eyebrow": "Transparencia accesible",
+    "summary": "Tratamos datos de salud y bienestar con proteccion reforzada. Aqui puedes ver que guardamos, por que lo usamos y como controlar tu informacion.",
+    "sections": [
+      {
+        "id": "responsable",
+        "title": "1. Responsable",
+        "paragraphs": [
+          "Vyra Fitness es responsable del tratamiento de los datos que usas dentro de la app.",
+          "Para cualquier tema de privacidad puedes escribir a privacy@vyrafitness.app."
+        ]
+      },
+      {
+        "id": "datos",
+        "title": "2. Datos que recopilamos",
+        "paragraphs": [
+          "Recopilamos datos de cuenta, registros de bienestar y salud, preferencias de uso y eventos tecnicos anonimos necesarios para operar la app.",
+          "Los modulos sensibles solo procesan informacion cuando tu los activas."
+        ]
+      },
+      {
+        "id": "finalidad",
+        "title": "3. Finalidad",
+        "paragraphs": [
+          "Usamos tus datos para mostrar metricas, sincronizar tu cuenta, personalizar lecturas contextuales, calcular score y enviar recordatorios configurados por ti."
+        ]
+      },
+      {
+        "id": "base-legal",
+        "title": "4. Base legal",
+        "paragraphs": [
+          "Procesamos datos para prestarte el servicio que pediste, cumplir obligaciones legales y mantener seguridad y soporte.",
+          "En datos de salud o modulos sensibles aplicamos consentimiento explicito cuando corresponde."
+        ]
+      },
+      {
+        "id": "terceros",
+        "title": "5. Terceros que intervienen",
+        "paragraphs": [
+          "Trabajamos con Supabase, Render, OpenAI, Groq, Anthropic, PostHog, Sentry, Expo Push, Open Food Facts y LogMeal segun la funcion que uses."
+        ]
+      },
+      {
+        "id": "seguridad",
+        "title": "6. Seguridad",
+        "paragraphs": [
+          "Usamos HTTPS, sesiones protegidas, almacenamiento seguro en el dispositivo y controles de acceso por cuenta.",
+          "Tambien aplicamos protecciones adicionales en superficies sensibles cuando el modulo lo permite."
+        ]
+      },
+      {
+        "id": "retencion",
+        "title": "7. Retencion",
+        "paragraphs": [
+          "Tus datos se conservan mientras la cuenta siga activa o mientras sean necesarios para prestarte el servicio y cumplir obligaciones legales.",
+          "Si solicitas borrado, la eliminacion puede procesarse de inmediato o dentro de un maximo de 30 dias, segun controles operativos y obligaciones legales aplicables."
+        ]
+      },
+      {
+        "id": "derechos",
+        "title": "8. Tus derechos",
+        "paragraphs": [
+          "Puedes acceder, exportar, rectificar y solicitar la eliminacion de tus datos desde las superficies disponibles de la app.",
+          "Tambien puedes limitar modulos sensibles o dejar ciertos datos solo en el dispositivo cuando el modulo lo soporte."
+        ]
+      },
+      {
+        "id": "menores",
+        "title": "9. Menores",
+        "paragraphs": [
+          "Vyra no esta dirigida a menores de 16 anos."
+        ]
+      }
+    ]
+  },
+  "terms": {
+    "title": "Terminos del servicio",
+    "headerTitle": "Terminos",
+    "eyebrow": "Lectura legal",
+    "summary": "Estos terminos regulan el uso de Vyra y los limites razonables del servicio.",
+    "sections": [
+      {
+        "id": "aceptacion",
+        "title": "1. Aceptacion",
+        "paragraphs": [
+          "Al usar Vyra aceptas estos terminos. Si no estas de acuerdo, no uses la aplicacion.",
+          "Debes tener al menos 16 anos para usar el servicio."
+        ]
+      },
+      {
+        "id": "servicio",
+        "title": "2. Uso del servicio",
+        "paragraphs": [
+          "Vyra es una app de bienestar y fitness. Debes usarla de forma licita, con informacion veraz y sin afectar la seguridad o la experiencia de otras personas."
+        ]
+      },
+      {
+        "id": "cuenta",
+        "title": "3. Cuenta",
+        "paragraphs": [
+          "Eres responsable de mantener segura tu cuenta y de la actividad realizada con ella.",
+          "Debes avisarnos si sospechas acceso no autorizado."
+        ]
+      },
+      {
+        "id": "access",
+        "title": "4. Acceso actual",
+        "paragraphs": [
+          "Vyra ya no usa suscripciones como modelo activo.",
+          "Las funciones del producto quedan incluidas segun el estado actual del servicio.",
+          "Si mas adelante incorporamos anuncios u otro modelo de monetizacion, te lo avisaremos dentro de la app y en estos terminos antes de aplicarlo."
+        ]
+      },
+      {
+        "id": "limites",
+        "title": "5. Limitacion importante",
+        "paragraphs": [
+          "Vyra no sustituye consejo medico, nutricional, psicologico ni fisioterapeutico profesional.",
+          "Las decisiones sobre salud deben validarse con profesionales cuando el caso lo requiera."
+        ]
+      },
+      {
+        "id": "prohibido",
+        "title": "6. Uso prohibido",
+        "paragraphs": [
+          "No puedes usar Vyra para fines ilegales, para acceder a datos de terceros o para intentar ingenieria inversa no autorizada de la aplicacion."
+        ]
+      },
+      {
+        "id": "cambios",
+        "title": "7. Cambios",
+        "paragraphs": [
+          "Podemos actualizar estos terminos y avisarte dentro de la app. El uso continuado implica aceptacion de los cambios."
+        ]
+      }
+    ]
+  }
+}

@@ -53,9 +53,9 @@ export default function MaintenanceView({
             <Ionicons name="construct-outline" size={38} color={withOpacity(Colors.brand, 0.72)} />
           </View>
           <Text style={styles.title}>Volvemos pronto</Text>
-          <Text style={styles.subtitle}>Estamos ajustando algo. Tus datos estan bien y no deberias perder nada.</Text>
+          <Text style={styles.subtitle}>Estamos ajustando algo. Tus datos están bien y no deberías perder nada.</Text>
           <View style={styles.metaPill}>
-            <Text style={styles.metaText}>Ultimo chequeo: {formatLastChecked(lastCheckedAt)}</Text>
+            <Text style={styles.metaText}>Último chequeo: {formatLastChecked(lastCheckedAt)}</Text>
           </View>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {onRetry ? (
@@ -66,7 +66,7 @@ export default function MaintenanceView({
         </Card>
         {!compact ? (
           <Text style={styles.footnote}>
-            Si estabas usando la app sin conexion, lo local sigue guardado. Solo falta que el sistema vuelva.
+            Si estabas usando agua, sueño, peso, nutrición o workout, lo local sigue ahí. Solo falta que el sistema vuelva y termine de alinear el resto.
           </Text>
         ) : null}
       </View>

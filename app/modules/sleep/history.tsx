@@ -1,4 +1,7 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -7,17 +10,72 @@ import SleepModuleTabs from '@/components/sleep/SleepModuleTabs';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { useSleep } from '@/hooks/useSleep';
+import { useSleep, type SleepEntry } from '@/hooks/useSleep';
 import {
   formatSleepClock,
   getSleepQualityMeta,
   groupSleepHistoryByWeek,
 } from '@/lib/sleep-module';
-import { router } from 'expo-router';
 
 export default function SleepHistoryScreen() {
-  const { history } = useSleep();
-  const weeklyGroups = groupSleepHistoryByWeek(history);
+  const { history, deleteSleepEntry } = useSleep();
+  const [pendingDelete, setPendingDelete] = useState<SleepEntry | null>(null);
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDeleteRef = useRef<SleepEntry | null>(null);
+
+  const visibleHistory = useMemo(
+    () => history.filter((entry) => entry.id !== pendingDelete?.id),
+    [history, pendingDelete?.id],
+  );
+  const weeklyGroups = useMemo(
+    () => groupSleepHistoryByWeek(visibleHistory),
+    [visibleHistory],
+  );
+
+  const clearPendingTimer = () => {
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
+    }
+  };
+
+  const finalizePendingDelete = (entry: SleepEntry | null) => {
+    if (!entry?.id) return;
+    void deleteSleepEntry(entry.id);
+  };
+
+  const handleDeletePress = (entry: SleepEntry) => {
+    clearPendingTimer();
+
+    if (pendingDelete) {
+      finalizePendingDelete(pendingDelete);
+    }
+
+    setPendingDelete(entry);
+    deleteTimerRef.current = setTimeout(() => {
+      finalizePendingDelete(entry);
+      setPendingDelete(null);
+      deleteTimerRef.current = null;
+    }, 4500);
+  };
+
+  const handleUndoDelete = () => {
+    clearPendingTimer();
+    setPendingDelete(null);
+  };
+
+  useEffect(() => {
+    pendingDeleteRef.current = pendingDelete;
+  }, [pendingDelete]);
+
+  useEffect(() => {
+    return () => {
+      clearPendingTimer();
+      if (pendingDeleteRef.current) {
+        finalizePendingDelete(pendingDeleteRef.current);
+      }
+    };
+  }, []);
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
@@ -28,6 +86,23 @@ export default function SleepHistoryScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
+        {pendingDelete ? (
+          <Card style={styles.undoCard}>
+            <View style={styles.undoRow}>
+              <View style={styles.undoCopy}>
+                <Text style={styles.undoTitle}>Noche marcada para borrar</Text>
+                <Text style={styles.undoBody}>
+                  {formatSleepClock(pendingDelete.start_time)} - {formatSleepClock(pendingDelete.end_time)} eliminado.
+                  Si fue un toque accidental, puedes deshacerlo ahora.
+                </Text>
+              </View>
+              <Button onPress={handleUndoDelete} variant="ghost" color={Colors.sleep}>
+                Deshacer
+              </Button>
+            </View>
+          </Card>
+        ) : null}
+
         {weeklyGroups.length === 0 ? (
           <Card style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Aún no hay noches registradas</Text>
@@ -50,13 +125,13 @@ export default function SleepHistoryScreen() {
               {group.items.map((entry) => {
                 const qualityMeta = getSleepQualityMeta(
                   entry.quality_score >= 85
-                    ?  5
+                    ? 5
                     : entry.quality_score >= 70
-                      ?  4
+                      ? 4
                       : entry.quality_score >= 55
-                        ?  3
+                        ? 3
                         : entry.quality_score >= 40
-                          ?  2
+                          ? 2
                           : 1,
                 );
 
@@ -76,21 +151,33 @@ export default function SleepHistoryScreen() {
                           {formatSleepClock(entry.end_time)}
                         </Text>
                       </View>
-                      <View
-                        style={[
-                          styles.scoreBadge,
-                          { borderColor: withOpacity(qualityMeta.accent, 0.36) },
-                        ]}
-                      >
-                        <Text style={styles.scoreEmoji}>{qualityMeta.emoji}</Text>
-                        <Text
+
+                      <View style={styles.entryActions}>
+                        <View
                           style={[
-                            styles.scoreValue,
-                            { color: qualityMeta.accent },
+                            styles.scoreBadge,
+                            { borderColor: withOpacity(qualityMeta.accent, 0.36) },
                           ]}
                         >
-                          {entry.quality_score}
-                        </Text>
+                          <Text style={styles.scoreEmoji}>{qualityMeta.emoji}</Text>
+                          <Text
+                            style={[
+                              styles.scoreValue,
+                              { color: qualityMeta.accent },
+                            ]}
+                          >
+                            {entry.quality_score}
+                          </Text>
+                        </View>
+
+                        <Pressable
+                          onPress={() => handleDeletePress(entry)}
+                          style={styles.deleteButton}
+                          hitSlop={10}
+                          accessibilityLabel="Eliminar registro de sueño"
+                        >
+                          <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
+                        </Pressable>
                       </View>
                     </View>
 
@@ -128,6 +215,31 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
+  undoCard: {
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.sleep, 0.2),
+    backgroundColor: withOpacity(Colors.sleep, 0.08),
+  },
+  undoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+  },
+  undoCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  undoTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  undoBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
   emptyCard: {
     gap: Spacing[3],
     borderWidth: 1,
@@ -162,6 +274,11 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
     alignItems: 'center',
   },
+  entryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
   entryDate: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.sm,
@@ -191,6 +308,14 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     fontSize: FontSize.base,
   },
+  deleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.bgElevated,
+  },
   entryStats: {
     flexDirection: 'row',
     gap: Spacing[2],
@@ -214,4 +339,3 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
-

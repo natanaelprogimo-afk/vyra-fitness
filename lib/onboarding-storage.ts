@@ -28,7 +28,6 @@ export type OnboardingDraft = Partial<OnboardingData> & {
 
   referral_code?: string | null;
   context_display_name?: string | null;
-  coach_display_name?: string | null;
 
 };
 

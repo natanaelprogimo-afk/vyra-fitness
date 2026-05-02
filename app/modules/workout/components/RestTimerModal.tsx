@@ -1,18 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Modal,
-  Vibration,
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import * as Haptics from 'expo-haptics';
-import { Colors } from '@/constants/colors';
-import { FontFamily, Spacing, Radius } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import { triggerImpactHaptic, triggerNotificationHaptic } from '@/lib/haptics';
 
-const DEFAULT_REST = 90; // segundos
+const DEFAULT_REST = 90;
+const RADIUS = 80;
 
 interface RestTimerModalProps {
   visible: boolean;
@@ -31,24 +25,25 @@ export function RestTimerModal({
   const [total, setTotal] = useState(defaultSeconds);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // SVG círculo
-  const RADIUS = 80;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-  const progress = 1 - timeLeft / total;
-  const strokeDashoffset = CIRCUMFERENCE * (1 - progress);
+  const circumference = 2 * Math.PI * RADIUS;
+  const progress = total > 0 ? 1 - timeLeft / total : 0;
+  const strokeDashoffset = circumference * (1 - progress);
 
-  function triggerFinishAlert() {
+  async function triggerFinishAlert() {
     if (alertMode === 'silent') return;
+
     if (alertMode === 'soft') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      await triggerImpactHaptic('light');
       return;
     }
+
+    await triggerNotificationHaptic('success');
+
     if (alertMode === 'strong') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Vibration.vibrate([0, 180, 80, 180]);
       return;
     }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
     Vibration.vibrate([0, 220, 60, 220, 60, 220]);
   }
 
@@ -59,31 +54,35 @@ export function RestTimerModal({
       intervalRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
-            clearInterval(intervalRef.current!);
-            triggerFinishAlert();
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            void triggerFinishAlert();
             return 0;
           }
+
           if (prev <= 4 && alertMode !== 'silent') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            void triggerImpactHaptic('light');
           }
+
           return prev - 1;
         });
       }, 1000);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current);
     }
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [alertMode, defaultSeconds, visible]);
 
-  const adjust = (delta: number) => {
+  function adjust(delta: number) {
     setTimeLeft((prev) => Math.max(5, Math.min(300, prev + delta)));
     setTotal((prev) => Math.max(5, Math.min(300, prev + delta)));
-  };
+  }
 
-  const formatTime = (s: number) =>
-    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  function formatTime(value: number) {
+    return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -91,10 +90,8 @@ export function RestTimerModal({
         <View style={styles.container}>
           <Text style={styles.title}>Descanso</Text>
 
-          {/* Círculo SVG */}
           <View style={styles.circleWrapper}>
             <Svg width={200} height={200} viewBox="0 0 200 200">
-              {/* Track */}
               <Circle
                 cx={100}
                 cy={100}
@@ -103,7 +100,6 @@ export function RestTimerModal({
                 strokeWidth={12}
                 fill="none"
               />
-              {/* Progress */}
               <Circle
                 cx={100}
                 cy={100}
@@ -111,48 +107,63 @@ export function RestTimerModal({
                 stroke={Colors.workout}
                 strokeWidth={12}
                 fill="none"
-                strokeDasharray={`${CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+                strokeDasharray={`${circumference} ${circumference}`}
                 strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
                 rotation="-90"
                 origin="100,100"
               />
             </Svg>
-            <View style={styles.circleCenter}>
+
+            <View
+              style={styles.circleCenter}
+              accessible
+              accessibilityLabel={`Quedan ${timeLeft} segundos de descanso`}
+            >
               <Text style={styles.timeText}>{formatTime(timeLeft)}</Text>
               <Text style={styles.timeLabel}>restantes</Text>
             </View>
           </View>
 
-          {/* Controles ±15s */}
           <View style={styles.controls}>
-            <TouchableOpacity
+            <Pressable
               style={styles.adjustBtn}
               onPress={() => adjust(-15)}
+              accessibilityRole="button"
+              accessibilityLabel="Restar 15 segundos"
             >
-              <Text style={styles.adjustBtnText}>−15s</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              <Text style={styles.adjustBtnText}>-15s</Text>
+            </Pressable>
+
+            <Pressable
               style={[styles.adjustBtn, styles.adjustBtnSkip]}
               onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Saltar descanso"
             >
-              <Text style={[styles.adjustBtnText, styles.adjustBtnSkipText]}>
-                Saltar →
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              <Text style={[styles.adjustBtnText, styles.adjustBtnSkipText]}>Saltar</Text>
+            </Pressable>
+
+            <Pressable
               style={styles.adjustBtn}
               onPress={() => adjust(15)}
+              accessibilityRole="button"
+              accessibilityLabel="Sumar 15 segundos"
             >
               <Text style={styles.adjustBtnText}>+15s</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
-          {timeLeft === 0 && (
-            <TouchableOpacity style={styles.goBtn} onPress={onClose}>
-              <Text style={styles.goBtnText}>💪 ¡A por el siguiente set!</Text>
-            </TouchableOpacity>
-          )}
+          {timeLeft === 0 ? (
+            <Pressable
+              style={styles.goBtn}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Ir al siguiente set"
+            >
+              <Text style={styles.goBtnText}>Ir al siguiente set</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -162,18 +173,18 @@ export function RestTimerModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: withOpacity(Colors.black, 0.4),
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
   container: {
+    width: '100%',
+    gap: Spacing[5],
+    alignItems: 'center',
     backgroundColor: Colors.bgSurface,
     borderTopLeftRadius: Radius['2xl'],
     borderTopRightRadius: Radius['2xl'],
     padding: Spacing[6],
-    alignItems: 'center',
-    width: '100%',
-    gap: Spacing[5],
   },
   title: {
     fontFamily: FontFamily.bold,
@@ -184,8 +195,8 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: 200,
     height: 200,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   circleCenter: {
     position: 'absolute',
@@ -212,7 +223,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing[3],
   },
   adjustBtnSkip: {
-    backgroundColor: `${Colors.workout}22`,
+    backgroundColor: withOpacity(Colors.workout, 0.12),
     borderWidth: 1,
     borderColor: Colors.workout,
   },
@@ -233,7 +244,7 @@ const styles = StyleSheet.create({
   goBtnText: {
     fontFamily: FontFamily.bold,
     fontSize: 16,
-    color: '#fff',
+    color: Colors.white,
   },
 });
 

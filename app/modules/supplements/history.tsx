@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import BannerPlacementCard from '@/components/ads/BannerPlacementCard';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -175,23 +176,23 @@ export default function SupplementsHistoryScreen() {
       : weeklyAdherencePct < 60
         ?  'La lectura actual quiere corregir el ritmo del stack antes de que se enfrie la semana'
         : atRiskSupplement && atRiskSupplement.value < 75
-          ?  'La lectura actual detecta un suplemento que esta rompiendo la constancia del stack'
-          : 'La adherencia se ve util y conviene sostenerla sin ruido';
+          ?  'La lectura actual detecta un suplemento que está rompiendo la constancia del stack'
+          : 'La adherencia se ve útil y conviene sostenerla sin ruido';
   const coachBody =
     interactionWarnings[0]?.message ??
     similarDayComparison?.message ??
     morningNarrative ??
     (!hasActiveSupplements
-      ?  'Sin un stack minimo, el historial no puede darte una lectura útil del retorno semanal.'
+      ?  'Sin un stack mínimo, el historial no puede darte una lectura útil del retorno semanal.'
       : atRiskSupplement && atRiskSupplement.value < 75
-        ?  `${atRiskSupplement.item.name} esta en ${atRiskSupplement.value}% de adherencia y hoy conviene decidir si lo sostienes, lo ajustas o lo pausas.`
+        ?  `${atRiskSupplement.item.name} está en ${atRiskSupplement.value}% de adherencia y hoy conviene decidir si lo sostienes, lo ajustas o lo pausas.`
         : 'La adherencia gana valor cuando deja de depender de memoria y se vuelve un ritmo claro del día.');
   const coachHint = !hasActiveSupplements
     ? 'Siguiente lectura útil: agrega el primer suplemento y define una frecuencia clara.'
     : interactionWarnings.length > 0
       ? 'Siguiente lectura útil: abre ajustes y revisa si conviene separar horarios o pausar una combinacion.'
       : atRiskSupplement && atRiskSupplement.value < 75
-        ? `Siguiente lectura útil: revisa ${atRiskSupplement.item.name}, porque hoy esta marcando el retorno de la semana.`
+        ? `Siguiente lectura útil: revisa ${atRiskSupplement.item.name}, porque hoy está marcando el retorno de la semana.`
         : focusAction
           ? `Siguiente lectura útil: ${focusAction.title}.`
           : 'Siguiente lectura útil: vuelve al hub y confirma si hoy toca completar el stack o solo sostenerlo.';
@@ -223,7 +224,7 @@ export default function SupplementsHistoryScreen() {
       router.push(Routes.supplements.index as never);
       return;
     }
-    router.push(Routes.dailySummary as never);
+    router.push(Routes.readiness as never);
   };
 
   return (
@@ -238,6 +239,10 @@ export default function SupplementsHistoryScreen() {
             <Pressable
               style={[styles.headerIconButton, { borderColor: withOpacity(accent, 0.24) }]}
               onPress={() => router.push(Routes.supplements.settings as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Abrir ajustes de suplementos"
+              accessibilityHint="Muestra recordatorios y configuración del módulo."
+              hitSlop={8}
             >
               <Ionicons name="settings-outline" size={18} color={Colors.textPrimary} />
             </Pressable>
@@ -254,7 +259,7 @@ export default function SupplementsHistoryScreen() {
               <Text style={styles.heroValue}>{weeklyAdherencePct}%</Text>
               <Text style={styles.heroUnit}>cumplimiento global</Text>
               <Text style={styles.heroHint}>
-                Lo importante aqui no es tomarlo perfecto un día, sino ver si el stack realmente se sostiene.
+                Lo importante aquí no es tomarlo perfecto un día, sino ver si el stack realmente se sostiene.
               </Text>
             </View>
             <View style={styles.heroMetaColumn}>
@@ -311,7 +316,7 @@ export default function SupplementsHistoryScreen() {
             <View style={styles.routeButtons}>
               <Button onPress={handlePrimaryAction} label={primaryActionLabel} size="sm" color={Colors.info} />
               <Button onPress={() => router.push(Routes.tabs.home as never)} label="Abrir inicio" size="sm" variant="secondary" color={Colors.info} />
-              <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.info} />
+              <Button onPress={() => router.push(Routes.readiness as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.info} />
             </View>
           </View>
         </Card>
@@ -327,6 +332,10 @@ export default function SupplementsHistoryScreen() {
                   isActive && { borderColor: withOpacity(accent, 0.32), backgroundColor: accentBg },
                 ]}
                 onPress={() => router.push(tab.route as never)}
+                accessibilityRole="tab"
+                accessibilityLabel={tab.label}
+                accessibilityState={{ selected: isActive }}
+                hitSlop={8}
               >
                 <Text style={[styles.tabText, isActive && { color: accent }]}>{tab.label}</Text>
               </Pressable>
@@ -352,12 +361,12 @@ export default function SupplementsHistoryScreen() {
               <Text style={styles.contextTitle}>Ruta del historial</Text>
               <Text style={styles.contextText}>
                 {atRiskSupplement && atRiskSupplement.value < 75
-                  ?  `${atRiskSupplement.item.name} esta frenando la constancia del stack con ${atRiskSupplement.value}% de adherencia.`
-                  : `El stack esta sosteniendo ${weeklyAdherencePct}% de adherencia semanal con ${activeSupps.length} suplementos activos.`}
+                  ?  `${atRiskSupplement.item.name} está frenando la constancia del stack con ${atRiskSupplement.value}% de adherencia.`
+                  : `El stack está sosteniendo ${weeklyAdherencePct}% de adherencia semanal con ${activeSupps.length} suplementos activos.`}
               </Text>
               <Text style={styles.contextMeta}>
                 {strongestSupplement
-                  ? `Base mas estable: ${strongestSupplement.item.name} con ${strongestSupplement.value}% de adherencia.`
+                  ? `Base más estable: ${strongestSupplement.item.name} con ${strongestSupplement.value}% de adherencia.`
                   : 'Sin base estable todavía.'}
               </Text>
             </Card>
@@ -385,10 +394,16 @@ export default function SupplementsHistoryScreen() {
               </View>
             </Card>
 
+            <BannerPlacementCard
+              placementKey="supplements_history_banner"
+              title="Patrocinado"
+              body="Este banner vive en historial para no estorbar la toma diaria ni el registro de hoy."
+            />
+
             <Card>
               <SectionHeader
                 title="Por suplemento"
-                hint="Lectura de adherencia a 30 días para detectar que si sostienes y que esta quedando atras."
+                hint="Lectura de adherencia a 30 días para detectar que si sostienes y que está quedando atrás."
               />
               {activeSupps.map((item) => (
                 <View key={item.id} style={styles.suppRow}>
@@ -416,7 +431,7 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[5],
-    paddingBottom: Spacing[12],
+    paddingBottom: Spacing[12] + 112,
     gap: Spacing[4],
   },
   headerIconButton: {

@@ -5,9 +5,14 @@ import { isQaBridgeRuntimeModeEnabled } from '@/lib/qa-auth-bridge';
 export async function syncQaBackgroundFetchTask(taskName: string): Promise<boolean> {
   if (!isQaBridgeRuntimeModeEnabled()) return false;
 
-  const isRegistered = await TaskManager.isTaskRegisteredAsync(taskName).catch(() => false);
+  const isRegistered = await TaskManager.isTaskRegisteredAsync(taskName).catch((e) => {
+    console.debug?.('[qa-background-fetch] isTaskRegisteredAsync failed', e);
+    return false;
+  });
   if (isRegistered) {
-    await BackgroundFetch.unregisterTaskAsync(taskName).catch(() => {});
+    await BackgroundFetch.unregisterTaskAsync(taskName).catch((e) => {
+      console.debug?.('[qa-background-fetch] unregisterTaskAsync failed', e);
+    });
   }
 
   return true;

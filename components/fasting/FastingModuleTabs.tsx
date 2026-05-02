@@ -8,15 +8,28 @@ import { FASTING_TABS, type FastingTabKey } from '@/lib/fasting-module';
 
 export default function FastingModuleTabs({ active }: { active: FastingTabKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de ayuno"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {FASTING_TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de ayuno.`
+              }
+              hitSlop={8}
               onPress={() => {
-                if (!isActive) router.push(tab.route as any);
+                if (!isActive) router.push(tab.route as never);
               }}
               style={[styles.pill, isActive && styles.pillActive]}
             >
@@ -38,23 +51,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
   },
   pill: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
     backgroundColor: withOpacity(Colors.bgFloating, 0.9),
     paddingHorizontal: Spacing[3],
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   pillActive: {
     backgroundColor: withOpacity(Colors.fasting, 0.18),
-    borderColor: withOpacity(Colors.fasting, 0.4),
+    borderColor: withOpacity(Colors.fasting, 0.6),
   },
   pillText: {
     fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
   },
   pillTextActive: {
     color: Colors.fasting,
+    fontFamily: FontFamily.bold,
   },
 });

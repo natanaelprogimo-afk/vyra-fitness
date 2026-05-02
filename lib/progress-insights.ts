@@ -120,7 +120,7 @@ export function buildWeightTrendEvents(
       minWeight = log.weight_kg;
       events.push({
         isoDate: log.logged_at.split('T')[0] ?? log.logged_at,
-        label: 'Nuevo minimo',
+        label: 'Nuevo mínimo',
         tone: 'milestone',
       });
     }
@@ -137,7 +137,7 @@ export function buildWeightTrendEvents(
   if (biggestNegativeShiftDate) {
     events.push({
       isoDate: biggestNegativeShiftDate,
-      label: 'Semana mas ligera',
+      label: 'Semana más ligera',
       tone: 'context',
     });
   }

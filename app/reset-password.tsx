@@ -1,17 +1,94 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
+import { useTranslation } from 'react-i18next';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Spacing } from '@/constants/theme';
+import {
+  armPasswordRecoveryFlow,
+  clearPasswordRecoveryFlow,
+  consumePasswordRecoveryUrl,
+  setPasswordRecoveryUrl,
+} from '@/lib/password-recovery';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { resolveSupportedLanguage } from '@/lib/language';
+
+const SCREEN_COPY = {
+  es: {
+    checks: ['8+ caracteres', 'Coinciden'] as const,
+    validating: 'Validando enlace seguro',
+    linkError: 'No pudimos validar el enlace de recuperacion. Pide uno nuevo e intenta otra vez.',
+    shortPassword: 'Usa una contrasena de al menos 8 caracteres.',
+    mismatch: 'Las contrasenas tienen que coincidir.',
+    saveFailed: 'No pudimos actualizar la contrasena. Vuelve a abrir el enlace del email e intenta otra vez.',
+    completedTitle: 'Listo. Ya puedes iniciar sesion.',
+    completedBody: 'Tu nueva contrasena ya quedo guardada.',
+    goToLogin: 'Ir a login',
+    title: 'Nueva contrasena',
+    password: 'Nueva contrasena',
+    passwordPlaceholder: 'Minimo 8 caracteres',
+    confirmPassword: 'Confirmar contrasena',
+    confirmPasswordPlaceholder: 'Repite la contrasena',
+    save: 'Guardar contrasena',
+    reopenTitle: 'Vuelve a abrir el enlace del email',
+    reopenBody:
+      'Necesitamos que entres desde el link de recuperacion para poder cambiar la contrasena.',
+    requestLink: 'Pedir un nuevo link',
+  },
+  en: {
+    checks: ['8+ characters', 'Passwords match'] as const,
+    validating: 'Validating secure link',
+    linkError: 'We could not validate the recovery link. Request a new one and try again.',
+    shortPassword: 'Use a password with at least 8 characters.',
+    mismatch: 'Passwords must match.',
+    saveFailed: 'We could not update the password. Open the email link again and try once more.',
+    completedTitle: 'Done. You can sign in now.',
+    completedBody: 'Your new password is already saved.',
+    goToLogin: 'Go to login',
+    title: 'New password',
+    password: 'New password',
+    passwordPlaceholder: 'Minimum 8 characters',
+    confirmPassword: 'Confirm password',
+    confirmPasswordPlaceholder: 'Repeat the password',
+    save: 'Save password',
+    reopenTitle: 'Open the email link again',
+    reopenBody:
+      'We need you to enter from the recovery link so we can change the password.',
+    requestLink: 'Request a new link',
+  },
+  pt: {
+    checks: ['8+ caracteres', 'As senhas coincidem'] as const,
+    validating: 'Validando link seguro',
+    linkError: 'Nao conseguimos validar o link de recuperacao. Peca um novo e tente outra vez.',
+    shortPassword: 'Use uma senha com pelo menos 8 caracteres.',
+    mismatch: 'As senhas precisam coincidir.',
+    saveFailed: 'Nao conseguimos atualizar a senha. Abra o link do email novamente e tente outra vez.',
+    completedTitle: 'Pronto. Agora voce ja pode entrar.',
+    completedBody: 'Sua nova senha ja foi salva.',
+    goToLogin: 'Ir para login',
+    title: 'Nova senha',
+    password: 'Nova senha',
+    passwordPlaceholder: 'Minimo de 8 caracteres',
+    confirmPassword: 'Confirmar senha',
+    confirmPasswordPlaceholder: 'Repita a senha',
+    save: 'Salvar senha',
+    reopenTitle: 'Abra o link do email novamente',
+    reopenBody:
+      'Precisamos que voce entre pelo link de recuperacao para poder trocar a senha.',
+    requestLink: 'Pedir um novo link',
+  },
+} as const;
 
 export default function ResetPasswordScreen() {
+  const { i18n } = useTranslation();
+  const copy = SCREEN_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const session = useAuthStore((state) => state.session);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -21,20 +98,20 @@ export default function ResetPasswordScreen() {
   const [hydratingLink, setHydratingLink] = useState(true);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [recoveryAccessToken, setRecoveryAccessToken] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const checks = useMemo(
     () => [
-      { label: '8+ caracteres', ok: password.trim().length >= 8 },
-      { label: 'Coinciden', ok: password.length > 0 && password === confirmPassword },
+      { label: copy.checks[0], ok: password.trim().length >= 8 },
+      { label: copy.checks[1], ok: password.length > 0 && password === confirmPassword },
     ],
-    [confirmPassword, password],
+    [confirmPassword, copy.checks, password],
   );
 
   const hasRecoverySession = Boolean(recoveryAccessToken || session?.access_token);
 
   useEffect(() => {
+    armPasswordRecoveryFlow();
+
     let active = true;
 
     const parseTokens = (url: string) => {
@@ -72,31 +149,39 @@ export default function ResetPasswordScreen() {
         if (error) throw error;
       } catch {
         if (!active) return;
-        setLinkError('No pudimos validar el enlace de recuperacion. Pide uno nuevo e intenta otra vez.');
+        setLinkError(copy.linkError);
       } finally {
         if (active) setHydratingLink(false);
       }
     };
 
-    void Linking.getInitialURL().then(hydrateFromUrl);
+    const pendingRecoveryUrl = consumePasswordRecoveryUrl();
+    if (pendingRecoveryUrl) {
+      void hydrateFromUrl(pendingRecoveryUrl);
+    } else {
+      void Linking.getInitialURL().then(hydrateFromUrl);
+    }
+
     const subscription = Linking.addEventListener('url', ({ url }) => {
+      setPasswordRecoveryUrl(url);
       void hydrateFromUrl(url);
     });
 
     return () => {
       active = false;
       subscription.remove();
+      clearPasswordRecoveryFlow();
     };
-  }, []);
+  }, [copy.linkError]);
 
   async function handleSave() {
     setSaveError(null);
     if (password.trim().length < 8) {
-      setSaveError('Usa una contrasena de al menos 8 caracteres.');
+      setSaveError(copy.shortPassword);
       return;
     }
     if (password !== confirmPassword) {
-      setSaveError('Las contrasenas tienen que coincidir.');
+      setSaveError(copy.mismatch);
       return;
     }
 
@@ -122,12 +207,15 @@ export default function ResetPasswordScreen() {
 
       if (!response.ok) throw new Error('password_update_failed');
 
-      void supabase.auth.signOut().catch(() => null);
+      await supabase.auth.signOut().catch((e) => {
+        console.debug?.('[reset-password] supabase.signOut failed', e);
+        return null;
+      });
       setCompleted(true);
       setPassword('');
       setConfirmPassword('');
     } catch {
-      setSaveError('No pudimos actualizar la contrasena. Vuelve a abrir el enlace del email e intenta otra vez.');
+      setSaveError(copy.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -138,12 +226,12 @@ export default function ResetPasswordScreen() {
       <SafeScreen scrollable padBottom>
         <View style={styles.success}>
           <View style={styles.checkWrap}>
-            <Text style={styles.check}>OK</Text>
+            <MaterialIcons name="check-circle" size={32} color={Colors.success} />
           </View>
-          <Text style={styles.successTitle}>Listo. Ya puedes iniciar sesion.</Text>
-          <Text style={styles.successBody}>Tu nueva contrasena ya quedo guardada.</Text>
+          <Text style={styles.successTitle}>{copy.completedTitle}</Text>
+          <Text style={styles.successBody}>{copy.completedBody}</Text>
           <Button onPress={() => router.replace('/(auth)/login' as never)} fullWidth size="lg">
-            Ir a login
+            {copy.goToLogin}
           </Button>
         </View>
       </SafeScreen>
@@ -154,43 +242,39 @@ export default function ResetPasswordScreen() {
     <SafeScreen scrollable padBottom>
       <View style={styles.hero}>
         <View style={styles.lockWrap}>
-          <Text style={styles.lockIcon}>OK</Text>
+          <MaterialIcons name="lock-outline" size={30} color={Colors.brand} />
         </View>
-        <Text style={styles.title}>Nueva contrasena</Text>
+        <Text style={styles.title}>{copy.title}</Text>
       </View>
 
       {!hasRecoverySession && hydratingLink ? (
         <Card style={styles.infoCard}>
           <ActivityIndicator color={Colors.brand} />
-          <Text style={styles.infoTitle}>Validando enlace seguro</Text>
+          <Text style={styles.infoTitle}>{copy.validating}</Text>
         </Card>
       ) : hasRecoverySession ? (
         <View style={styles.form}>
           <Input
-            label="Nueva contrasena"
+            label={copy.password}
             value={password}
             onChangeText={(value) => {
               setPassword(value);
               if (saveError) setSaveError(null);
             }}
-            secureTextEntry={!showPassword}
+            secureTextEntry
             autoCapitalize="none"
-            placeholder="Minimo 8 caracteres"
-            iconRight={<Text style={styles.eye}>{showPassword ? 'Ocultar' : 'Ver'}</Text>}
-            onPressRight={() => setShowPassword((value) => !value)}
+            placeholder={copy.passwordPlaceholder}
           />
           <Input
-            label="Confirmar contrasena"
+            label={copy.confirmPassword}
             value={confirmPassword}
             onChangeText={(value) => {
               setConfirmPassword(value);
               if (saveError) setSaveError(null);
             }}
-            secureTextEntry={!showConfirm}
+            secureTextEntry
             autoCapitalize="none"
-            placeholder="Repite la contrasena"
-            iconRight={<Text style={styles.eye}>{showConfirm ? 'Ocultar' : 'Ver'}</Text>}
-            onPressRight={() => setShowConfirm((value) => !value)}
+            placeholder={copy.confirmPasswordPlaceholder}
           />
 
           <View style={styles.checks}>
@@ -209,17 +293,15 @@ export default function ResetPasswordScreen() {
           ) : null}
 
           <Button onPress={handleSave} loading={saving} fullWidth size="lg">
-            Guardar contrasena
+            {copy.save}
           </Button>
         </View>
       ) : (
         <Card style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Vuelve a abrir el enlace del email</Text>
-          <Text style={styles.infoBody}>
-            {linkError ?? 'Necesitamos que entres desde el link de recuperacion para poder cambiar la contrasena.'}
-          </Text>
+          <Text style={styles.infoTitle}>{copy.reopenTitle}</Text>
+          <Text style={styles.infoBody}>{linkError ?? copy.reopenBody}</Text>
           <Button onPress={() => router.replace('/(auth)/forgot-password' as never)} variant="secondary" fullWidth>
-            Pedir un nuevo link
+            {copy.requestLink}
           </Button>
         </Card>
       )}
@@ -244,24 +326,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: withOpacity(Colors.brand, 0.24),
   },
-  lockIcon: {
-    fontFamily: FontFamily.bold,
-    fontSize: 18,
-    color: Colors.brand,
-    letterSpacing: 1.2,
-  },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 40,
+    fontSize: 34,
+    lineHeight: 34,
     color: Colors.textPrimary,
-    textAlign: 'center',
   },
   form: {
     gap: Spacing[3],
   },
   checks: {
-    gap: Spacing[2],
-    marginBottom: Spacing[1],
+    gap: Spacing[1.5],
   },
   checkRow: {
     flexDirection: 'row',
@@ -269,30 +344,25 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withOpacity(Colors.white, 0.12),
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: withOpacity(Colors.textMuted, 0.35),
   },
   dotOk: {
     backgroundColor: Colors.success,
   },
   checkText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-  },
-  checkTextOk: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  eye: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.brand,
+  checkTextOk: {
+    color: Colors.textPrimary,
   },
   infoCard: {
-    alignItems: 'center',
     gap: Spacing[3],
+    alignItems: 'center',
   },
   infoTitle: {
     fontFamily: FontFamily.semibold,
@@ -303,25 +373,24 @@ const styles = StyleSheet.create({
   infoBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
-    lineHeight: 24,
+    lineHeight: 22,
     color: Colors.textSecondary,
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: withOpacity(Colors.error, 0.1),
-    borderColor: withOpacity(Colors.error, 0.22),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.error, 0.2),
+    backgroundColor: withOpacity(Colors.error, 0.08),
   },
   errorText: {
     fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
     color: Colors.error,
   },
   success: {
-    flex: 1,
-    justifyContent: 'center',
     gap: Spacing[3],
     alignItems: 'center',
-    paddingVertical: Spacing[10],
   },
   checkWrap: {
     width: 72,
@@ -333,22 +402,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: withOpacity(Colors.success, 0.24),
   },
-  check: {
-    fontFamily: FontFamily.bold,
-    fontSize: 18,
-    color: Colors.success,
-    letterSpacing: 1.4,
-  },
   successTitle: {
     fontFamily: FontFamily.display,
-    fontSize: 38,
-    lineHeight: 40,
+    fontSize: 30,
+    lineHeight: 34,
     color: Colors.textPrimary,
     textAlign: 'center',
   },
   successBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
+    lineHeight: 22,
     color: Colors.textSecondary,
     textAlign: 'center',
   },

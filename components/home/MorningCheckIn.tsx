@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  useSharedValue,
   withSequence,
+  withSpring,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 import Button from '@/components/ui/Button';
+import { Colors } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useMental } from '@/hooks/useMental';
+import { triggerImpactHaptic, triggerSelectionHaptic } from '@/lib/haptics';
+import { captureError } from '@/lib/sentry';
 
 interface CheckInState {
   mood: number;
@@ -19,7 +20,7 @@ interface CheckInState {
   motivation: number;
 }
 
-const MOODS = ['ðŸ˜ž', 'ðŸ˜•', 'ðŸ˜', 'ðŸ™‚', 'ðŸ˜„'];
+const MOODS = [':(', ':/', ':|', ':)', ':D'];
 
 interface MorningCheckInProps {
   onComplete: () => void;
@@ -38,43 +39,52 @@ export default function MorningCheckIn({ onComplete }: MorningCheckInProps) {
     try {
       await saveCheckinAsync(values);
       onComplete();
-    } catch {}
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'MorningCheckIn.handleSave',
+      });
+    }
   };
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.emoji}>ðŸ§ </Text>
+        <Text style={styles.emoji}>IA</Text>
         <View>
           <Text style={styles.title}>Check-in de hoy</Text>
-          <Text style={styles.subtitle}>1 min - aporta al cierre del dia</Text>
+          <Text style={styles.subtitle}>1 min - aporta al cierre del día</Text>
         </View>
       </View>
 
-      <Text style={styles.dimensionLabel}>Como estas hoy?</Text>
-      <View style={styles.moodRow}>
-        {MOODS.map((emoji, i) => (
+      <Text style={styles.dimensionLabel}>Como estás hoy?</Text>
+      <View
+        style={styles.moodRow}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Estado de animo de hoy"
+      >
+        {MOODS.map((emoji, index) => (
           <MoodButton
             key={emoji}
             emoji={emoji}
-            selected={values.mood === i + 1}
-            onPress={() => setValues((prev) => ({ ...prev, mood: i + 1 }))}
+            index={index + 1}
+            selected={values.mood === index + 1}
+            onPress={() => setValues((prev) => ({ ...prev, mood: index + 1 }))}
           />
         ))}
       </View>
 
       <SliderRow
-        label="Energia"
+        label="Energía"
         value={values.energy}
-        onChange={(n) => setValues((prev) => ({ ...prev, energy: n }))}
+        onChange={(nextValue) => setValues((prev) => ({ ...prev, energy: nextValue }))}
         lowLabel="Agotado"
         highLabel="Con pilas"
         color={Colors.fasting}
       />
       <SliderRow
-        label="Estres"
+        label="Estrés"
         value={values.stress}
-        onChange={(n) => setValues((prev) => ({ ...prev, stress: n }))}
+        onChange={(nextValue) => setValues((prev) => ({ ...prev, stress: nextValue }))}
         lowLabel="Relajado"
         highLabel="Al limite"
         color={Colors.workout}
@@ -82,9 +92,9 @@ export default function MorningCheckIn({ onComplete }: MorningCheckInProps) {
       <SliderRow
         label="Motivacion"
         value={values.motivation}
-        onChange={(n) => setValues((prev) => ({ ...prev, motivation: n }))}
+        onChange={(nextValue) => setValues((prev) => ({ ...prev, motivation: nextValue }))}
         lowLabel="Ninguna"
-        highLabel="Al maximo"
+        highLabel="Al máximo"
         color={Colors.brand}
       />
 
@@ -97,28 +107,37 @@ export default function MorningCheckIn({ onComplete }: MorningCheckInProps) {
 
 function MoodButton({
   emoji,
+  index,
   selected,
   onPress,
 }: {
   emoji: string;
+  index: number;
   selected: boolean;
   onPress: () => void;
 }) {
   const scale = useSharedValue(1);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const handle = () => {
+  const handlePress = () => {
     scale.value = withSequence(
       withSpring(1.4, { damping: 8, stiffness: 300 }),
-      withSpring(1.0, { damping: 12 }),
+      withSpring(1, { damping: 12 }),
     );
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    void triggerImpactHaptic('light');
     onPress();
   };
 
   return (
-    <Pressable onPress={handle}>
-      <Animated.Text style={[styles.moodEmoji, selected && styles.moodEmojiSelected, anim]}>
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Estado de animo ${index} de 5`}
+      accessibilityHint="Marca como te sientes hoy."
+      hitSlop={10}
+    >
+      <Animated.Text style={[styles.moodEmoji, selected && styles.moodEmojiSelected, animatedStyle]}>
         {emoji}
       </Animated.Text>
     </Pressable>
@@ -135,12 +154,12 @@ function SliderRow({
 }: {
   label: string;
   value: number;
-  onChange: (n: number) => void;
+  onChange: (value: number) => void;
   lowLabel: string;
   highLabel: string;
   color: string;
 }) {
-  const dots = Array.from({ length: 10 }, (_, i) => i + 1);
+  const dots = Array.from({ length: 10 }, (_, index) => index + 1);
 
   return (
     <View style={styles.sliderSection}>
@@ -149,14 +168,19 @@ function SliderRow({
         <Text style={[styles.sliderValue, { color }]}>{value}/10</Text>
       </View>
       <View style={styles.dotsRow}>
-        {dots.map((d) => (
+        {dots.map((dot) => (
           <Pressable
-            key={d}
+            key={dot}
             onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
-              onChange(d);
+              void triggerSelectionHaptic();
+              onChange(dot);
             }}
-            style={[styles.dot, { backgroundColor: d <= value ? color : Colors.bgElevated }]}
+            style={[styles.dot, { backgroundColor: dot <= value ? color : Colors.bgElevated }]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: dot === value }}
+            accessibilityLabel={`${label}: ${dot} de 10`}
+            accessibilityHint={`Ajusta ${label.toLowerCase()} a ${dot} sobre 10.`}
+            hitSlop={10}
           />
         ))}
       </View>
@@ -176,27 +200,83 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${Colors.mental}44`,
   },
-  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], marginBottom: Spacing[4] },
-  emoji: { fontSize: 32 },
-  title: { fontFamily: FontFamily.bold, fontSize: FontSize.lg, color: Colors.textPrimary },
-  subtitle: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+    marginBottom: Spacing[4],
+  },
+  emoji: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: Colors.mental,
+  },
+  title: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.lg,
+    color: Colors.textPrimary,
+  },
+  subtitle: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
   dimensionLabel: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginBottom: Spacing[2],
   },
-  moodRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing[4] },
-  moodEmoji: { fontSize: 32, opacity: 0.4 },
-  moodEmojiSelected: { opacity: 1 },
-  sliderSection: { marginBottom: Spacing[3] },
-  sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[2] },
-  sliderValue: { fontFamily: FontFamily.bold, fontSize: FontSize.base },
-  dotsRow: { flexDirection: 'row', gap: 6 },
-  dot: { flex: 1, height: 8, borderRadius: 4 },
-  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing[1] },
-  sliderLabelText: { fontFamily: FontFamily.regular, fontSize: 10, color: Colors.textMuted },
-  cta: { marginTop: Spacing[4] },
+  moodRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: Spacing[4],
+  },
+  moodEmoji: {
+    fontFamily: FontFamily.bold,
+    fontSize: 24,
+    opacity: 0.4,
+    color: Colors.textPrimary,
+  },
+  moodEmojiSelected: {
+    opacity: 1,
+  },
+  sliderSection: {
+    marginBottom: Spacing[3],
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing[2],
+  },
+  sliderValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dot: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: Spacing[1],
+  },
+  sliderLabelText: {
+    fontFamily: FontFamily.regular,
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  cta: {
+    marginTop: Spacing[4],
+  },
 });
 
 export { MorningCheckIn };

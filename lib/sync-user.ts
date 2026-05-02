@@ -1,7 +1,16 @@
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@/database/watermelon';
+import { isDatabaseLayerEnabled } from '@/database';
 import { captureError } from '@/lib/sentry';
 import { useAuthStore } from '@/stores/authStore';
+
+interface SyncQueueRow {
+  payload_json?: string | null;
+}
+
+interface LocalProfileRow {
+  server_id?: string | null;
+}
 
 function parsePayloadUserId(payloadJson: string | null | undefined): string {
   if (!payloadJson) return '';
@@ -27,13 +36,17 @@ export async function resolveBestEffortSyncUserId(): Promise<string> {
     return directUserId;
   }
 
+  if (!isDatabaseLayerEnabled()) {
+    return '';
+  }
+
   try {
     const queuedItems = await database
       .get('sync_queue')
       .query(Q.sortBy('created_at', Q.desc))
       .fetch();
 
-    for (const item of queuedItems as any[]) {
+    for (const item of queuedItems as SyncQueueRow[]) {
       const queuedUserId = parsePayloadUserId(item.payload_json);
       if (queuedUserId) {
         return queuedUserId;
@@ -51,7 +64,7 @@ export async function resolveBestEffortSyncUserId(): Promise<string> {
       .query(Q.sortBy('updated_at', Q.desc))
       .fetch();
 
-    const freshestProfile = (localProfiles as any[])[0];
+    const freshestProfile = (localProfiles as LocalProfileRow[])[0];
     const localUserId =
       typeof freshestProfile?.server_id === 'string' ? freshestProfile.server_id : '';
 
@@ -66,3 +79,5 @@ export async function resolveBestEffortSyncUserId(): Promise<string> {
 
   return '';
 }
+
+export default resolveBestEffortSyncUserId;

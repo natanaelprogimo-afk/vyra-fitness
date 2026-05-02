@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Radius, Spacing } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
 
 type AppLaunchScreenProps = {
   ready?: boolean;
@@ -18,6 +20,7 @@ export default function AppLaunchScreen({
   onReadyToDisplay,
 }: AppLaunchScreenProps) {
   const insets = useSafeAreaInsets();
+  const { reduceMotionEnabled } = useAccessibilityPreferences();
   const [minVisibleDone, setMinVisibleDone] = useState(false);
   const [isFading, setIsFading] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -30,6 +33,11 @@ export default function AppLaunchScreen({
   }, [onReadyToDisplay]);
 
   useEffect(() => {
+    if (reduceMotionEnabled) {
+      pulseAnim.setValue(0.55);
+      return undefined;
+    }
+
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -49,10 +57,15 @@ export default function AppLaunchScreen({
 
     pulse.start();
     return () => pulse.stop();
-  }, [pulseAnim]);
+  }, [pulseAnim, reduceMotionEnabled]);
 
   useEffect(() => {
     if (!ready || !minVisibleDone || isFading) return;
+
+    if (reduceMotionEnabled) {
+      onFinished?.();
+      return;
+    }
 
     setIsFading(true);
     Animated.timing(fadeAnim, {
@@ -67,7 +80,7 @@ export default function AppLaunchScreen({
         setIsFading(false);
       }
     });
-  }, [fadeAnim, isFading, minVisibleDone, onFinished, ready]);
+  }, [fadeAnim, isFading, minVisibleDone, onFinished, ready, reduceMotionEnabled]);
 
   return (
     <Animated.View
@@ -79,9 +92,13 @@ export default function AppLaunchScreen({
           paddingBottom: Math.max(insets.bottom + 28, 28),
         },
       ]}
+      accessibilityLabel={ready ? 'Vyra lista para abrir tu inicio.' : 'Vyra esta preparando tu sistema fitness.'}
     >
-      <View pointerEvents="none" style={styles.orangeGlow} />
-      <Animated.View pointerEvents="none" style={[styles.blueGlow, { opacity: pulseAnim }]} />
+      <View pointerEvents="none" style={[styles.orangeGlow, { backgroundColor: withOpacity(Colors.action, 0.18) }]} />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.blueGlow, { backgroundColor: withOpacity(Colors.sleep, 0.14), opacity: pulseAnim }]}
+      />
 
       <View style={styles.content}>
         <View style={styles.badge}>
@@ -96,11 +113,9 @@ export default function AppLaunchScreen({
         </View>
 
         <View style={styles.loaderCard}>
-          <ActivityIndicator size="small" color="#FF6A2B" />
+          <ActivityIndicator size="small" color={Colors.action} />
           <Text style={styles.loaderTitle}>{ready ? 'Entrando a Vyra' : 'Cargando experiencia'}</Text>
-          <Text style={styles.loaderHint}>
-            {ready ? 'Todo listo.' : 'Esto solo tarda unos segundos.'}
-          </Text>
+          <Text style={styles.loaderHint}>{ready ? 'Todo listo.' : 'Esto solo tarda unos segundos.'}</Text>
         </View>
       </View>
     </Animated.View>
@@ -110,7 +125,7 @@ export default function AppLaunchScreen({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#07080D',
+    backgroundColor: Colors.bgPrimary,
     overflow: 'hidden',
   },
   orangeGlow: {
@@ -120,8 +135,6 @@ const styles = StyleSheet.create({
     width: 240,
     height: 240,
     borderRadius: 120,
-    backgroundColor: '#FF6A2B',
-    opacity: 0.12,
   },
   blueGlow: {
     position: 'absolute',
@@ -130,8 +143,6 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: '#234FFF',
-    opacity: 0.2,
   },
   content: {
     flex: 1,
@@ -146,14 +157,14 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: Colors.border2,
+    backgroundColor: Colors.bgElevated,
     alignItems: 'center',
   },
   badgeText: {
-    color: '#F5F3EF',
+    color: Colors.textPrimary,
     fontSize: 19,
-    fontWeight: '800',
+    fontFamily: FontFamily.black,
     letterSpacing: 6,
   },
   copyBlock: {
@@ -161,38 +172,38 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
-    color: '#F5F3EF',
-    fontSize: 28,
-    fontWeight: '700',
+    color: Colors.textPrimary,
+    fontSize: FontSize['2xl'],
+    fontFamily: FontFamily.bold,
     textAlign: 'center',
   },
   subtitle: {
     maxWidth: 280,
-    color: 'rgba(245,243,239,0.62)',
-    fontSize: 15,
+    color: Colors.textSecondary,
+    fontSize: FontSize.md,
     lineHeight: 22,
     textAlign: 'center',
   },
   loaderCard: {
     width: '100%',
     maxWidth: 320,
-    borderRadius: 24,
+    borderRadius: Radius['3xl'],
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgSurface,
     paddingHorizontal: 20,
     paddingVertical: 18,
     alignItems: 'center',
     gap: 8,
   },
   loaderTitle: {
-    color: '#F5F3EF',
-    fontSize: 15,
-    fontWeight: '600',
+    color: Colors.textPrimary,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.semibold,
   },
   loaderHint: {
-    color: 'rgba(245,243,239,0.52)',
-    fontSize: 13,
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
     textAlign: 'center',
   },
 });

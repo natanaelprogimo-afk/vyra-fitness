@@ -11,10 +11,11 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Radius, Spacing, Shadows } from '@/constants/theme';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { triggerImpactHaptic } from '@/lib/haptics';
+import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
 
 interface CardProps {
   children: React.ReactNode;
@@ -27,6 +28,8 @@ interface CardProps {
   accentColor?: string;
   decorative?: boolean;
   haptic?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -41,9 +44,12 @@ export default function Card({
   shadow = false,
   accentColor,
   haptic = true,
+  accessibilityLabel,
+  accessibilityHint,
 }: CardProps) {
   const scale = useSharedValue(1);
   const highContrast = useSettingsStore((state) => state.highContrast);
+  const { reduceMotionEnabled } = useAccessibilityPreferences();
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -51,16 +57,18 @@ export default function Card({
 
   const handlePressIn = () => {
     if (!onPress) return;
+    if (reduceMotionEnabled) return;
     scale.value = withTiming(0.98, { duration: 90 });
   };
 
   const handlePressOut = () => {
+    if (reduceMotionEnabled) return;
     scale.value = withTiming(1, { duration: 100 });
   };
 
   const handlePress = () => {
     if (!onPress) return;
-    if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (haptic) void triggerImpactHaptic('light');
     onPress();
   };
 
@@ -90,6 +98,9 @@ export default function Card({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       style={animStyle}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
     >
       {content}
     </AnimatedPressable>

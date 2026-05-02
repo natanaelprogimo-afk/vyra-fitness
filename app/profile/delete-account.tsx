@@ -1,52 +1,48 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import NoticeCard from '@/components/ui/NoticeCard';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/stores/authStore';
+import { useAuth } from '@/hooks/useAuth';
 
 const CONFIRM_PHRASE = 'ELIMINAR MI CUENTA';
 
 const DATA_ROWS = [
-  'Historial de agua, pasos, sueno, nutricion, peso y ayuno.',
+  'Historial de agua, pasos, sueño, nutrición, peso y ayuno.',
   'Entrenamientos, sesiones, PRs y progreso acumulado.',
   'Rachas, historial de actividad y estados sincronizados.',
   'Lecturas IA guardadas y datos opcionales sensibles.',
 ] as const;
 
 export default function DeleteAccountScreen() {
-  const { profile, logout } = useAuthStore();
+  const { requestAccountDeletion } = useAuth();
   const [confirmation, setConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const [confirmArmed, setConfirmArmed] = useState(false);
 
   const phraseOk = confirmation.trim().toUpperCase() === CONFIRM_PHRASE;
 
-  async function submitDeletionRequest() {
-    if (!profile?.id) return;
+  async function submitDeletion() {
     setIsDeleting(true);
+    setInlineError(null);
 
     try {
-      const { error } = await supabase.from('deletion_requests').insert({
-        user_id: profile.id,
-        confirmation_token: Math.random().toString(36).slice(2),
-        status: 'pending',
-      });
-
-      if (error) throw error;
-
-      Alert.alert(
-        'Solicitud registrada',
-        'Tu pedido ya quedo guardado. La eliminacion se procesa en un maximo de 30 dias y recibirás confirmacion por email.',
-        [{ text: 'OK', onPress: () => void logout() }],
-      );
+      const deleted = await requestAccountDeletion();
+      if (!deleted) {
+        throw new Error('delete_failed');
+      }
     } catch {
-      Alert.alert('No se pudo procesar', 'Intenta de nuevo o contacta soporte si el problema sigue.');
+      setInlineError(
+        'No se pudo procesar el borrado ahora mismo. Intenta de nuevo o contacta soporte si el problema sigue.',
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -54,18 +50,13 @@ export default function DeleteAccountScreen() {
 
   function handleDelete() {
     if (!phraseOk) {
-      Alert.alert('Confirmacion incompleta', `Escribe exactamente: ${CONFIRM_PHRASE}`);
+      setConfirmArmed(false);
+      setInlineError(`Escribe exactamente: ${CONFIRM_PHRASE}`);
       return;
     }
 
-    Alert.alert(
-      'Eliminar cuenta',
-      'Esta decision es irreversible. Tus datos y recompensas desapareceran cuando cierre el proceso.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Eliminar', style: 'destructive', onPress: () => void submitDeletionRequest() },
-      ],
-    );
+    setInlineError(null);
+    setConfirmArmed(true);
   }
 
   return (
@@ -73,6 +64,32 @@ export default function DeleteAccountScreen() {
       <Header title="Eliminar cuenta" showBack color={Colors.error} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {inlineError ? (
+          <NoticeCard
+            title="No pudimos avanzar"
+            body={inlineError}
+            tone="error"
+          />
+        ) : null}
+
+        {confirmArmed ? (
+          <NoticeCard
+            title="Ultima confirmación"
+            body="Esta decisión es irreversible. Cerramos tu acceso ahora y el borrado final se procesa bajo la política vigente de Vyra."
+            tone="warning"
+            actionLabel={isDeleting ? 'Eliminando...' : 'Eliminar ahora'}
+            onAction={() => {
+              if (!isDeleting) {
+                void submitDeletion();
+              }
+            }}
+            secondaryLabel="Cancelar"
+            onSecondaryAction={() => {
+              if (!isDeleting) setConfirmArmed(false);
+            }}
+          />
+        ) : null}
+
         <Card style={styles.heroCard}>
           <Text style={styles.eyebrow}>Decision seria</Text>
           <Text style={styles.title}>Si te vas, queremos que lo hagas con toda la claridad.</Text>
@@ -109,10 +126,10 @@ export default function DeleteAccountScreen() {
             </Button>
             <Button
               variant="secondary"
-              color={Colors.premium}
-              onPress={() => router.push('/premium/manage' as never)}
+              color={Colors.info}
+              onPress={() => router.push('/profile/support' as never)}
             >
-              Solo quiero revisar Premium
+              Solo quiero hablar con soporte
             </Button>
           </View>
         </Card>
@@ -125,7 +142,11 @@ export default function DeleteAccountScreen() {
           <Input
             label="Frase exacta"
             value={confirmation}
-            onChangeText={setConfirmation}
+            onChangeText={(value) => {
+              setConfirmation(value);
+              if (confirmArmed) setConfirmArmed(false);
+              if (inlineError) setInlineError(null);
+            }}
             placeholder={CONFIRM_PHRASE}
             autoCapitalize="characters"
             autoCorrect={false}
@@ -135,7 +156,10 @@ export default function DeleteAccountScreen() {
             style={[
               styles.phrasePill,
               phraseOk
-                ? { borderColor: withOpacity(Colors.success, 0.35), backgroundColor: withOpacity(Colors.success, 0.12) }
+                ? {
+                    borderColor: withOpacity(Colors.success, 0.35),
+                    backgroundColor: withOpacity(Colors.success, 0.12),
+                  }
                 : null,
             ]}
           >
@@ -152,13 +176,15 @@ export default function DeleteAccountScreen() {
           variant="danger"
           fullWidth
         >
-          Eliminar mi cuenta
+          {confirmArmed ? 'Listo para borrar definitivamente' : 'Revisar borrado final'}
         </Button>
 
         <Text style={styles.footnote}>
-          La solicitud se procesa bajo derecho de borrado. La baja de Premium y la exportacion de
-          datos siguen disponibles por separado.
+          El acceso se cierra al confirmar y la eliminación final se procesa según la política
+          vigente. Si quieres conservar algo, exporta primero.
         </Text>
+
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );

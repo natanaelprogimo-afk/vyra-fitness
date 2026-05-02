@@ -13,6 +13,7 @@ import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 
 import Button from '@/components/ui/Button';
+import NoticeCard from '@/components/ui/NoticeCard';
 
 import { Colors, withOpacity } from '@/constants/colors';
 
@@ -28,6 +29,7 @@ import { supabase } from '@/lib/supabase';
 
 import { useAuthStore } from '@/stores/authStore';
 
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useUIStore } from '@/stores/uiStore';
 
 import { useReadiness } from '@/hooks/useReadiness';
@@ -47,8 +49,6 @@ import {
   getWidgetCoverageStateCopy,
 
   withWidgetFocus,
-
-  isWidgetFocusAllowed,
 
   type WidgetFocus,
 
@@ -223,12 +223,9 @@ function routeForWidgetFocus(focus: WidgetFocus) {
   switch (focus) {
 
     case 'summary':
+    case 'balance':
 
-      return Routes.dailySummary;
-
-    case 'kora':
-
-      return Routes.dailySummary;
+      return Routes.readiness;
 
     case 'steps':
 
@@ -264,7 +261,7 @@ function routeForWidgetFocus(focus: WidgetFocus) {
 
     default:
 
-      return Routes.dailySummary;
+      return Routes.readiness;
 
   }
 
@@ -277,6 +274,8 @@ export default function WidgetSettingsScreen() {
   const { profile, updateProfile } = useAuthStore();
 
   const showToast = useUIStore((state) => state.showToast);
+  const hasSeenGuide = useSettingsStore((state) => Boolean(state.moduleIntroSeen.widgets));
+  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
 
   const [selected, setSelected] = useState<WidgetFocus>(getWidgetFocus(profile));
 
@@ -325,6 +324,7 @@ export default function WidgetSettingsScreen() {
   const installedCount = useMemo(() => Number(widgetStatus.compactPinned) + Number(widgetStatus.expandedPinned), [widgetStatus.compactPinned, widgetStatus.expandedPinned]);
 
   const selectedOption = getWidgetFocusOption(selected);
+  const isReadinessFocus = selected === 'summary' || selected === 'balance';
 
   const coverageState = getWidgetCoverageStateCopy(installedCount, widgetStatus.pinSupported);
 
@@ -360,7 +360,7 @@ export default function WidgetSettingsScreen() {
 
         : 'Expandido';
 
-  const preferredStartKind = dayScore !== null && dayScore < 65 ? 'compacto' : selected === 'summary' || selected === 'kora' ? 'expandido' : 'compacto';
+  const preferredStartKind = dayScore !== null && dayScore < 65 ? 'compacto' : isReadinessFocus ? 'expandido' : 'compacto';
 
   const nextMountMode = coverageState.nextMode;
 
@@ -371,22 +371,22 @@ export default function WidgetSettingsScreen() {
   const compactHint = widgetStatus.compactPinned
     ? 'Ya te deja ver lo importante sin abrir la app.'
     : widgetStatus.pinSupported
-      ? 'Es la forma mas rapida de tener el dato clave en la pantalla de inicio.'
-      : 'Si tu telefono no permite agregarlo desde aqui, puedes ponerlo manualmente desde la pantalla de inicio.';
+      ? 'Es la forma más rápida de tener el dato clave en la pantalla de inicio.'
+      : 'Si tu telefono no permite agregarlo desde aquí, puedes ponerlo manualmente desde la pantalla de inicio.';
 
   const expandedHint = widgetStatus.expandedPinned
-    ? 'Ya te muestra resumen y contexto del dia de un vistazo.'
+    ? 'Ya te muestra resumen y contexto del día de un vistazo.'
     : widgetStatus.pinSupported
-      ? 'Completa el compacto cuando necesitas mas contexto sin entrar a la app.'
-      : 'Si tu telefono lo permite, agregalo manualmente para tener mas contexto sin abrir la app.';
+      ? 'Completa el compacto cuando necesitas más contexto sin entrar a la app.'
+      : 'Si tu telefono lo permite, agregalo manualmente para tener más contexto sin abrir la app.';
 
   const launcherTitle = coverageState.title;
 
   const launcherBody = installedCount === 0
-    ? `${coverageState.body} Hoy conviene empezar por ${preferredStartKind} para ver algo util apenas desbloqueas el telefono.`
+    ? `${coverageState.body} Hoy conviene empezar por ${preferredStartKind} para ver algo útil apenas desbloqueas el telefono.`
     : installedCount === 1
-      ? `${coverageState.body} Ahora mismo ${widgetStatus.compactPinned ? 'compacto' : 'expandido'} ya esta activo. Falta ${widgetStatus.compactPinned ? 'expandido' : 'compacto'} para cerrar mejor la lectura del dia.`
-      : `${coverageState.body} El siguiente ajuste util es afinar el foco en ${selectedOption.title.toLowerCase()} y dejarlo estable.`;
+      ? `${coverageState.body} Ahora mismo ${widgetStatus.compactPinned ? 'compacto' : 'expandido'} ya está activo. Falta ${widgetStatus.compactPinned ? 'expandido' : 'compacto'} para cerrar mejor la lectura del día.`
+      : `${coverageState.body} El siguiente ajuste útil es afinar el foco en ${selectedOption.title.toLowerCase()} y dejarlo estable.`;
 
   const nextMountTitle = installedCount === 0
 
@@ -404,45 +404,45 @@ export default function WidgetSettingsScreen() {
 
           ?  'Deja el resumen al frente'
 
-          : selected === 'kora'
+          : selected === 'balance'
 
-            ?  'Deja el resumen a un toque'
+            ?  'Deja balance al frente'
 
             : `Sostener ${selectedOption.title.toLowerCase()} como foco`;
 
   const nextMountHint = installedCount === 0
     ? preferredStartKind === 'compacto'
-      ? 'Empieza por compacto si quieres ver lo esencial rapido y sin ruido.'
-      : 'Empieza por expandido si prefieres mas contexto en la primera mirada.'
+      ? 'Empieza por compacto si quieres ver lo esencial rápido y sin ruido.'
+      : 'Empieza por expandido si prefieres más contexto en la primera mirada.'
     : compactPending
-      ? 'Compacto cierra la lectura minima y te devuelve la siguiente accion en un vistazo.'
+      ? 'Compacto cierra la lectura minima y te devuelve la siguiente acción en un vistazo.'
       : expandedPending
         ? 'Expandido suma contexto sin obligarte a entrar a la app.'
         : dayScore !== null && dayScore < 65
-          ? 'Con todo listo, ahora conviene cuidar el dia y no seguir tocando ajustes.'
-          : 'Con la cobertura lista, lo importante es dejar el foco correcto y no meter mas friccion.';
+          ? 'Con todo listo, ahora conviene cuidar el día y no seguir tocando ajustes.'
+          : 'Con la cobertura lista, lo importante es dejar el foco correcto y no meter más fricción.';
 
   const returnMode = installedCount === 2 && dayScore !== null && dayScore < 65
 
     ?  'Cuidar'
 
-    : installedCount === 2 && (selected === 'summary' || selected === 'kora')
+    : installedCount === 2 && isReadinessFocus
 
       ?  'Guiar'
 
       : coverageState.returnMode;
 
   const coachTitle = installedCount === 0
-    ? 'El primer widget deberia mostrar algo realmente util apenas desbloqueas.'
+    ? 'El primer widget debería mostrar algo realmente útil apenas desbloqueas.'
     : installedCount === 1
-      ? 'Ya tienes un widget activo, pero aun puedes dejar la vista mucho mas completa.'
+      ? 'Ya tienes un widget activo, pero aún puedes dejar la vista mucho más completa.'
       : dayScore !== null && dayScore < 65
         ? 'Hoy conviene una vista simple, clara y sin seguir tocando ajustes.'
         : selected === 'summary'
-          ? 'La pantalla de inicio ya puede devolverte la lectura correcta del dia.'
-          : selected === 'kora'
-            ? 'La pantalla de inicio ya puede devolverte el tono del dia de un vistazo.'
-            : `La pantalla de inicio ya puede sostener ${selectedOption.title.toLowerCase()} sin meter friccion.`;
+          ? 'La pantalla de inicio ya puede devolverte la lectura correcta del día.'
+          : selected === 'balance'
+            ? 'La pantalla de inicio ya puede devolverte tu balance diario de un vistazo.'
+            : `La pantalla de inicio ya puede sostener ${selectedOption.title.toLowerCase()} sin meter fricción.`;
 
   const coachBody =
 
@@ -453,28 +453,28 @@ export default function WidgetSettingsScreen() {
     (installedCount === 0
 
       ? 'El widget vale la pena cuando te evita abrir la app solo para mirar lo importante.'
-      : `Ahora mismo tienes ${installedCount} widget${installedCount === 1 ? '' : 's'} activo${installedCount === 1 ? '' : 's'} y el foco principal esta en ${selectedOption.title.toLowerCase()}.`);
+      : `Ahora mismo tienes ${installedCount} widget${installedCount === 1 ? '' : 's'} activo${installedCount === 1 ? '' : 's'} y el foco principal está en ${selectedOption.title.toLowerCase()}.`);
 
   const coachHint = installedCount === 0
     ? widgetStatus.pinSupported
-      ? 'Empieza por el widget compacto y luego decide si tambien te sirve el expandido.'
+      ? 'Empieza por el widget compacto y luego decide si también te sirve el expandido.'
       : 'Agregalo manualmente desde la pantalla de inicio y luego vuelve para ajustar el foco.'
     : installedCount === 1
       ? 'Si tienes espacio, completa con el segundo formato para depender menos de abrir la app.'
       : focusAction
         ? `${focusAction.title}.`
         : dayScore !== null && dayScore < 65
-          ? 'Si hoy vienes bajo, resumen e inicio ordenan mejor el dia que seguir tocando ajustes.'
-          : `Si ${selectedOption.title.toLowerCase()} ya esta bien elegido, ahora conviene no meter mas ruido.`;
+          ? 'Si hoy vienes bajo, resumen e inicio ordenan mejor el día que seguir tocando ajustes.'
+          : `Si ${selectedOption.title.toLowerCase()} ya está bien elegido, ahora conviene no meter más ruido.`;
 
   const routeActionTitle = installedCount === 0
-    ? 'Poner algo util en la pantalla de inicio'
+    ? 'Poner algo útil en la pantalla de inicio'
     : installedCount === 1
       ? 'Completar la vista de inicio'
       : dayScore !== null && dayScore < 65
-        ? 'Proteger el dia antes de retocar'
-        : selected === 'summary' || selected === 'kora'
-          ? 'Guiar el dia desde afuera de la app'
+        ? 'Proteger el día antes de retocar'
+        : isReadinessFocus
+          ? 'Guiar el día desde afuera de la app'
           : `Sostener ${selectedOption.title.toLowerCase()} en primer plano`;
 
   const primaryActionLabel = installedCount === 0
@@ -493,9 +493,9 @@ export default function WidgetSettingsScreen() {
 
           ?  'Abrir resumen'
 
-          : selected === 'kora'
+          : selected === 'balance'
 
-            ?  'Abrir resumen'
+            ?  'Abrir balance'
 
             : 'Abrir foco';
 
@@ -520,16 +520,6 @@ export default function WidgetSettingsScreen() {
   const saveFocus = async (next: WidgetFocus) => {
 
     if (!profile?.id || saving) return;
-
-    if (!isWidgetFocusAllowed(profile, next)) {
-
-      router.push(Routes.premium.paywall as never);
-
-      return;
-
-    }
-
-
 
     setSelected(next);
 
@@ -601,7 +591,7 @@ export default function WidgetSettingsScreen() {
 
       } else {
 
-        showToast('Tu telefono no permitio agregar el widget desde aqui.', 'warning');
+        showToast('Tu telefono no permitio agregar el widget desde aquí.', 'warning');
 
       }
 
@@ -637,7 +627,7 @@ export default function WidgetSettingsScreen() {
 
       }
 
-      router.push(Routes.dailySummary as never);
+      router.push(Routes.readiness as never);
 
       return;
 
@@ -661,7 +651,7 @@ export default function WidgetSettingsScreen() {
 
     if (dayScore !== null && dayScore < 65) {
 
-      router.push(Routes.dailySummary as never);
+      router.push(Routes.readiness as never);
 
       return;
 
@@ -677,11 +667,21 @@ export default function WidgetSettingsScreen() {
 
     <SafeScreen padHorizontal={false} padBottom>
 
-      <Header title="Widgets" subtitle="Lo que quieres ver primero fuera de la app" showBack color={Colors.steps} />
+      <Header title="Widgets de inicio" subtitle="Lo que quieres ver primero fuera de la app" showBack color={Colors.steps} />
 
 
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+
+        {!hasSeenGuide ? (
+          <NoticeCard
+            title="Como leer Widgets"
+            body="Primero eliges el foco principal, despues decides que vista te conviene fuera de la app. Piensalo como una portada corta, no como otro dashboard."
+            tone="info"
+            actionLabel="Entendido"
+            onAction={() => markModuleIntroSeen('widgets')}
+          />
+        ) : null}
 
         <Card style={styles.routeCard} accentColor={Colors.brand}>
 
@@ -697,7 +697,7 @@ export default function WidgetSettingsScreen() {
 
             <RouteStat
 
-              label="Dia"
+              label="Día"
 
               value={dayScore !== null ? `${dayScore}` : '--'}
 
@@ -757,7 +757,7 @@ export default function WidgetSettingsScreen() {
 
             <Button onPress={() => router.push(Routes.tabs.home as never)} label="Abrir inicio" size="sm" variant="secondary" color={Colors.brand} />
 
-            <Button onPress={() => router.push(Routes.dailySummary as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.brand} />
+            <Button onPress={() => router.push(Routes.readiness as never)} label="Abrir resumen" size="sm" variant="ghost" color={Colors.brand} />
 
           </View>
 
@@ -773,9 +773,9 @@ export default function WidgetSettingsScreen() {
 
               <Text style={styles.eyebrow}>Pantalla de inicio</Text>
 
-              <Text style={styles.heroTitle} numberOfLines={3}>El widget maestro ya puede priorizar justo el dato que mas consultas fuera de la app.</Text>
+              <Text style={styles.heroTitle} numberOfLines={3}>El widget maestro ya puede priorizar justo el dato que más consultas fuera de la app.</Text>
 
-              <Text style={styles.heroBody} numberOfLines={2}>Desde aqui decides que quieres ver primero y que formato te sirve mas fuera de la app.</Text>
+              <Text style={styles.heroBody} numberOfLines={2}>Desde aquí decides que quieres ver primero y que formato te sirve más fuera de la app.</Text>
 
             </View>
 
@@ -845,7 +845,7 @@ export default function WidgetSettingsScreen() {
 
               value={nextMountMode}
 
-              hint={widgetStatus.pinSupported ? 'listo desde aqui' : 'agrega a mano'}
+              hint={widgetStatus.pinSupported ? 'listo desde aquí' : 'agrega a mano'}
 
               accent={widgetStatus.pinSupported ? Colors.brand : Colors.warning}
 
@@ -999,7 +999,7 @@ export default function WidgetSettingsScreen() {
 
               <Ionicons name="information-circle-outline" size={16} color={Colors.textMuted} />
 
-              <Text style={styles.noteText}>Si tu telefono no lo permite desde aqui, agrega el widget manualmente desde la pantalla de inicio.</Text>
+              <Text style={styles.noteText}>Si tu telefono no lo permite desde aquí, agrega el widget manualmente desde la pantalla de inicio.</Text>
 
             </View>
 
@@ -1021,8 +1021,6 @@ export default function WidgetSettingsScreen() {
 
               const isActive = selected === option.id;
 
-              const isLocked = !isWidgetFocusAllowed(profile, option.id);
-
               return (
 
                 <Pressable
@@ -1033,13 +1031,23 @@ export default function WidgetSettingsScreen() {
 
                   disabled={saving}
 
-                  style={[styles.optionRow, isActive && styles.optionRowActive, isLocked && styles.optionRowLocked]}
+                  style={[styles.optionRow, isActive && styles.optionRowActive]}
+
+                  accessibilityRole="radio"
+
+                  accessibilityLabel={option.title}
+
+                  accessibilityHint={option.description}
+
+                  accessibilityState={{ selected: isActive, disabled: saving }}
+
+                  hitSlop={8}
 
                 >
 
                   <View style={[styles.optionIcon, isActive && styles.optionIconActive]}>
 
-                    <Ionicons name={isLocked ? 'lock-closed-outline' : 'grid-outline'} size={18} color={isActive ? Colors.steps : Colors.textMuted} />
+                    <Ionicons name="grid-outline" size={18} color={isActive ? Colors.steps : Colors.textMuted} />
 
                   </View>
 
@@ -1049,15 +1057,13 @@ export default function WidgetSettingsScreen() {
 
                       <Text style={[styles.optionTitle, isActive && styles.optionTitleActive]}>{option.title}</Text>
 
-                      {isLocked ? <View style={styles.lockPill}><Text style={styles.lockText}>Premium</Text></View> : null}
-
                     </View>
 
                     <Text style={styles.optionBody}>{option.description}</Text>
 
                   </View>
 
-                  {!isLocked ? <View style={[styles.optionDot, isActive && styles.optionDotActive]} /> : null}
+                  <View style={[styles.optionDot, isActive && styles.optionDotActive]} />
 
                 </Pressable>
 

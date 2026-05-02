@@ -24,9 +24,9 @@ describe('progress insights helpers', () => {
 
   test('extracts notable weight events', () => {
     expect(buildWeightTrendEvents(logs, '30d', 80.5, NOW)).toEqual([
-      { isoDate: '2026-04-08', label: 'Nuevo minimo', tone: 'milestone' },
-      { isoDate: '2026-04-08', label: 'Semana mas ligera', tone: 'context' },
-      { isoDate: '2026-04-14', label: 'Nuevo minimo', tone: 'milestone' },
+      { isoDate: '2026-04-08', label: 'Nuevo mínimo', tone: 'milestone' },
+      { isoDate: '2026-04-08', label: 'Semana más ligera', tone: 'context' },
+      { isoDate: '2026-04-14', label: 'Nuevo mínimo', tone: 'milestone' },
       { isoDate: '2026-04-14', label: 'Meta cerca', tone: 'goal' },
     ]);
   });

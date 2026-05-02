@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { getDatabase, syncPendingChanges } from '@/database';
+import { getDatabase, isDatabaseLayerEnabled, syncPendingChanges } from '@/database';
 import { captureError } from '@/lib/sentry';
 
 const SYNC_TABLES = [
@@ -13,8 +13,15 @@ const SYNC_TABLES = [
   'weight_logs',
   'workout_sessions',
   'mental_checkins',
-  'fasting_logs',
+  'fasting_sessions',
 ] as const;
+
+const PARTIAL_OFFLINE_MODULES = ['water', 'sleep', 'weight', 'nutrition'] as const;
+const LOCAL_FIRST_MODULES = ['workout'] as const;
+
+interface SyncableRow {
+  id?: string | number | null;
+}
 
 function isOnlineState(state: NetInfoState): boolean {
   return state.isConnected === true && state.isInternetReachable !== false;
@@ -23,6 +30,7 @@ function isOnlineState(state: NetInfoState): boolean {
 export function useOfflineSync() {
   const profile = useAuthStore((s) => s.profile);
   const userId = profile?.id ?? '';
+  const queueEnabled = isDatabaseLayerEnabled();
 
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
@@ -31,6 +39,11 @@ export function useOfflineSync() {
   const [error, setError] = useState<string | null>(null);
 
   const refreshPendingCount = useCallback(async () => {
+    if (!queueEnabled) {
+      setPendingCount(0);
+      return;
+    }
+
     try {
       const db = getDatabase();
       const queue = await db.get('sync_queue').query().fetch();
@@ -38,7 +51,7 @@ export function useOfflineSync() {
     } catch {
       setPendingCount(0);
     }
-  }, []);
+  }, [queueEnabled]);
 
   const markSyncedAtForUnsyncedRows = useCallback(async () => {
     if (!userId) return 0;
@@ -58,7 +71,7 @@ export function useOfflineSync() {
         continue;
       }
 
-      const ids = (data ?? []).map((row: any) => row.id).filter(Boolean);
+      const ids = ((data ?? []) as SyncableRow[]).map((row) => row.id).filter(Boolean);
       if (ids.length === 0) {
         continue;
       }
@@ -100,6 +113,17 @@ export function useOfflineSync() {
 
   useEffect(() => {
     void refreshPendingCount();
+    let active = true;
+
+    void NetInfo.fetch().then((state) => {
+      if (!active) return;
+      const online = isOnlineState(state);
+      setIsOnline(online);
+
+      if (online) {
+        void triggerSync();
+      }
+    });
 
     const unsubscribe = NetInfo.addEventListener((state) => {
       const online = isOnlineState(state);
@@ -110,23 +134,37 @@ export function useOfflineSync() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [refreshPendingCount, triggerSync]);
 
   const status = useMemo(() => {
     if (syncing) return 'syncing';
     if (!isOnline) return 'offline';
+    if (!queueEnabled) return 'limited';
     if (pendingCount > 0) return 'pending';
     return 'idle';
-  }, [isOnline, pendingCount, syncing]);
+  }, [isOnline, pendingCount, queueEnabled, syncing]);
+
+  const syncModeLabel = queueEnabled ? 'global' : 'parcial';
+  const syncModeDescription = queueEnabled
+    ? 'La cola offline global esta disponible y puede vaciar cambios pendientes.'
+    : 'La cola offline global sigue en reconstruccion. Agua, sueno, peso y nutricion usan persistencia local por modulo, mientras workout sigue siendo local-first.';
 
   return {
     isOnline,
     syncing,
+    queueEnabled,
     pendingCount,
     lastSyncedAt,
     error,
     status,
+    syncModeLabel,
+    syncModeDescription,
+    supportedOfflineModules: PARTIAL_OFFLINE_MODULES,
+    localFirstModules: LOCAL_FIRST_MODULES,
     triggerSync,
     refreshPendingCount,
   };

@@ -31,7 +31,7 @@ async function getAuthHeaders() {
   } = await supabase.auth.getSession();
 
   if (!session?.access_token) {
-    throw new Error('Sin sesion activa');
+    throw new Error('Sin sesión activa');
   }
 
   return {
@@ -41,7 +41,10 @@ async function getAuthHeaders() {
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json().catch(() => ({} as T & { error?: string }));
+  const payload = await response.json().catch((e) => {
+    console.debug?.('[ai-assist] response.json parse failed', e);
+    return {} as T & { error?: string };
+  });
   if (!response.ok) {
     const message =
       payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
@@ -94,3 +97,4 @@ export async function fetchWeeklyContextSummary(): Promise<ContextWeeklySummary>
   });
   return parseJsonResponse<ContextWeeklySummary>(response);
 }
+

@@ -1,14 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import SettingToggleRow from '@/components/ui/SettingToggleRow';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useNotifications, type NotifPreferences } from '@/hooks/useNotifications';
-import { supabase } from '@/lib/supabase';
+import {
+  loadRecentNotificationActivity,
+  type NotificationActivityRow,
+} from '@/lib/notification-activity';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -21,7 +26,6 @@ type RouteKey =
   | 'notifFasting';
 
 type GroupId = 'daily' | 'movement' | 'consistency' | 'special';
-type NotificationActivityRow = Record<string, unknown>;
 
 const GROUP_ROWS: Array<{
   id: GroupId;
@@ -42,7 +46,7 @@ const GROUP_ROWS: Array<{
   {
     id: 'movement',
     title: 'Movimiento y entreno',
-    hint: 'Pasos, caminatas y ventanas utiles para activarte.',
+    hint: 'Pasos, entreno y atajos para volver o marcar rutina sin fricción.',
     icon: 'footsteps-outline',
     prefKeys: ['workout'],
     routeKeys: ['notifSteps'],
@@ -74,43 +78,6 @@ function SectionHeader({ title, hint }: { title: string; hint: string }) {
   );
 }
 
-function ToggleRow({
-  title,
-  hint,
-  value,
-  onChange,
-  disabled,
-  icon,
-}: {
-  title: string;
-  hint: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-  disabled: boolean;
-  icon?: React.ComponentProps<typeof Ionicons>['name'];
-}) {
-  return (
-    <View style={styles.toggleRow}>
-      {icon ? (
-        <View style={styles.iconWrap}>
-          <Ionicons name={icon} size={17} color={Colors.brand} />
-        </View>
-      ) : null}
-      <View style={styles.toggleCopy}>
-        <Text style={styles.toggleTitle}>{title}</Text>
-        <Text style={styles.toggleHint}>{hint}</Text>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        disabled={disabled}
-        trackColor={{ false: Colors.bgElevated, true: `${Colors.brand}80` }}
-        thumbColor={value ? Colors.brand : Colors.textMuted}
-      />
-    </View>
-  );
-}
-
 function pickActivityString(row: NotificationActivityRow, keys: string[], fallback: string) {
   for (const key of keys) {
     const value = row[key];
@@ -129,6 +96,11 @@ function formatActivityStamp(value: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+}
+
+function formatHourLabel(hour: number) {
+  const normalized = ((Math.round(hour) % 24) + 24) % 24;
+  return `${String(normalized).padStart(2, '0')}:00`;
 }
 
 export default function NotificationsSettingsScreen() {
@@ -166,6 +138,9 @@ export default function NotificationsSettingsScreen() {
 
   const totalActive = settings.notificationsEnabled ? activeGroupCount : 0;
   const totalPossible = GROUP_ROWS.length;
+  const quietHoursSummary = settings.notificationQuietHoursEnabled
+    ? `${formatHourLabel(settings.notificationQuietHoursStart)} a ${formatHourLabel(settings.notificationQuietHoursEnd)}`
+    : 'Desactivadas';
 
   const statusTitle = !permissionGranted
     ? 'Permiso del sistema desactivado'
@@ -193,14 +168,7 @@ export default function NotificationsSettingsScreen() {
 
       setLoadingActivity(true);
       try {
-        const { data, error } = await supabase
-          .from('scheduled_notifications')
-          .select('*')
-          .eq('user_id', profile.id)
-          .order('scheduled_for', { ascending: false })
-          .limit(4);
-
-        if (error) throw error;
+        const data = await loadRecentNotificationActivity(profile.id, 4);
         if (alive) {
           setActivityRows(Array.isArray(data) ? (data as NotificationActivityRow[]) : []);
         }
@@ -243,6 +211,13 @@ export default function NotificationsSettingsScreen() {
     await persistPanel();
   }
 
+  async function handleRequestPermission() {
+    const granted = await requestPermissions();
+    if (!granted) {
+      await Linking.openSettings();
+    }
+  }
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header title="Notificaciones" showBack color={Colors.brand} />
@@ -260,6 +235,12 @@ export default function NotificationsSettingsScreen() {
             <View style={styles.metaPill}>
               <Text style={styles.metaPillText}>Tope diario {settings.maxNotifsPerDay}</Text>
             </View>
+            <View style={styles.metaPill}>
+              <Text style={styles.metaPillText}>Atajos: agua y rutina</Text>
+            </View>
+            <View style={styles.metaPill}>
+              <Text style={styles.metaPillText}>Quiet hours {quietHoursSummary}</Text>
+            </View>
           </View>
         </Card>
 
@@ -267,11 +248,16 @@ export default function NotificationsSettingsScreen() {
           <Card>
             <Text style={styles.sectionTitle}>Falta el permiso del sistema</Text>
             <Text style={styles.sectionHint}>
-              Recuperalo una sola vez y despues afinas el resto desde aqui.
+              Primero intenta habilitarlo desde aquí. Si ya lo negaste antes, te llevamos a los ajustes del telefono.
             </Text>
-            <Button onPress={() => void Linking.openSettings()} fullWidth color={Colors.brand}>
-              Abrir ajustes del telefono
-            </Button>
+            <View style={styles.permissionActions}>
+              <Button onPress={() => void handleRequestPermission()} fullWidth color={Colors.brand}>
+                Pedir permiso ahora
+              </Button>
+              <Button onPress={() => void Linking.openSettings()} fullWidth variant="secondary" color={Colors.brand}>
+                Abrir ajustes del telefono
+              </Button>
+            </View>
           </Card>
         ) : null}
 
@@ -280,13 +266,18 @@ export default function NotificationsSettingsScreen() {
             title="Interruptor maestro"
             hint="Si se apaga, el resto se esconde para no abrumar."
           />
-          <ToggleRow
+          <SettingToggleRow
             title="Activar notificaciones"
-            hint="Control general de la capa de avisos."
+            description="Control general de la capa de avisos."
             value={settings.notificationsEnabled}
-            onChange={(value) => void handleMasterToggle(value)}
+            onValueChange={(value) => void handleMasterToggle(value)}
             disabled={saving}
-            icon="notifications-outline"
+            accentColor={Colors.brand}
+            icon={
+              <View style={styles.iconWrap}>
+                <Ionicons name="notifications-outline" size={17} color={Colors.brand} />
+              </View>
+            }
           />
         </Card>
 
@@ -298,7 +289,7 @@ export default function NotificationsSettingsScreen() {
                 hint="Elige el tope diario visible."
               />
               <View style={styles.capTrack}>
-                {[1, 2, 3].map((value) => {
+                {[1, 2].map((value) => {
                   const active = settings.maxNotifsPerDay === value;
                   return (
                     <Button
@@ -325,19 +316,98 @@ export default function NotificationsSettingsScreen() {
 
             <Card>
               <SectionHeader
+                title="Quiet hours"
+                hint="La capa inteligente evita avisos contextuales dentro de esta franja."
+              />
+              <SettingToggleRow
+                title="Silencio nocturno"
+                description={
+                  settings.notificationQuietHoursEnabled
+                    ? `Ahora bloquea avisos inteligentes entre ${quietHoursSummary}.`
+                    : 'Desactivado. La app puede usar avisos contextuales tambiÃ©n de madrugada.'
+                }
+                value={settings.notificationQuietHoursEnabled}
+                onValueChange={(value) => settings.setNotificationQuietHoursEnabled(value)}
+                disabled={saving}
+                accentColor={Colors.brand}
+                icon={
+                  <View style={styles.iconWrap}>
+                    <Ionicons name="moon-outline" size={17} color={Colors.brand} />
+                  </View>
+                }
+              />
+
+              {settings.notificationQuietHoursEnabled ? (
+                <View style={styles.quietHoursPanel}>
+                  <View style={styles.quietHoursSection}>
+                    <Text style={styles.quietHoursLabel}>Empieza</Text>
+                    <View style={styles.capTrack}>
+                      {[21, 22, 23].map((hour) => {
+                        const active = settings.notificationQuietHoursStart === hour;
+                        return (
+                          <Button
+                            key={`quiet_start_${hour}`}
+                            size="sm"
+                            variant={active ? 'primary' : 'secondary'}
+                            color={Colors.brand}
+                            onPress={() => settings.setNotificationQuietHoursStart(hour)}
+                            style={styles.capButton}
+                          >
+                            {formatHourLabel(hour)}
+                          </Button>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <View style={styles.quietHoursSection}>
+                    <Text style={styles.quietHoursLabel}>Termina</Text>
+                    <View style={styles.capTrack}>
+                      {[6, 7, 8].map((hour) => {
+                        const active = settings.notificationQuietHoursEnd === hour;
+                        return (
+                          <Button
+                            key={`quiet_end_${hour}`}
+                            size="sm"
+                            variant={active ? 'primary' : 'secondary'}
+                            color={Colors.brand}
+                            onPress={() => settings.setNotificationQuietHoursEnd(hour)}
+                            style={styles.capButton}
+                          >
+                            {formatHourLabel(hour)}
+                          </Button>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <Text style={styles.capHint}>
+                    Sirve para avisos adaptativos y de rescate. Los recordatorios fijos siguen usando su propio horario previsto.
+                  </Text>
+                </View>
+              ) : null}
+            </Card>
+
+            <Card>
+              <SectionHeader
                 title="Que tipo de avisos quieres"
                 hint="Cuatro grupos claros en lugar de una lista interminable de switches."
               />
               <View style={styles.stack}>
                 {GROUP_ROWS.map((group, index) => (
                   <View key={group.id}>
-                    <ToggleRow
+                    <SettingToggleRow
                       title={group.title}
-                      hint={group.hint}
+                      description={group.hint}
                       value={isGroupEnabled(group)}
-                      onChange={(value) => setGroupEnabled(group, value)}
+                      onValueChange={(value) => setGroupEnabled(group, value)}
                       disabled={saving}
-                      icon={group.icon}
+                      accentColor={Colors.brand}
+                      icon={
+                        <View style={styles.iconWrap}>
+                          <Ionicons name={group.icon} size={17} color={Colors.brand} />
+                        </View>
+                      }
                     />
                     {index < GROUP_ROWS.length - 1 ? <View style={styles.divider} /> : null}
                   </View>
@@ -355,7 +425,7 @@ export default function NotificationsSettingsScreen() {
                   <Text style={styles.activityMeta}>Cargando actividad reciente...</Text>
                 ) : !activityRows.length ? (
                   <Text style={styles.activityMeta}>
-                    Todavia no hay historial reciente. En cuanto salgan avisos utiles, apareceran aqui.
+                    Todavía no hay historial reciente. En cuanto salgan avisos útiles, apareceran aquí.
                   </Text>
                 ) : (
                   activityRows.map((row, index) => {
@@ -390,6 +460,14 @@ export default function NotificationsSettingsScreen() {
                   })
                 )}
               </View>
+              <Button
+                onPress={() => router.push('/settings/notifications-history' as never)}
+                variant="secondary"
+                fullWidth
+                color={Colors.brand}
+              >
+                Abrir historial completo
+              </Button>
             </Card>
 
             <Button onPress={() => void persistPanel()} loading={saving} fullWidth color={Colors.brand}>
@@ -464,12 +542,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: Colors.textSecondary,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[3],
-    paddingVertical: Spacing[2],
-  },
   iconWrap: {
     width: 32,
     height: 32,
@@ -478,24 +550,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: withOpacity(Colors.brand, 0.12),
   },
-  toggleCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  toggleTitle: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  toggleHint: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    color: Colors.textSecondary,
-  },
   capTrack: {
     flexDirection: 'row',
     gap: Spacing[2],
+  },
+  quietHoursPanel: {
+    gap: Spacing[3],
+    marginTop: Spacing[3],
+  },
+  quietHoursSection: {
+    gap: Spacing[2],
+  },
+  quietHoursLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   capButton: {
     flex: 1,
@@ -505,6 +576,10 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     lineHeight: 18,
     color: Colors.textSecondary,
+    marginTop: Spacing[3],
+  },
+  permissionActions: {
+    gap: Spacing[2],
     marginTop: Spacing[3],
   },
   stack: {

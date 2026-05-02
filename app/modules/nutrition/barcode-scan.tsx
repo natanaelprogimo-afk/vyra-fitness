@@ -1,13 +1,13 @@
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import * as Haptics from 'expo-haptics';
 
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import BarcodeScannerModal from '@/components/ui/BarcodeScannerModal';
+import Input from '@/components/ui/Input';
 import {
   useNutrition,
   MEAL_TYPES,
@@ -16,6 +16,7 @@ import {
 } from '@/hooks/useNutrition';
 import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { triggerNotificationHaptic } from '@/lib/haptics';
 
 export default function BarcodeNutritionScreen() {
   const params = useLocalSearchParams<{ mealType?: string }>();
@@ -31,7 +32,7 @@ export default function BarcodeNutritionScreen() {
 
   const handleBarcodeScanned = async (barcode: string) => {
     try {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void triggerNotificationHaptic('success');
 
       const food = await searchByBarcode(barcode);
 
@@ -41,26 +42,11 @@ export default function BarcodeNutritionScreen() {
         return;
       }
 
-      Alert.alert(
-        'Producto no encontrado',
-        `El código ${barcode} no se encontró en nuestra base de datos.`,
-        [
-          { text: 'Reintentar', onPress: () => setShowScanner(true) },
-          { text: 'Cancelar', style: 'cancel' },
-        ],
-      );
+      throw new Error(`No encontramos el código ${barcode} en la base de datos actual.`);
     } catch (error) {
-      const message = error instanceof Error
-        ?  error.message
-        : 'No pudimos procesar el código. Intenta de nuevo.';
-
-      Alert.alert(
-        message.toLowerCase().includes('limite') || message.toLowerCase().includes('límite')
-          ?  'Límite alcanzado'
-          : 'Error',
-        message,
-        [{ text: 'Reintentar', onPress: () => setShowScanner(true) }],
-      );
+      throw error instanceof Error
+        ? error
+        : new Error('No pudimos procesar el código. Intenta de nuevo.');
     }
   };
 
@@ -109,7 +95,7 @@ export default function BarcodeNutritionScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        {foundFood && (
+        {foundFood ? (
           <Card style={styles.foodCard}>
             <View style={styles.cardHeader}>
               <View style={styles.foodInfo}>
@@ -127,11 +113,15 @@ export default function BarcodeNutritionScreen() {
             </View>
 
             <View style={styles.amountSection}>
-              <Text style={styles.label}>Cantidad</Text>
-              <View style={styles.amountInput}>
-                <Text style={styles.amountValue}>{amount}</Text>
-                <Text style={styles.amountUnit}>g</Text>
-              </View>
+              <Input
+                label="Cantidad"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+                unit="g"
+                style={styles.amountField}
+                inputStyle={styles.amountValue}
+              />
             </View>
 
             <View style={styles.macrosGrid}>
@@ -144,7 +134,7 @@ export default function BarcodeNutritionScreen() {
                 label="Proteína"
                 value={Math.round(foundFood.protein_g * (parseFloat(amount) / 100))}
                 unit="g"
-                color="#FF6B6B"
+                color={Colors.error}
               />
               <MacroIndicator
                 label="Carbos"
@@ -156,7 +146,7 @@ export default function BarcodeNutritionScreen() {
                 label="Grasas"
                 value={Math.round(foundFood.fat_g * (parseFloat(amount) / 100))}
                 unit="g"
-                color="#FFD43B"
+                color={Colors.warning}
               />
             </View>
 
@@ -183,7 +173,7 @@ export default function BarcodeNutritionScreen() {
               </Button>
             </View>
           </Card>
-        )}
+        ) : null}
       </ScrollView>
     </SafeScreen>
   );
@@ -260,30 +250,13 @@ const styles = StyleSheet.create({
   amountSection: {
     marginBottom: Spacing[6],
   },
-  label: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginBottom: Spacing[2],
-  },
-  amountInput: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: Spacing[2],
-    paddingHorizontal: Spacing[4],
-    paddingVertical: Spacing[3],
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bgSurface,
+  amountField: {
+    marginBottom: 0,
   },
   amountValue: {
     fontFamily: FontFamily.bold,
     fontSize: 28,
     color: Colors.textPrimary,
-  },
-  amountUnit: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
-    color: Colors.textSecondary,
   },
   macrosGrid: {
     flexDirection: 'row',
@@ -315,5 +288,3 @@ const styles = StyleSheet.create({
     marginTop: Spacing[1],
   },
 });
-
-

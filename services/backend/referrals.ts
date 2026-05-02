@@ -1,44 +1,12 @@
-import { supabase } from '@/lib/supabase';
-
-const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-async function requestJson(
-  path: string,
-  init: RequestInit,
-): Promise<{ ok: boolean; status: number; data: any; text: string }> {
-  const response = await fetch(`${BACKEND_URL}${path}`, init);
-  const text = await response.text();
-
-  let data: any = null;
-  if (text.trim()) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = null;
-    }
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    data,
-    text,
-  };
-}
+import {
+  asRecord,
+  getAuthHeaders,
+  getBackendUrl,
+  requestJson,
+} from '@/services/backend/client';
 
 export interface ReferralOverview {
   code: string;
-  reward_days: number;
   referral_count: number;
   friend_count: number;
   redeemed: boolean;
@@ -46,30 +14,128 @@ export interface ReferralOverview {
   referred_by: { id: string; name: string | null } | null;
   founding_member: boolean;
   founding_member_rank: number | null;
-  premium_expires_at: string | null;
 }
 
-export async function getReferralOverview(): Promise<ReferralOverview | null> {
+export type ReferralOverviewResult =
+  | {
+      ok: true;
+      overview: ReferralOverview;
+    }
+  | {
+      ok: false;
+      error: string;
+      status?: number;
+      reason: 'missing_backend' | 'unauthorized' | 'unavailable' | 'network';
+      retryable: boolean;
+    };
+
+function normalizeReferralOverview(value: Record<string, unknown>): ReferralOverview | null {
+  if (
+    typeof value.code !== 'string' ||
+    typeof value.referral_count !== 'number' ||
+    typeof value.friend_count !== 'number' ||
+    typeof value.redeemed !== 'boolean' ||
+    typeof value.founding_member !== 'boolean'
+  ) {
+    return null;
+  }
+
+  return value as unknown as ReferralOverview;
+}
+
+function normalizeReferralError(status: number, fallback: string): ReferralOverviewResult {
+  if (status === 401 || status === 403) {
+    return {
+      ok: false,
+      error: 'Necesitas una sesion valida para abrir tus invitaciones.',
+      status,
+      reason: 'unauthorized',
+      retryable: false,
+    };
+  }
+
+  if (status >= 500) {
+    return {
+      ok: false,
+      error: 'El servicio de invitaciones no esta disponible ahora mismo. Reintenta mas tarde.',
+      status,
+      reason: 'unavailable',
+      retryable: true,
+    };
+  }
+
+  return {
+    ok: false,
+    error: fallback,
+    status,
+    reason: 'unavailable',
+    retryable: true,
+  };
+}
+
+export async function getReferralOverview(): Promise<ReferralOverviewResult> {
+  if (!getBackendUrl()) {
+    return {
+      ok: false,
+      error: 'El backend de invitaciones no esta configurado en este build.',
+      reason: 'missing_backend',
+      retryable: false,
+    };
+  }
+
   try {
     const headers = await getAuthHeaders();
     const response = await requestJson('/api/referrals/overview', {
       method: 'GET',
       headers,
     });
-    if (!response.ok) return null;
-    return response.data as ReferralOverview;
+
+    if (!response.ok) {
+      const payload = asRecord(response.data);
+      return normalizeReferralError(
+        response.status,
+        typeof payload?.error === 'string' ? payload.error : 'No pudimos cargar tus invitaciones.',
+      );
+    }
+
+    const payload = asRecord(response.data);
+    const overview = payload ? normalizeReferralOverview(payload) : null;
+    if (!overview || overview.code.trim().length === 0) {
+      return {
+        ok: false,
+        error: 'Invitaciones respondio sin datos utiles. Reintenta en unos segundos.',
+        status: response.status,
+        reason: 'unavailable',
+        retryable: true,
+      };
+    }
+
+    return {
+      ok: true,
+      overview,
+    };
   } catch {
-    return null;
+    return {
+      ok: false,
+      error: 'No pudimos conectarnos al servicio de invitaciones.',
+      reason: 'network',
+      retryable: true,
+    };
   }
 }
 
 export async function redeemReferral(code: string): Promise<{
   ok: boolean;
   error?: string;
-  reward_days?: number;
-  referred_expires_at?: string | null;
   referrer?: { id: string; name: string | null };
 }> {
+  if (!getBackendUrl()) {
+    return {
+      ok: false,
+      error: 'Invitaciones no esta disponible en este build.',
+    };
+  }
+
   try {
     const headers = await getAuthHeaders();
     const response = await requestJson('/api/referrals/redeem', {
@@ -78,9 +144,10 @@ export async function redeemReferral(code: string): Promise<{
       body: JSON.stringify({ code }),
     });
     if (!response.ok) {
-      return { ok: false, error: response.data?.error ?? 'No se pudo canjear.' };
+      const payload = asRecord(response.data);
+      return { ok: false, error: typeof payload?.error === 'string' ? payload.error : 'No se pudo canjear.' };
     }
-    return { ok: true, ...response.data };
+    return { ok: true, ...(asRecord(response.data) ?? {}) };
   } catch {
     return { ok: false, error: 'No se pudo canjear.' };
   }

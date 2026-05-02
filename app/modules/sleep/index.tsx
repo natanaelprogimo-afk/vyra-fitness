@@ -2,15 +2,23 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Header from '@/components/layout/Header';
 import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
+import SleepTimeline from '@/components/sleep/SleepTimeline';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { visibleRatioPercent } from '@/lib/visual-progress';
 import { useSleep } from '@/hooks/useSleep';
 import { useWorkout } from '@/hooks/useWorkout';
 import { useSettingsStore } from '@/stores/settingsStore';
+
+function sleepStatus(score: number) {
+  if (score >= 80) return 'Excelente';
+  if (score >= 60) return 'Regular';
+  return 'Pobre';
+}
 
 export default function SleepScreen() {
   const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.sleep));
@@ -21,7 +29,7 @@ export default function SleepScreen() {
     history,
     lastSleep,
     lastDurationHours,
-    qualityInfo,
+    lastScore,
     physicalDayState,
     sleepStreakDays,
   } = useSleep();
@@ -31,12 +39,12 @@ export default function SleepScreen() {
   if (!hasSeenIntro) {
     return (
       <SafeScreen padHorizontal={false} padBottom>
-        <Header title="Sueno" showBack />
+        <Header title="Sueño" showBack />
         <ModuleIntroScreen
           accentColor={Colors.sleep}
-          icon="🌙"
-          title="Sueno"
-          body="Registra cuantas horas dormiste y deja que VYRA use eso para ajustar la lectura del dia."
+          icon="Moon"
+          title="Sueño"
+          body="Registra cuántas horas dormiste y deja que VYRA use eso para ajustar la lectura del día."
           ctaLabel="Registrar primera noche"
           onContinue={() => {
             markModuleIntroSeen('sleep');
@@ -50,10 +58,16 @@ export default function SleepScreen() {
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Sueno"
+        title="Sueño"
         showBack
         rightAction={
-          <Pressable onPress={() => router.push(Routes.sleep.log as never)}>
+          <Pressable
+            onPress={() => router.push(Routes.sleep.log as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Registrar sueño"
+            accessibilityHint="Abre el formulario manual de sueño."
+            hitSlop={8}
+          >
             <Text style={styles.headerLink}>Registrar</Text>
           </Pressable>
         }
@@ -62,57 +76,54 @@ export default function SleepScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {lastSleep ? (
           <Card style={styles.heroCard} shadow={false}>
+            <Text style={styles.eyebrow}>Noche de hoy</Text>
             <Text style={[styles.heroValue, { color: Colors.sleep }]}>{lastDurationHours.toFixed(1)}h</Text>
-            <View style={styles.qualityTrack}>
-              <View
-                style={[
-                  styles.qualityFill,
-                  {
-                    width: `${Math.max(8, Math.min(100, (lastDurationHours / Math.max(goalHours, 1)) * 100))}%`,
-                    backgroundColor: qualityInfo.color,
-                  },
-                ]}
-              />
+            <SleepTimeline
+              startTime={lastSleep.start_time}
+              endTime={lastSleep.end_time}
+              durationHours={lastDurationHours}
+              color={Colors.sleep}
+            />
+            <View style={styles.qualityRow}>
+              <Text style={styles.qualityValue}>{Math.round(lastScore)}/100</Text>
+              <Text style={styles.qualityLabel}>{sleepStatus(lastScore)}</Text>
             </View>
-            <Text style={styles.heroMessage}>
-              {lastDurationHours >= goalHours ? 'Anoche dormiste bien.' : 'Dormiste poco. Ajusta la intensidad hoy.'}
-            </Text>
-            <Text style={styles.heroMeta}>Racha de sueno: {sleepStreakDays} dias</Text>
+            <Text style={styles.heroMeta}>Racha de sueño: {sleepStreakDays} días</Text>
           </Card>
         ) : (
           <Card style={styles.emptyCard} shadow={false}>
-            <Text style={styles.sectionTitle}>Registrar sueno</Text>
-            <Text style={styles.sectionBody}>Cuantas horas dormiste anoche?</Text>
+            <Text style={styles.sectionTitle}>Registrar sueño</Text>
+            <Text style={styles.sectionBody}>¿Cuántas horas dormiste anoche?</Text>
             <Button onPress={() => router.push(Routes.sleep.log as never)} fullWidth>
-              Registrar sueno
+              Registrar sueño
             </Button>
           </Card>
         )}
 
         {lastDurationHours > 0 && lastDurationHours < 6 && activeSession ? (
           <Card style={styles.warningCard} shadow={false}>
-            <Text style={styles.sectionTitle}>Version ligera disponible</Text>
+            <Text style={styles.sectionTitle}>Conviene bajar intensidad hoy</Text>
             <Text style={styles.sectionBody}>
-              Dormiste poco. Considera una version mas suave de tu rutina hoy.
+              Dormiste menos de lo ideal. Considera reducir carga o hacer solo el calentamiento fuerte.
             </Text>
             <Button onPress={() => router.push(Routes.workout.preview as never)} variant="secondary" fullWidth>
-              Ver rutina ligera
+              Ver sesión de hoy
             </Button>
           </Card>
         ) : null}
 
         <Card style={styles.contextCard} shadow={false}>
-          <Text style={styles.sectionTitle}>Lectura de hoy</Text>
+          <Text style={styles.sectionTitle}>Lectura integrada</Text>
           <Text style={styles.sectionBody}>{physicalDayState.message}</Text>
         </Card>
 
         <Card style={styles.historyCard} shadow={false}>
-          <Text style={styles.sectionTitle}>Ultimas 7 noches</Text>
+          <Text style={styles.sectionTitle}>Últimas 7 noches</Text>
           <View style={styles.bars}>
             {history.slice(-7).map((entry) => {
               const hours = entry.duration_min / 60;
               const isGoalMet = hours >= goalHours;
-              const heightPct = Math.max(8, (hours / maxHours) * 100);
+              const heightPct = visibleRatioPercent(hours, maxHours);
               const label = new Date(entry.end_time)
                 .toLocaleDateString('es-UY', { weekday: 'short' })
                 .slice(0, 1)
@@ -126,7 +137,7 @@ export default function SleepScreen() {
                         styles.barFill,
                         {
                           height: `${heightPct}%`,
-                          backgroundColor: isGoalMet ? Colors.success : Colors.warning,
+                          backgroundColor: isGoalMet ? Colors.success : withOpacity(Colors.sleep, 0.72),
                         },
                       ]}
                     />
@@ -156,25 +167,32 @@ const styles = StyleSheet.create({
   heroCard: {
     gap: Spacing[3],
   },
+  eyebrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
   heroValue: {
-    fontFamily: FontFamily.display,
-    fontSize: 48,
+    fontFamily: FontFamily.black,
+    fontSize: FontSize['3xl'],
     letterSpacing: -2,
   },
-  qualityTrack: {
-    height: 10,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
-    overflow: 'hidden',
+  qualityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
   },
-  qualityFill: {
-    height: '100%',
-    borderRadius: Radius.full,
-  },
-  heroMessage: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.md,
+  qualityValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
     color: Colors.textPrimary,
+  },
+  qualityLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
   },
   heroMeta: {
     fontFamily: FontFamily.regular,

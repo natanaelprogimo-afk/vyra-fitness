@@ -1,72 +1,77 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-
-import Header from '@/components/layout/Header';
 import FemaleModuleTabs from '@/components/female/FemaleModuleTabs';
-import Button from '@/components/ui/Button';
+import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
+import LinkRow from '@/components/ui/LinkRow';
+import NoticeCard from '@/components/ui/NoticeCard';
 import SafeScreen from '@/components/ui/SafeScreen';
-import { Colors, withOpacity } from '@/constants/colors';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
+import SectionHeader from '@/components/ui/SectionHeader';
+import SettingToggleRow from '@/components/ui/SettingToggleRow';
+import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useFemaleHealth } from '@/hooks/useFemaleHealth';
 import { isStrictSensitiveMode } from '@/lib/privacy-settings';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUIStore } from '@/stores/uiStore';
 
-function SettingRow({
-  label,
-  value,
-  actionLabel,
-  onPress,
-}: {
-  label: string;
-  value: string;
-  actionLabel?: string;
-  onPress?: () => void;
-}) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.settingRow}>
-      <View style={styles.settingCopy}>
-        <Text style={styles.settingLabel}>{label}</Text>
-        <Text style={styles.settingValue}>{value}</Text>
-      </View>
-      {actionLabel && onPress ? (
-        <Pressable onPress={onPress} style={styles.inlineAction}>
-          <Text style={styles.inlineActionText}>{actionLabel}</Text>
-        </Pressable>
-      ) : null}
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
+}
+
+function formatCycleDate(value: string | null | undefined) {
+  if (!value) return 'Pendiente';
+  return new Date(`${value}T00:00:00`).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 export default function FemaleSettingsScreen() {
   const profile = useAuthStore((state) => state.profile);
   const updateProfile = useAuthStore((state) => state.updateProfile);
+  const showToast = useUIStore((state) => state.showToast);
   const strictSensitiveMode = isStrictSensitiveMode(profile);
   const femaleEnabled = Boolean(profile?.female_health_enabled);
   const femalePeriodDuration = useSettingsStore((state) => state.femalePeriodDuration);
   const femaleDisclaimerAccepted = useSettingsStore((state) => state.femaleDisclaimerAccepted);
   const { cycleLength, lastPeriodDate, nextPeriodDate, isInCycle } = useFemaleHealth();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const handleToggleModule = async (value: boolean) => {
     if (!profile?.id) return;
+
     setIsUpdating(true);
+    setInlineError(null);
+
     try {
       const { error } = await supabase
         .from('profiles')
         .update({ female_health_enabled: value })
         .eq('id', profile.id);
+
       if (error) throw error;
+
       updateProfile({ female_health_enabled: value });
+      showToast(value ? 'Módulo del ciclo activado.' : 'Módulo del ciclo desactivado.', 'success');
+
       if (value && !isInCycle) {
         router.push(Routes.profile.femaleHealth as never);
       }
     } catch {
-      Alert.alert('No se pudo guardar', 'Intenta de nuevo en unos segundos.');
+      setInlineError('No se pudo guardar este ajuste ahora mismo. Intenta de nuevo en unos segundos.');
+      showToast('No se pudo guardar la configuración del ciclo.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -75,8 +80,8 @@ export default function FemaleSettingsScreen() {
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Ajustes"
-        subtitle="Configuración del módulo, privacidad y exportación del ciclo."
+        title="Ajustes del ciclo"
+        subtitle="Módulo, privacidad y continuidad del seguimiento."
         showBack
         color={Colors.female}
       />
@@ -84,105 +89,106 @@ export default function FemaleSettingsScreen() {
       <FemaleModuleTabs active="settings" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <Card accentColor={Colors.female}>
-          <Text style={styles.sectionTitle}>Configuración del módulo</Text>
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleCopy}>
-              <Text style={styles.toggleTitle}>Módulo activo</Text>
-              <Text style={styles.toggleText}>
-                Adapta entreno, nutrición y pasos usando tu fase actual.
-              </Text>
-            </View>
-            <Switch
-              value={femaleEnabled}
-              onValueChange={(value) => void handleToggleModule(value)}
-              disabled={isUpdating}
-              trackColor={{ false: '#2C2742', true: withOpacity(Colors.female, 0.54) }}
-              thumbColor={femaleEnabled ? Colors.female : Colors.textMuted}
+        {inlineError ? (
+          <NoticeCard
+            title="No pudimos guardar este cambio"
+            body={inlineError}
+            tone="error"
+          />
+        ) : null}
+
+        <Card accentColor={Colors.female} style={styles.card}>
+          <SectionHeader
+            eyebrow="Módulo"
+            title="Seguimiento sensible y opcional"
+            subtitle="Si lo activas, VYRA puede ajustar contexto de entreno, nutrición y recuperación según tu fase."
+          />
+
+          <SettingToggleRow
+            title="Módulo activo"
+            description="Activa o pausa la lectura del ciclo sin salir de tus ajustes."
+            value={femaleEnabled}
+            onValueChange={(value) => void handleToggleModule(value)}
+            disabled={isUpdating}
+            accentColor={Colors.female}
+          />
+        </Card>
+
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Datos base"
+            title="Resumen del ciclo"
+            subtitle="La lectura principal vive aquí en filas claras y la edición queda en una pantalla dedicada."
+          />
+
+          <View style={styles.infoStack}>
+            <InfoRow
+              label="Último período"
+              value={lastPeriodDate ? formatCycleDate(lastPeriodDate) : 'Sin configurar'}
+            />
+            <InfoRow label="Duración del ciclo" value={`${cycleLength || 28} días`} />
+            <InfoRow label="Duración menstrual" value={`${femalePeriodDuration} días`} />
+            <InfoRow label="Próximo período" value={formatCycleDate(nextPeriodDate)} />
+          </View>
+
+          <LinkRow
+            label="Editar datos del ciclo"
+            description="Abre la configuración base del módulo para registrar fechas, duración y contexto."
+            onPress={() => router.push(Routes.profile.femaleHealth as never)}
+            accentColor={Colors.female}
+          />
+        </Card>
+
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Privacidad"
+            title="Control y discreción"
+            subtitle="Este módulo mantiene una capa sensible propia y te deja revisar el modo estricto cuando lo necesites."
+          />
+
+          <View style={styles.infoStack}>
+            <InfoRow label="Datos protegidos" value="Solo tú puedes verlos dentro de tu cuenta." />
+            <InfoRow
+              label="Disclaimer médico"
+              value={femaleDisclaimerAccepted ? 'Confirmado' : 'Pendiente'}
+            />
+            <InfoRow
+              label="Modo estricto"
+              value={strictSensitiveMode ? 'Solo en dispositivo' : 'Sincronización activa'}
             />
           </View>
-        </Card>
 
-        <Card>
-          <Text style={styles.sectionTitle}>Datos del ciclo</Text>
-          <SettingRow
-            label="Último periodo"
-            value={
-              lastPeriodDate
-                ? new Date(`${lastPeriodDate}T00:00:00`).toLocaleDateString('es-ES', {
-                    day: 'numeric',
-                    month: 'short',
-                  })
-                : 'Sin configurar'
-            }
-          />
-          <SettingRow label="Duracion del ciclo" value={`${cycleLength || 28} días`} />
-          <SettingRow label="Duracion mens." value={`${femalePeriodDuration} días`} />
-          <SettingRow
-            label="Próximo periodo"
-            value={
-              nextPeriodDate
-                ? new Date(`${nextPeriodDate}T00:00:00`).toLocaleDateString('es-ES', {
-                    day: 'numeric',
-                    month: 'short',
-                  })
-                : 'Pendiente'
-            }
-          />
-          <Button
-            label="Editar datos del ciclo"
-            onPress={() => router.push(Routes.profile.femaleHealth as never)}
-            color={Colors.female}
-            fullWidth
-            style={styles.sectionButton}
-          />
-        </Card>
-
-        <Card>
-          <Text style={styles.sectionTitle}>Privacidad</Text>
-          <SettingRow label="Datos protegidos" value="Solo vos puedes verlos." />
-          <SettingRow
-            label="Modo estricto"
-            value={strictSensitiveMode ? 'Solo en dispositivo' : 'Sincronizacion activa'}
-            actionLabel="Abrir"
+          <LinkRow
+            label="Abrir ajustes de privacidad"
+            description="Revisa sincronización, exportación y controles sensibles del resto del sistema."
             onPress={() => router.push(Routes.settings.privacy as never)}
-          />
-          <SettingRow
-            label="Disclaimer medico"
-            value={femaleDisclaimerAccepted ? 'Confirmado' : 'Pendiente'}
+            accentColor={Colors.female}
           />
         </Card>
 
-        <Card>
-          <Text style={styles.sectionTitle}>Notificaciones</Text>
-          <Text style={styles.sectionText}>
-            Controla avisos del ciclo, próximo periodo y recordatorios desde la configuración
-            general.
-          </Text>
-          <Button
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Continuidad"
+            title="Notificaciones y exportación"
+            subtitle="Las acciones secundarias se mantienen en filas compartidas en vez de botones sueltos."
+          />
+
+          <LinkRow
             label="Abrir notificaciones"
+            description="Controla avisos del ciclo, del próximo período y recordatorios asociados."
             onPress={() => router.push(Routes.settings.notificationsSettings as never)}
-            variant="secondary"
-            color={Colors.female}
-            fullWidth
-            style={styles.sectionButton}
+            accentColor={Colors.female}
+          />
+
+          <LinkRow
+            label="Exportar historial del ciclo"
+            description="Genera un PDF con tus registros recientes si necesitas compartirlos en una consulta."
+            onPress={() => router.push(Routes.profile.exportData as never)}
+            accentColor={Colors.female}
           />
         </Card>
 
-        <Card>
-          <Text style={styles.sectionTitle}>Exportar datos</Text>
-          <Text style={styles.sectionText}>
-            PDF de tus últimos ciclos para compartirlo en una consulta si lo necesitas.
-          </Text>
-          <Button
-            label="Generar PDF del historial"
-            onPress={() => router.push(Routes.profile.exportData as never)}
-            variant="secondary"
-            color={Colors.female}
-            fullWidth
-            style={styles.sectionButton}
-          />
-        </Card>
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );
@@ -192,77 +198,28 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing[5],
     paddingBottom: Spacing[8],
-    gap: Spacing[3],
+    gap: Spacing[4],
   },
-  sectionTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.lg,
-    color: Colors.textPrimary,
-    marginBottom: Spacing[3],
+  card: {
+    gap: Spacing[4],
   },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[3],
-  },
-  toggleCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  toggleTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  toggleText: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  infoStack: {
     gap: Spacing[2],
-    paddingVertical: Spacing[2.5],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
   },
-  settingCopy: {
-    flex: 1,
+  infoRow: {
     gap: 2,
   },
-  settingLabel: {
+  infoLabel: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
     color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  settingValue: {
+  infoValue: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
-  },
-  inlineAction: {
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.female, 0.24),
-    backgroundColor: withOpacity(Colors.female, 0.1),
-    paddingHorizontal: Spacing[2.5],
-    paddingVertical: Spacing[1.25],
-  },
-  inlineActionText: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
-    color: Colors.female,
-  },
-  sectionText: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
     lineHeight: 20,
-  },
-  sectionButton: {
-    marginTop: Spacing[3],
   },
 });

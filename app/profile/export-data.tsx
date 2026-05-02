@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -9,10 +9,16 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import NoticeCard from '@/components/ui/NoticeCard';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
+import { loadRecentExportHistory, recordExportHistory, type ExportHistoryEntry } from '@/lib/export-history';
+import { hydrateSensitiveExportData } from '@/lib/export-sensitive';
+import { mergeWorkoutExportData } from '@/lib/workout-local-data';
 import { supabase } from '@/lib/supabase';
+import { useUIStore } from '@/stores/uiStore';
 
 type ExportTable = {
   key: string;
@@ -33,6 +39,13 @@ type ExportBundle = {
   userId: string;
   userEmail: string | null | undefined;
   data: Record<string, unknown[]>;
+};
+
+type FetchTableOptions = {
+  select?: string;
+  fromColumn?: string;
+  fromValue?: string;
+  limit?: number;
 };
 
 type WeightRow = {
@@ -60,21 +73,20 @@ const SECTIONS: ExportSection[] = [
   {
     id: 'identity',
     title: 'Cuenta e identidad',
-    hint: 'Perfil, suscripcion y estados de cuenta.',
+    hint: 'Perfil, consentimientos y estados de cuenta.',
     tables: [
       { key: 'profiles', label: 'Perfil', matchColumn: 'id' },
-      { key: 'user_subscriptions', label: 'Suscripciones', matchColumn: 'user_id', orderColumn: 'updated_at' },
       { key: 'deletion_requests', label: 'Solicitudes de borrado', matchColumn: 'user_id', orderColumn: 'created_at' },
     ],
   },
   {
     id: 'health',
-    title: 'Salud y habitos',
+    title: 'Salud y hábitos',
     hint: 'Los logs diarios y la lectura de tu estado.',
     tables: [
       { key: 'water_logs', label: 'Agua', matchColumn: 'user_id', orderColumn: 'logged_at' },
       { key: 'step_logs', label: 'Pasos', matchColumn: 'user_id', orderColumn: 'logged_date' },
-      { key: 'fasting_logs', label: 'Ayuno', matchColumn: 'user_id', orderColumn: 'start_time' },
+      { key: 'fasting_sessions', label: 'Ayuno', matchColumn: 'user_id', orderColumn: 'start_time' },
       { key: 'sleep_logs', label: 'Sueño', matchColumn: 'user_id', orderColumn: 'end_time' },
       { key: 'meals', label: 'Comidas', matchColumn: 'user_id', orderColumn: 'logged_at' },
       { key: 'weight_logs', label: 'Peso', matchColumn: 'user_id', orderColumn: 'logged_at' },
@@ -85,10 +97,10 @@ const SECTIONS: ExportSection[] = [
   {
     id: 'progress',
     title: 'Progreso e historial',
-    hint: 'Entrenos, suplementos y trazas utiles del avance personal.',
+    hint: 'Entrenos, suplementos y trazas útiles del avance personal.',
     tables: [
       { key: 'workout_sessions', label: 'Sesiones de entreno', matchColumn: 'user_id', orderColumn: 'started_at' },
-      { key: 'daily_scores', label: 'Daily scores', matchColumn: 'user_id', orderColumn: 'date' },
+      { key: 'daily_scores', label: 'Scores diarios', matchColumn: 'user_id', orderColumn: 'date' },
       { key: 'supplements', label: 'Suplementos', matchColumn: 'user_id', orderColumn: 'created_at' },
       { key: 'supplement_logs', label: 'Tomas de suplementos', matchColumn: 'user_id', orderColumn: 'taken_at' },
     ],
@@ -121,16 +133,91 @@ function getNumber(record: unknown, key: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-async function fetchTable(table: ExportTable, userId: string) {
-  let query = supabase.from(table.key).select('*').eq(table.matchColumn, userId);
+function getExportTable(key: string): ExportTable {
+  const table = SECTIONS.flatMap((section) => section.tables).find((item) => item.key === key);
+  if (!table) {
+    throw new Error(`Unknown export table: ${key}`);
+  }
+  return table;
+}
+
+function buildExportBundle(
+  userId: string,
+  userEmail: string | null | undefined,
+  data: Record<string, unknown[]>,
+): ExportBundle {
+  return {
+    exportedAt: new Date().toISOString(),
+    userId,
+    userEmail,
+    data,
+  };
+}
+
+async function fetchTable(table: ExportTable, userId: string, options: FetchTableOptions = {}) {
+  let query = supabase
+    .from(table.key)
+    .select(options.select ?? '*')
+    .eq(table.matchColumn, userId);
+
+  if (options.fromColumn && options.fromValue) {
+    query = query.gte(options.fromColumn, options.fromValue);
+  }
 
   if (table.orderColumn) {
     query = query.order(table.orderColumn, { ascending: true });
   }
 
+  if (Number.isFinite(options.limit)) {
+    query = query.limit(Number(options.limit));
+  }
+
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+async function loadExportData(
+  userId: string,
+  tables: ExportTable[],
+  options: {
+    tableOptions?: Record<string, FetchTableOptions>;
+    workoutSetsSelect?: string | null;
+  } = {},
+) {
+  const exportData: Record<string, unknown[]> = {};
+  let workoutSessionIds: string[] = [];
+
+  for (const table of tables) {
+    const rows = await fetchTable(table, userId, options.tableOptions?.[table.key]);
+    exportData[table.key] = rows;
+
+    if (table.key === 'workout_sessions') {
+      workoutSessionIds = rows
+        .map((row) => {
+          const id = getString(row, 'id');
+          return id || null;
+        })
+        .filter((value): value is string => Boolean(value));
+    }
+  }
+
+  if (options.workoutSetsSelect) {
+    if (workoutSessionIds.length > 0) {
+      const { data: workoutSets, error: workoutSetsError } = await supabase
+        .from('workout_sets')
+        .select(options.workoutSetsSelect)
+        .in('session_id', workoutSessionIds)
+        .order('set_number', { ascending: true });
+
+      if (workoutSetsError) throw workoutSetsError;
+      exportData.workout_sets = workoutSets ?? [];
+    } else {
+      exportData.workout_sets = [];
+    }
+  }
+
+  return hydrateSensitiveExportData(mergeWorkoutExportData(exportData));
 }
 
 async function ensureExportsDir() {
@@ -139,7 +226,9 @@ async function ensureExportsDir() {
     throw new Error('No file system directory available');
   }
   const dir = `${base}vyra-exports/`;
-  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch((e) => {
+    console.debug?.('[export-data] makeDirectoryAsync failed', e);
+  });
   return dir;
 }
 
@@ -169,42 +258,88 @@ async function writeAndShareTextFile(
 }
 
 async function loadExportBundle(userId: string, userEmail?: string | null): Promise<ExportBundle> {
-  const exportData: Record<string, unknown[]> = {};
-  let workoutSessionIds: string[] = [];
-
-  for (const table of SECTIONS.flatMap((section) => section.tables)) {
-    const rows = await fetchTable(table, userId);
-    exportData[table.key] = rows;
-
-    if (table.key === 'workout_sessions') {
-      workoutSessionIds = rows
-        .map((row) => {
-          const id = getString(row, 'id');
-          return id || null;
-        })
-        .filter((value): value is string => Boolean(value));
-    }
-  }
-
-  if (workoutSessionIds.length > 0) {
-    const { data: workoutSets, error: workoutSetsError } = await supabase
-      .from('workout_sets')
-      .select('*')
-      .in('session_id', workoutSessionIds)
-      .order('set_number', { ascending: true });
-
-    if (workoutSetsError) throw workoutSetsError;
-    exportData.workout_sets = workoutSets ?? [];
-  } else {
-    exportData.workout_sets = [];
-  }
-
-  return {
-    exportedAt: new Date().toISOString(),
+  const exportData = await loadExportData(
     userId,
-    userEmail,
-    data: exportData,
-  };
+    SECTIONS.flatMap((section) => section.tables),
+    { workoutSetsSelect: '*' },
+  );
+
+  return buildExportBundle(userId, userEmail, exportData);
+}
+
+async function loadCsvBundle(
+  userId: string,
+  userEmail: string | null | undefined,
+  type: 'weight' | 'sleep' | 'calories' | 'workout',
+): Promise<ExportBundle> {
+  if (type === 'weight') {
+    const data = await loadExportData(userId, [getExportTable('weight_logs')]);
+    return buildExportBundle(userId, userEmail, data);
+  }
+
+  if (type === 'sleep') {
+    const data = await loadExportData(userId, [getExportTable('sleep_logs')]);
+    return buildExportBundle(userId, userEmail, data);
+  }
+
+  if (type === 'calories') {
+    const data = await loadExportData(userId, [getExportTable('meals')], {
+      tableOptions: {
+        meals: { select: 'logged_at, calories' },
+      },
+    });
+    return buildExportBundle(userId, userEmail, data);
+  }
+
+  const data = await loadExportData(userId, [getExportTable('workout_sessions')], {
+    tableOptions: {
+      workout_sessions: { select: 'id, name, started_at, ended_at, duration_min, total_volume_kg' },
+    },
+    workoutSetsSelect: 'session_id, is_pr, set_number',
+  });
+  return buildExportBundle(userId, userEmail, data);
+}
+
+async function loadMonthlyPdfBundle(
+  userId: string,
+  userEmail: string | null | undefined,
+): Promise<ExportBundle> {
+  const monthAgoIso = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+  const data = await loadExportData(
+    userId,
+    [
+      getExportTable('weight_logs'),
+      getExportTable('sleep_logs'),
+      getExportTable('workout_sessions'),
+      getExportTable('meals'),
+    ],
+    {
+      tableOptions: {
+        weight_logs: {
+          select: 'logged_at, weight_kg',
+          fromColumn: 'logged_at',
+          fromValue: monthAgoIso,
+        },
+        sleep_logs: {
+          select: 'end_time, duration_min, quality_score, notes',
+          fromColumn: 'end_time',
+          fromValue: monthAgoIso,
+        },
+        workout_sessions: {
+          select: 'id, name, started_at, ended_at, duration_min, total_volume_kg',
+          fromColumn: 'started_at',
+          fromValue: monthAgoIso,
+        },
+        meals: {
+          select: 'logged_at, calories',
+          fromColumn: 'logged_at',
+          fromValue: monthAgoIso,
+        },
+      },
+    },
+  );
+
+  return buildExportBundle(userId, userEmail, data);
 }
 
 function buildWeightCsv(bundle: ExportBundle) {
@@ -240,7 +375,7 @@ function buildCaloriesCsv(bundle: ExportBundle) {
   }
 
   return rowsToCsv(
-    ['fecha', 'calorias'],
+    ['fecha', 'calorías'],
     [...grouped.entries()]
       .sort((left, right) => left[0].localeCompare(right[0]))
       .map(([day, calories]) => [day, Math.round(calories)]),
@@ -264,7 +399,7 @@ function buildWorkoutCsv(bundle: ExportBundle) {
     ['fecha', 'nombre', 'duracion_min', 'volumen_kg', 'prs'],
     sessions.map((session) => [
       session.started_at,
-      session.name ?? 'Sesion de entreno',
+      session.name ?? 'Sesión de entreno',
       session.duration_min ?? '',
       session.total_volume_kg ?? '',
       prsBySession.get(session.id) ?? 0,
@@ -347,17 +482,17 @@ function buildMonthlyPdfHtml(bundle: ExportBundle) {
         <div class="card">
           <div class="eyebrow">Peso</div>
           <div class="value">${latestWeight != null ? `${latestWeight.toFixed(1)} kg` : '--'}</div>
-          <div class="hint">${weightDelta != null ? `Cambio de ${weightDelta >= 0 ? '+' : ''}${weightDelta.toFixed(1)} kg en 30 dias.` : 'Sin suficientes lecturas para tendencia.'}</div>
+          <div class="hint">${weightDelta != null ? `Cambio de ${weightDelta >= 0 ? '+' : ''}${weightDelta.toFixed(1)} kg en 30 días.` : 'Sin suficientes lecturas para tendencia.'}</div>
         </div>
         <div class="card">
           <div class="eyebrow">Sueño</div>
           <div class="value">${avgSleep ? `${avgSleep.toFixed(1)} h` : '--'}</div>
-          <div class="hint">Promedio de las noches registradas en el ultimo mes.</div>
+          <div class="hint">Promedio de las noches registradas en el último mes.</div>
         </div>
         <div class="card">
           <div class="eyebrow">Entreno</div>
           <div class="value">${workouts.length}</div>
-          <div class="hint">Sesiones guardadas en los ultimos 30 dias.</div>
+          <div class="hint">Sesiones guardadas en los últimos 30 días.</div>
         </div>
       </div>
 
@@ -368,9 +503,9 @@ function buildMonthlyPdfHtml(bundle: ExportBundle) {
       </div>
 
       <div class="card" style="margin-bottom:24px;">
-        <h2>Calorias promedio por dia</h2>
+        <h2>Calorías promedio por día</h2>
         <div class="value">${Math.round(avgCalories)}</div>
-        <div class="hint">Promedio diario estimado con las comidas registradas del ultimo mes.</div>
+        <div class="hint">Promedio diario estimado con las comidas registradas del último mes.</div>
       </div>
 
       <div class="card">
@@ -383,25 +518,52 @@ function buildMonthlyPdfHtml(bundle: ExportBundle) {
 
 export default function ExportDataScreen() {
   const { profile } = useAuthStore();
+  const showToast = useUIStore((state) => state.showToast);
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState('');
   const [openSection, setOpenSection] = useState<string>('identity');
+  const [exportHistory, setExportHistory] = useState<ExportHistoryEntry[]>([]);
+  const [localExportMessage, setLocalExportMessage] = useState<string | null>(null);
 
   const allTables = useMemo(() => SECTIONS.flatMap((section) => section.tables), []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    void loadRecentExportHistory().then((entries) => {
+      if (!mounted) return;
+      setExportHistory(entries);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function rememberExport(
+    format: ExportHistoryEntry['format'],
+    label: string,
+    detail?: string | null,
+  ) {
+    const next = await recordExportHistory({ format, label, detail });
+    setExportHistory(next);
+  }
+
   async function withBundle<T>(
     label: string,
+    load: () => Promise<ExportBundle>,
     fn: (bundle: ExportBundle) => Promise<T>,
   ) {
     if (!profile?.id) return null;
     setIsExporting(true);
     setProgress(label);
+    setLocalExportMessage(null);
     try {
-      const bundle = await loadExportBundle(profile.id, profile.email);
+      const bundle = await load();
       return await fn(bundle);
     } catch (error) {
       console.error('[export-data] failed', error);
-      Alert.alert('No se pudo exportar', 'Intenta de nuevo en unos segundos.');
+      showToast('No se pudo exportar en este momento.', 'error');
       return null;
     } finally {
       setProgress('');
@@ -410,7 +572,11 @@ export default function ExportDataScreen() {
   }
 
   async function handleExportJson() {
-    await withBundle('Preparando JSON...', async (bundle) => {
+    if (!profile?.id) return;
+    await withBundle(
+      'Preparando JSON...',
+      () => loadExportBundle(profile.id, profile.email),
+      async (bundle) => {
       const jsonString = JSON.stringify(
         {
           exported_at: bundle.exportedAt,
@@ -429,18 +595,25 @@ export default function ExportDataScreen() {
         'application/json',
         'Mis datos de VYRA',
       );
-    });
+      await rememberExport('json', 'JSON completo', `${allTables.length + 1} bloques base`);
+      showToast('JSON listo para compartir.', 'success');
+      },
+    );
   }
 
   async function handleExportCsv(type: 'weight' | 'sleep' | 'calories' | 'workout') {
     const labelMap = {
       weight: 'Generando CSV de peso...',
-      sleep: 'Generando CSV de sueno...',
-      calories: 'Generando CSV de calorias...',
+      sleep: 'Generando CSV de sueño...',
+      calories: 'Generando CSV de calorías...',
       workout: 'Generando CSV de entrenos...',
     } as const;
 
-    await withBundle(labelMap[type], async (bundle) => {
+    if (!profile?.id) return;
+    await withBundle(
+      labelMap[type],
+      () => loadCsvBundle(profile.id, profile.email, type),
+      async (bundle) => {
       const csv =
         type === 'weight'
           ? buildWeightCsv(bundle)
@@ -460,16 +633,31 @@ export default function ExportDataScreen() {
               : 'vyra-entrenos.csv';
 
       await writeAndShareTextFile(filename, csv, 'text/csv', 'Exportar CSV');
-    });
+      const csvLabels = {
+        weight: 'CSV de peso',
+        sleep: 'CSV de sueno',
+        calories: 'CSV de calorias',
+        workout: 'CSV de entrenos',
+      } as const;
+      await rememberExport('csv', csvLabels[type], filename);
+      showToast(`${csvLabels[type]} listo para compartir.`, 'success');
+      },
+    );
   }
 
   async function handleExportPdf() {
-    await withBundle('Generando PDF mensual...', async (bundle) => {
+    if (!profile?.id) return;
+    await withBundle(
+      'Generando PDF mensual...',
+      () => loadMonthlyPdfBundle(profile.id, profile.email),
+      async (bundle) => {
       const html = buildMonthlyPdfHtml(bundle);
       const result = await Print.printToFileAsync({ html });
       const canShare = await Sharing.isAvailableAsync();
       if (!canShare) {
-        Alert.alert('PDF creado', `Se genero en ${result.uri}`);
+        setLocalExportMessage(`PDF generado localmente en ${result.uri}`);
+        await rememberExport('pdf', 'PDF mensual', result.uri);
+        showToast('PDF generado en el dispositivo.', 'success');
         return;
       }
       await Sharing.shareAsync(result.uri, {
@@ -477,7 +665,10 @@ export default function ExportDataScreen() {
         dialogTitle: 'Resumen mensual VYRA',
         UTI: 'com.adobe.pdf',
       });
-    });
+      await rememberExport('pdf', 'PDF mensual', result.uri);
+      showToast('PDF mensual listo para compartir.', 'success');
+      },
+    );
   }
 
   return (
@@ -489,10 +680,24 @@ export default function ExportDataScreen() {
           <Text style={styles.eyebrow}>Tus datos, tuyos</Text>
           <Text style={styles.title}>Llevatelos cuando quieras.</Text>
           <Text style={styles.body}>
-            Puedes sacar un JSON completo, CSV utiles por categoria y un PDF mensual visual
-            para compartir con medico, nutricionista o entrenador.
+            Puedes sacar un JSON completo, CSV útiles por categoria y un PDF mensual visual
+            para compartir con médico, nutricionista o entrenador.
           </Text>
         </Card>
+
+        <NoticeCard
+          title="Alcance actual del export"
+          body="El export mezcla tu cuenta remota con el historial local de workout guardado para esta cuenta en este dispositivo. Si activaste modo estricto, Vyra rehidrata tambien los campos cifrados para que el archivo siga siendo legible para ti. La sync global sigue siendo parcial, asi que otros modulos con guardado local pueden tardar mas en alinearse por completo con backend."
+          tone="warning"
+        />
+
+        {localExportMessage ? (
+          <NoticeCard
+            title="Archivo generado localmente"
+            body={localExportMessage}
+            tone="info"
+          />
+        ) : null}
 
         <Card>
           <Text style={styles.sectionTitle}>Que entra en el export</Text>
@@ -508,6 +713,10 @@ export default function ExportDataScreen() {
                   <Pressable
                     onPress={() => setOpenSection(open ? '' : section.id)}
                     style={styles.accordionHeader}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: open }}
+                    accessibilityLabel={section.title}
+                    accessibilityHint={section.hint}
                   >
                     <View style={styles.accordionCopy}>
                       <Text style={styles.accordionTitle}>{section.title}</Text>
@@ -543,7 +752,7 @@ export default function ExportDataScreen() {
         </Card>
 
         <Card>
-          <Text style={styles.sectionTitle}>Formatos utiles</Text>
+          <Text style={styles.sectionTitle}>Formatos útiles</Text>
           <View style={styles.metaRow}>
             <View style={styles.metaStat}>
               <Text style={styles.metaValue}>{allTables.length + 1}</Text>
@@ -551,17 +760,50 @@ export default function ExportDataScreen() {
             </View>
             <View style={styles.metaStat}>
               <Text style={styles.metaValue}>CSV</Text>
-              <Text style={styles.metaLabel}>peso, sueno, calorias, entrenos</Text>
+              <Text style={styles.metaLabel}>peso, sueño, calorías, entrenos</Text>
             </View>
             <View style={styles.metaStat}>
               <Text style={styles.metaValue}>PDF</Text>
-              <Text style={styles.metaLabel}>resumen visual del ultimo mes</Text>
+              <Text style={styles.metaLabel}>resumen visual del último mes</Text>
             </View>
           </View>
           <Text style={styles.mutedNote}>
             El JSON conserva casi todo tu historial. Los CSV y el PDF sirven cuando quieres
             usar o compartir solo la parte importante.
           </Text>
+        </Card>
+
+        <Card>
+          <Text style={styles.sectionTitle}>Ultimas exportaciones</Text>
+          <Text style={styles.sectionHint}>
+            La app ya deja una traza visible de lo ultimo que generaste, incluso si el archivo quedo local.
+          </Text>
+
+          {exportHistory.length ? (
+            <View style={styles.historyStack}>
+              {exportHistory.map((entry, index) => (
+                <View key={entry.id}>
+                  <View style={styles.historyRow}>
+                    <View style={styles.historyCopy}>
+                      <Text style={styles.historyTitle}>{entry.label}</Text>
+                      <Text style={styles.historyMeta}>
+                        {new Date(entry.createdAt).toLocaleString('es-UY')}
+                      </Text>
+                      {entry.detail ? <Text style={styles.historyDetail}>{entry.detail}</Text> : null}
+                    </View>
+                    <View style={styles.historyPill}>
+                      <Text style={styles.historyPillText}>{entry.format.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  {index < exportHistory.length - 1 ? <View style={styles.historyDivider} /> : null}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.mutedNote}>
+              Todavia no generaste exportaciones desde este dispositivo.
+            </Text>
+          )}
         </Card>
 
         <View style={styles.buttonStack}>
@@ -572,24 +814,31 @@ export default function ExportDataScreen() {
             CSV de peso
           </Button>
           <Button onPress={() => void handleExportCsv('sleep')} variant="secondary" fullWidth color={Colors.brand}>
-            CSV de sueno
+            CSV de sueño
           </Button>
           <Button onPress={() => void handleExportCsv('calories')} variant="secondary" fullWidth color={Colors.brand}>
-            CSV de calorias
+            CSV de calorías
           </Button>
           <Button onPress={() => void handleExportCsv('workout')} variant="secondary" fullWidth color={Colors.brand}>
             CSV de entrenos
           </Button>
-          <Button onPress={() => void handleExportPdf()} fullWidth color={Colors.premium}>
-            {isExporting && progress.includes('PDF') ? progress : 'PDF visual del ultimo mes'}
+          <Button onPress={() => void handleExportPdf()} fullWidth color={Colors.info}>
+            {isExporting && progress.includes('PDF') ? progress : 'PDF visual del último mes'}
           </Button>
         </View>
 
         {progress ? <Text style={styles.progressText}>{progress}</Text> : null}
 
-        <Pressable onPress={() => router.push('/legal/privacy' as never)}>
+        <Pressable
+          onPress={() => router.push('/legal/privacy' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Ver politica de privacidad completa"
+          accessibilityHint="Abre el documento legal completo sobre uso y tratamiento de tus datos."
+        >
           <Text style={styles.link}>Ver politica de privacidad completa</Text>
         </Pressable>
+
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );
@@ -723,6 +972,51 @@ const styles = StyleSheet.create({
   },
   buttonStack: {
     gap: Spacing[2],
+  },
+  historyStack: {
+    gap: Spacing[2],
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing[3],
+  },
+  historyCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  historyTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  historyMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  historyDetail: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textMuted,
+  },
+  historyPill: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.brand, 0.2),
+    backgroundColor: withOpacity(Colors.brand, 0.08),
+    paddingHorizontal: Spacing[2.5],
+    paddingVertical: 5,
+  },
+  historyPillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.brand,
+  },
+  historyDivider: {
+    height: 1,
+    backgroundColor: withOpacity(Colors.white, 0.06),
   },
   progressText: {
     fontFamily: FontFamily.medium,

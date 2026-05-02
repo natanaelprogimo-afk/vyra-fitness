@@ -11,9 +11,17 @@ interface ErrorNoticeProps {
 
 export default function ErrorNotice({ message, onRetry }: ErrorNoticeProps) {
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Sin conexion</Text>
-      <Text style={styles.body}>{message}</Text>
+    <View
+      style={[
+        styles.card,
+        {
+          borderColor: Colors.border,
+          backgroundColor: Colors.bgSurface,
+        },
+      ]}
+    >
+      <Text style={[styles.title, { color: Colors.textPrimary }]}>Sin conexión</Text>
+      <Text style={[styles.body, { color: Colors.textSecondary }]}>{message}</Text>
       {onRetry ? (
         <Button onPress={onRetry} variant="secondary" fullWidth>
           Reintentar
@@ -27,20 +35,16 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.bgSurface,
     padding: Spacing[4],
     gap: Spacing[3],
   },
   title: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.base,
-    color: Colors.textPrimary,
   },
   body: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     lineHeight: 20,
-    color: Colors.textSecondary,
   },
 });

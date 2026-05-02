@@ -1,291 +1,662 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import MuscleSilhouette from '@/components/workout/MuscleSilhouette';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Card from '@/components/ui/Card';
-import WeightTrendChart from '@/components/progress/WeightTrendChart';
+import Button from '@/components/ui/Button';
+import NoticeCard from '@/components/ui/NoticeCard';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
+import { MODULES, type ModuleId } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { useWeight } from '@/hooks/useWeight';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useWorkout } from '@/hooks/useWorkout';
-import { getProfileContextMemory } from '@/lib/profile-context';
-import { buildWeightTrendPoints } from '@/lib/progress-insights';
-import type { WorkoutSessionDetail } from '@/lib/workout-types';
+import { useNutrition } from '@/hooks/useNutrition';
+import { useWater } from '@/hooks/useWater';
+import { useSteps } from '@/hooks/useSteps';
+import { useSleep } from '@/hooks/useSleep';
+import { useWeight } from '@/hooks/useWeight';
+import { useEngagementStreak } from '@/hooks/useEngagementStreak';
+import { getActiveModules } from '@/lib/active-modules';
+import {
+  buildEngagementWeekDots,
+  calculateEngagementStreak,
+  createActiveDateSet,
+} from '@/lib/engagement-streak';
+import { getWorkoutDisplayName } from '@/lib/workout-data';
+import {
+  formatCalories,
+  formatDistance,
+  formatDuration,
+  formatVolume,
+  formatWeight,
+} from '@/utils/formatters';
 
-function buildConsistencyGrid(history: Array<{ started_at: string }>) {
-  const activeDays = new Set(history.map((entry) => entry.started_at.slice(0, 10)));
-  const entries = Array.from({ length: 56 }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (55 - index));
-    const iso = date.toISOString().slice(0, 10);
-    return {
-      iso,
-      active: activeDays.has(iso),
-      isToday: index === 55,
-    };
+type ModuleProgressCard = {
+  id: string;
+  title: string;
+  color: string;
+  value: string;
+  meta: string;
+  note: string;
+  cta: string;
+  progress: number;
+  route: string;
+};
+
+type MuscleCounts = Record<'chest' | 'back' | 'shoulders' | 'arms' | 'core' | 'legs', number>;
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getModuleInfo(moduleId: string) {
+  return MODULES.find((item) => item.id === moduleId);
+}
+
+function normalizeMuscleKey(value: string) {
+  const lower = value.toLowerCase();
+  if (lower.includes('pecho')) return 'chest';
+  if (lower.includes('espalda') || lower.includes('dorsal')) return 'back';
+  if (lower.includes('hombro')) return 'shoulders';
+  if (
+    lower.includes('brazo') ||
+    lower.includes('biceps') ||
+    lower.includes('triceps') ||
+    lower.includes('antebrazo')
+  ) {
+    return 'arms';
+  }
+  if (
+    lower.includes('pierna') ||
+    lower.includes('gluteo') ||
+    lower.includes('cuadr') ||
+    lower.includes('femoral') ||
+    lower.includes('pantorr')
+  ) {
+    return 'legs';
+  }
+  if (lower.includes('core') || lower.includes('abd') || lower.includes('oblic')) return 'core';
+  return null;
+}
+
+function buildMuscleCounts(muscles: string[]): MuscleCounts {
+  const counts: MuscleCounts = {
+    chest: 0,
+    back: 0,
+    shoulders: 0,
+    arms: 0,
+    core: 0,
+    legs: 0,
+  };
+
+  muscles.forEach((muscle) => {
+    const key = normalizeMuscleKey(muscle);
+    if (key) counts[key] += 1;
   });
 
-  return Array.from({ length: 8 }, (_, weekIndex) => ({
-    label: `S${weekIndex + 1}`,
-    days: entries.slice(weekIndex * 7, weekIndex * 7 + 7),
-  }));
+  return counts;
 }
 
-function withinRange(iso: string, days: number) {
-  const date = new Date(iso);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days + 1);
-  cutoff.setHours(0, 0, 0, 0);
-  return date.getTime() >= cutoff.getTime();
+function buildGoalCopy(params: {
+  goal: string | null | undefined;
+  consumedCalories: number;
+  targetCalories: number;
+  activityCalories: number;
+  nutritionStreakDays: number;
+}) {
+  const { goal, consumedCalories, targetCalories, activityCalories, nutritionStreakDays } = params;
+  const remaining = Math.max(0, Math.round(targetCalories - consumedCalories));
+  const overTarget = Math.max(0, Math.round(consumedCalories - targetCalories));
+  const targetPct = clampPercent((consumedCalories / Math.max(1, targetCalories)) * 100);
+
+  if (goal === 'lose_fat') {
+    return {
+      title: remaining > 0 ? `${remaining} kcal todavia dentro del plan` : `${overTarget} kcal por encima del plan`,
+      body:
+        remaining > 0
+          ? `Hoy vienes con ${formatCalories(activityCalories)} de actividad y margen limpio para cerrar el dia.`
+          : `Te conviene cerrar el dia liviano para no romper el deficit que estas buscando.`,
+      note: `Nutricion ${targetPct}% · racha ${nutritionStreakDays} dias`,
+    };
+  }
+
+  if (goal === 'gain_muscle') {
+    return {
+      title: remaining > 0 ? `${remaining} kcal para cerrar volumen` : 'Plan calorico cubierto',
+      body:
+        remaining > 0
+          ? `Te faltan calorias utiles para construir mejor y recuperar el entreno.`
+          : `Hoy ya cubriste suficiente energia para construir y sostener rendimiento.`,
+      note: `Nutricion ${targetPct}% · actividad ${formatCalories(activityCalories)}`,
+    };
+  }
+
+  if (goal === 'sport_performance' || goal === 'performance') {
+    return {
+      title: `${targetPct}% del combustible del dia`,
+      body: `Actividad ${formatCalories(activityCalories)}. Aqui importa llegar con energia, no solo cumplir numeros.`,
+      note: `Objetivo ${formatCalories(targetCalories)} · racha ${nutritionStreakDays} dias`,
+    };
+  }
+
+  return {
+    title: `${targetPct}% del plan diario cubierto`,
+    body: `Actividad ${formatCalories(activityCalories)} y ${nutritionStreakDays} dias seguidos registrando comida.`,
+    note: `Meta ${formatCalories(targetCalories)}`,
+  };
 }
 
-function humanizeDate(iso: string) {
-  const dayDiff = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (dayDiff <= 0) return 'Hoy';
-  if (dayDiff === 1) return 'Ayer';
-  return `Hace ${dayDiff} dias`;
-}
+function buildWeightCopy(params: {
+  goal: string | null | undefined;
+  current: number | null;
+  target: number | null;
+  weeklyDelta: number | null;
+  weightUnit: 'kg' | 'lb';
+}) {
+  const { goal, current, target, weeklyDelta, weightUnit } = params;
 
-function buildExerciseProgress(
-  history: Array<{ id: string; started_at: string }>,
-  getSessionDetail: (sessionId: string) => WorkoutSessionDetail | null,
-) {
-  const now = Date.now();
-  const last30 = now - 30 * 24 * 60 * 60 * 1000;
-  const prev30 = now - 60 * 24 * 60 * 60 * 1000;
+  if (current === null) {
+    return {
+      title: 'Todavia no hay peso reciente',
+      body: 'Cuando registres peso real, aqui veras la direccion del cambio y no solo el numero suelto.',
+      note: 'Abre progreso y registra una medicion para empezar.',
+    };
+  }
 
-  const map = new Map<
-    string,
-    {
-      exerciseId: string;
-      exerciseName: string;
-      recentVolume: number;
-      previousVolume: number;
-      bestWeight: number;
-      uses: number;
-    }
-  >();
+  const deltaText =
+    weeklyDelta === null
+      ? 'Sin tendencia semanal todavia'
+      : `${weeklyDelta > 0 ? '+' : ''}${formatWeight(Math.abs(weeklyDelta), weightUnit).replace(/^(0 )?/, '')} esta semana`;
 
-  for (const session of history) {
-    const detail = getSessionDetail(session.id);
-    if (!detail) continue;
-    const sessionMs = new Date(session.started_at).getTime();
-
-    for (const set of detail.sets) {
-      const current = map.get(set.exercise_id) ?? {
-        exerciseId: set.exercise_id,
-        exerciseName: set.exercise_name,
-        recentVolume: 0,
-        previousVolume: 0,
-        bestWeight: 0,
-        uses: 0,
+  if (target !== null) {
+    const difference = Math.round((current - target) * 10) / 10;
+    if (goal === 'lose_fat' && difference > 0) {
+      return {
+        title: `${formatWeight(difference, weightUnit)} para tu objetivo`,
+        body: `Peso actual ${formatWeight(current, weightUnit)}. Lo importante ahora es sostener la tendencia, no mirar un dia aislado.`,
+        note: deltaText,
       };
+    }
 
-      const setVolume = Number(set.weight_kg ?? 0) * Number(set.reps ?? 0);
-      if (sessionMs >= last30) current.recentVolume += setVolume;
-      if (sessionMs >= prev30 && sessionMs < last30) current.previousVolume += setVolume;
-      current.bestWeight = Math.max(current.bestWeight, Number(set.weight_kg ?? 0));
-      current.uses += 1;
-      map.set(set.exercise_id, current);
+    if (goal === 'gain_muscle' && difference < 0) {
+      return {
+        title: `${formatWeight(Math.abs(difference), weightUnit)} para tu objetivo`,
+        body: `Peso actual ${formatWeight(current, weightUnit)}. Un superavit consistente vale mas que una subida rapida sin control.`,
+        note: deltaText,
+      };
     }
   }
 
-  return [...map.values()]
-    .map((item) => {
-      const trendPct =
-        item.previousVolume > 0
-          ? Math.round(((item.recentVolume - item.previousVolume) / item.previousVolume) * 100)
-          : item.recentVolume > 0
-            ? 100
-            : 0;
-      return { ...item, trendPct };
-    })
-    .sort((left, right) => right.uses - left.uses || right.bestWeight - left.bestWeight)
-    .slice(0, 5);
+  return {
+    title: `Peso actual ${formatWeight(current, weightUnit)}`,
+    body: 'La lectura buena no es solo cuanto pesas, sino si la tendencia acompana el objetivo que elegiste.',
+    note: deltaText,
+  };
+}
+
+function buildRescueRoute(activeModules: ModuleId[], completedToday: Set<string>) {
+  const priority: ModuleId[] = ['water', 'steps', 'nutrition', 'workout', 'sleep', 'fasting', 'supplements', 'female'];
+  const target = priority.find((moduleId) => activeModules.includes(moduleId) && !completedToday.has(moduleId));
+  return getModuleInfo(target ?? activeModules[0] ?? 'workout')?.route ?? Routes.tabs.home;
+}
+
+function ProgressBar({ color, progress }: { color: string; progress: number }) {
+  return (
+    <View style={styles.progressTrack}>
+      <View
+        style={[
+          styles.progressFill,
+          {
+            width: `${clampPercent(progress)}%`,
+            backgroundColor: color,
+          },
+        ]}
+      />
+    </View>
+  );
 }
 
 export default function ProgressScreen() {
-  const [range, setRange] = useState<7 | 30 | 90>(30);
   const profile = useAuthStore((state) => state.profile);
-  const { history, getConsistencyStats, getSessionDetail } = useWorkout();
-  const { logs, stats } = useWeight();
+  const hasSeenGuide = useSettingsStore((state) => Boolean(state.moduleIntroSeen.progress));
+  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
+  const volumeUnit = useSettingsStore((state) => state.volumeUnit);
+  const weightUnit = useSettingsStore((state) => state.weightUnit);
+  const distUnit = useSettingsStore((state) => state.distUnit);
 
-  const sessionsInRange = useMemo(
-    () => history.filter((entry) => withinRange(entry.started_at, range)),
-    [history, range],
+  const activeModules = getActiveModules(profile);
+  const { activeDates: storedEngagementDates } = useEngagementStreak(90);
+  const { history, getWeeklyStats, getActiveProgram } = useWorkout();
+  const {
+    totals,
+    simpleTargets,
+    activityCalories,
+    weeklyData: nutritionWeeklyData,
+    nutritionStreakDays,
+    todayMeals,
+  } = useNutrition();
+  const { totalHydro, goal: waterGoal, hydrationStreak } = useWater();
+  const { totalSteps, goal: stepGoal, daysMetGoal, distanceKm } = useSteps();
+  const { lastDurationHours, goalHours, qualityInfo, daysWithGoal, getLastNight } = useSleep();
+  const { stats } = useWeight();
+
+  const activeProgram = getActiveProgram();
+  const weeklyWorkout = getWeeklyStats();
+  const lastSleep = getLastNight();
+  const today = todayKey();
+
+  const workoutToday = history.some((entry) => entry.started_at.slice(0, 10) === today);
+  const nutritionToday = todayMeals.length > 0;
+  const stepsToday = Number(totalSteps ?? 0) > 0;
+  const waterToday = Number(totalHydro ?? 0) > 0;
+  const sleepTracked = Boolean(lastSleep?.end_time);
+
+  const completedToday = useMemo(() => {
+    const set = new Set<string>();
+    if (workoutToday) set.add('workout');
+    if (nutritionToday) set.add('nutrition');
+    if (stepsToday) set.add('steps');
+    if (waterToday) set.add('water');
+    if (sleepTracked) set.add('sleep');
+    return set;
+  }, [nutritionToday, sleepTracked, stepsToday, waterToday, workoutToday]);
+
+  const liveEngagementDates = useMemo(
+    () =>
+      createActiveDateSet([
+        workoutToday ? [today] : [],
+        nutritionToday ? [today] : [],
+        stepsToday ? [today] : [],
+        waterToday ? [today] : [],
+        sleepTracked && lastSleep?.end_time ? [lastSleep.end_time.slice(0, 10)] : [],
+      ]),
+    [lastSleep?.end_time, nutritionToday, sleepTracked, stepsToday, today, waterToday, workoutToday],
   );
-  const totalVolume = sessionsInRange.reduce((sum, entry) => sum + Number(entry.total_volume_kg ?? 0), 0);
-  const totalMinutes = sessionsInRange.reduce((sum, entry) => sum + Number(entry.duration_min ?? 0), 0);
-  const weeklyAverage =
-    range > 0 ? (sessionsInRange.length / Math.max(1, Math.round(range / 7))).toFixed(1) : '0';
-  const consistencyRows = useMemo(() => buildConsistencyGrid(history), [history]);
-  const weightPoints = useMemo(() => buildWeightTrendPoints(logs, '30d'), [logs]);
-  const consistencyStats = getConsistencyStats();
-  const currentStreak = Number(profile?.current_streak ?? profile?.streak ?? consistencyStats.currentStreak ?? 0);
-  const bestStreak = Number(profile?.best_streak ?? profile?.longest_streak ?? currentStreak ?? 0);
-  const contextMemory = getProfileContextMemory(profile);
-  const freezeCount =
-    typeof profile?.streak_freeze_count === 'number'
-      ? profile.streak_freeze_count
-      : typeof contextMemory.streak_freeze_count === 'number'
-        ? Number(contextMemory.streak_freeze_count)
-        : Math.max(0, Math.floor(currentStreak / 7));
-  const exerciseProgress = useMemo(
-    () => buildExerciseProgress(history, getSessionDetail),
-    [getSessionDetail, history],
+
+  const allEngagementDates = useMemo(
+    () => createActiveDateSet([storedEngagementDates, liveEngagementDates]),
+    [liveEngagementDates, storedEngagementDates],
   );
+  const streak = useMemo(() => calculateEngagementStreak(allEngagementDates), [allEngagementDates]);
+  const weekDots = useMemo(() => buildEngagementWeekDots(allEngagementDates), [allEngagementDates]);
+
+  const rescueRoute = useMemo(
+    () => buildRescueRoute(activeModules, completedToday),
+    [activeModules, completedToday],
+  );
+
+  const recentWorkoutMuscles = useMemo(
+    () =>
+      history
+        .filter((entry) => {
+          const daysAgo = Math.round((Date.now() - new Date(entry.started_at).getTime()) / 86400000);
+          return daysAgo <= 29;
+        })
+        .flatMap((entry) => entry.muscles_worked ?? []),
+    [history],
+  );
+  const muscleCounts = useMemo(() => buildMuscleCounts(recentWorkoutMuscles), [recentWorkoutMuscles]);
+  const topMuscles = useMemo(
+    () =>
+      Object.entries(muscleCounts)
+        .sort((left, right) => right[1] - left[1])
+        .filter(([, value]) => value > 0)
+        .slice(0, 3),
+    [muscleCounts],
+  );
+
+  const programSessionsDone = useMemo(() => {
+    if (!activeProgram) return 0;
+    return history.filter((entry) => activeProgram.routine_ids.includes(entry.routine_id ?? '')).length;
+  }, [activeProgram, history]);
+
+  const moduleCards = useMemo<ModuleProgressCard[]>(() => {
+    const cards: ModuleProgressCard[] = [];
+
+    activeModules.forEach((moduleId) => {
+      const definition = getModuleInfo(moduleId);
+      if (!definition) return;
+
+      if (moduleId === 'workout') {
+        const targetSessions = activeProgram?.days_per_week ?? 3;
+        const programTitle = activeProgram?.name ?? 'Entreno semanal';
+        cards.push({
+          id: moduleId,
+          title: definition.name,
+          color: definition.color,
+          value: `${weeklyWorkout.sessions}/${targetSessions} sesiones`,
+          meta: activeProgram ? programTitle : 'Tu semana de fuerza',
+          note:
+            weeklyWorkout.sessions > 0
+              ? `${formatDuration(Math.max(weeklyWorkout.sessions * 45, 30))} aprox. · ${programSessionsDone} sesiones del programa`
+              : 'Empieza una sesion y la racha ya cuenta desde hoy.',
+          cta: activeProgram ? 'Continuar programa' : 'Empezar entreno',
+          progress: (weeklyWorkout.sessions / Math.max(1, targetSessions)) * 100,
+          route: activeProgram ? Routes.workout.programs : Routes.workout.index,
+        });
+        return;
+      }
+
+      if (moduleId === 'nutrition') {
+        cards.push({
+          id: moduleId,
+          title: definition.name,
+          color: definition.color,
+          value: `${Math.round(totals.calories)} / ${Math.round(simpleTargets.calories)} kcal`,
+          meta: `${Math.round(totals.protein)}g proteina · racha ${nutritionStreakDays} dias`,
+          note: `${nutritionWeeklyData.filter((row) => Number(row.calories ?? 0) > 0).length}/7 dias registrados esta semana`,
+          cta: 'Abrir nutricion',
+          progress: (totals.calories / Math.max(1, simpleTargets.calories)) * 100,
+          route: Routes.nutrition.index,
+        });
+        return;
+      }
+
+      if (moduleId === 'water') {
+        cards.push({
+          id: moduleId,
+          title: definition.name,
+          color: definition.color,
+          value: `${formatVolume(totalHydro, volumeUnit)} / ${formatVolume(waterGoal, volumeUnit)}`,
+          meta: `Racha ${hydrationStreak.streakDays} dias`,
+          note: hydrationStreak.metToday ? 'Ya cumpliste hidratacion hoy.' : 'Un registro mas puede salvar la racha.',
+          cta: 'Abrir agua',
+          progress: (totalHydro / Math.max(1, waterGoal)) * 100,
+          route: Routes.water.index,
+        });
+        return;
+      }
+
+      if (moduleId === 'steps') {
+        cards.push({
+          id: moduleId,
+          title: definition.name,
+          color: definition.color,
+          value: `${Math.round(totalSteps).toLocaleString('es-UY')} / ${Math.round(stepGoal).toLocaleString('es-UY')}`,
+          meta: `${daysMetGoal}/7 dias cerrando meta`,
+          note: `${formatDistance(Number(distanceKm) * 1000, distUnit)} caminados hoy`,
+          cta: 'Abrir pasos',
+          progress: (totalSteps / Math.max(1, stepGoal)) * 100,
+          route: Routes.steps.index,
+        });
+        return;
+      }
+
+      if (moduleId === 'sleep') {
+        cards.push({
+          id: moduleId,
+          title: definition.name,
+          color: definition.color,
+          value: `${lastDurationHours.toFixed(1)}h / ${goalHours.toFixed(1)}h`,
+          meta: `${daysWithGoal}/7 noches cerrando meta`,
+          note: qualityInfo.label,
+          cta: 'Abrir sueno',
+          progress: (lastDurationHours / Math.max(1, goalHours)) * 100,
+          route: Routes.sleep.index,
+        });
+        return;
+      }
+
+      cards.push({
+        id: moduleId,
+        title: definition.name,
+        color: definition.color,
+        value: 'Activo',
+        meta: definition.description,
+        note: 'Este modulo sigue disponible para tu plan actual.',
+        cta: 'Abrir modulo',
+        progress: completedToday.has(moduleId) ? 100 : 0,
+        route: definition.route,
+      });
+    });
+
+    return cards;
+  }, [
+    activeModules,
+    activeProgram,
+    completedToday,
+    daysMetGoal,
+    daysWithGoal,
+    distUnit,
+    distanceKm,
+    goalHours,
+    hydrationStreak.metToday,
+    hydrationStreak.streakDays,
+    lastDurationHours,
+    nutritionStreakDays,
+    nutritionWeeklyData,
+    programSessionsDone,
+    qualityInfo.label,
+    simpleTargets.calories,
+    stepGoal,
+    totalHydro,
+    totalSteps,
+    totals.calories,
+    totals.protein,
+    volumeUnit,
+    waterGoal,
+    weeklyWorkout.sessions,
+  ]);
+
+  const goalCopy = useMemo(
+    () =>
+      buildGoalCopy({
+        goal: profile?.primary_goal ?? profile?.goal,
+        consumedCalories: Math.round(totals.calories),
+        targetCalories: Math.round(simpleTargets.calories),
+        activityCalories,
+        nutritionStreakDays,
+      }),
+    [activityCalories, nutritionStreakDays, profile?.goal, profile?.primary_goal, simpleTargets.calories, totals.calories],
+  );
+
+  const weightCopy = useMemo(
+    () =>
+      buildWeightCopy({
+        goal: profile?.primary_goal ?? profile?.goal,
+        current: stats.current,
+        target: profile?.weight_goal_kg ?? null,
+        weeklyDelta: stats.weeklyDelta,
+        weightUnit,
+      }),
+    [profile?.goal, profile?.primary_goal, profile?.weight_goal_kg, stats.current, stats.weeklyDelta, weightUnit],
+  );
+
+  const currentProgramLabel = activeProgram
+    ? `${activeProgram.name} · ${programSessionsDone}/${Math.max(1, activeProgram.days_per_week * activeProgram.duration_weeks)} sesiones`
+    : history[0]
+      ? `Ultimo entreno: ${getWorkoutDisplayName(history[0].name)}`
+      : 'Sin programa activo todavia';
 
   return (
     <SafeScreen padHorizontal={false} padBottom={false}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Tu progreso</Text>
-          <View style={styles.rangeRow}>
-            {[7, 30, 90].map((value) => {
-              const active = range === value;
-              return (
-                <Pressable
-                  key={value}
-                  onPress={() => setRange(value as 7 | 30 | 90)}
-                  style={[styles.rangePill, active && styles.rangePillActive]}
-                >
-                  <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
-                    {value}D
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <Card style={styles.streakCard} shadow={false}>
-          <Text style={styles.streakLabel}>Racha actual</Text>
-          <Text style={[styles.streakValue, currentStreak === 0 && styles.streakValueMuted]}>
-            {currentStreak}
-          </Text>
-          <Text style={styles.streakBody}>dias consecutivos</Text>
-          <Text style={styles.streakMeta}>Mejor racha: {bestStreak} dias</Text>
-          <Text style={styles.streakMeta}>
-            {freezeCount > 0
-              ? `🛡️ ${freezeCount} streak freeze disponible`
-              : 'Sin freezes disponibles'}
-          </Text>
-        </Card>
-
-        <View style={styles.statsGrid}>
-          <Card style={styles.statCard} shadow={false}>
-            <Text style={styles.statValue}>{sessionsInRange.length}</Text>
-            <Text style={styles.statLabel}>Sesiones</Text>
-          </Card>
-          <Card style={styles.statCard} shadow={false}>
-            <Text style={styles.statValue}>{Math.round(totalVolume).toLocaleString('es-UY')}</Text>
-            <Text style={styles.statLabel}>Volumen total kg</Text>
-          </Card>
-          <Card style={styles.statCard} shadow={false}>
-            <Text style={styles.statValue}>{Math.round(totalMinutes)}</Text>
-            <Text style={styles.statLabel}>Tiempo total min</Text>
-          </Card>
-          <Card style={styles.statCard} shadow={false}>
-            <Text style={styles.statValue}>{weeklyAverage}</Text>
-            <Text style={styles.statLabel}>Promedio/semana</Text>
-          </Card>
-        </View>
-
-        <Card style={styles.consistencyCard} shadow={false}>
-          <Text style={styles.sectionTitle}>Consistencia - 8 semanas</Text>
-          <View style={styles.consistencyRows}>
-            {consistencyRows.map((row) => (
-              <View key={row.label} style={styles.consistencyRow}>
-                <Text style={styles.weekLabel}>{row.label}</Text>
-                <View style={styles.consistencyDayRow}>
-                  {row.days.map((day) => (
-                    <View
-                      key={day.iso}
-                      style={[
-                        styles.consistencyDot,
-                        day.active && styles.consistencyDotActive,
-                        day.isToday && !day.active && styles.consistencyDotToday,
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-            ))}
-          </View>
-        </Card>
-
-        {weightPoints.length >= 2 ? (
-          <Card style={styles.weightCard} shadow={false}>
-            <View style={styles.weightHeader}>
-              <Text style={styles.sectionTitle}>Peso</Text>
-              <Pressable
-                style={styles.weightButton}
-                onPress={() => router.push(Routes.profile.index as never)}
-              >
-                <Text style={styles.weightButtonText}>+ Peso</Text>
-              </Pressable>
-            </View>
-            <WeightTrendChart data={weightPoints} />
-            <Text style={styles.weightHint}>
-              {stats.weeklyDelta === null
-                ? 'Aun sin tendencia'
-                : `${stats.weeklyDelta > 0 ? '+' : ''}${stats.weeklyDelta.toFixed(1)} kg este mes`}
-            </Text>
-          </Card>
+        {!hasSeenGuide ? (
+          <NoticeCard
+            title="Como leer Progreso"
+            body="Aqui manda la constancia: primero mira la racha, luego tus modulos elegidos y al final que musculos y objetivos se estan moviendo de verdad."
+            tone="info"
+            actionLabel="Entendido"
+            onAction={() => markModuleIntroSeen('progress')}
+          />
         ) : null}
 
-        {exerciseProgress.length ? (
-          <Card style={styles.exerciseCard} shadow={false}>
-            <Text style={styles.sectionTitle}>Progreso por ejercicio</Text>
-            <View style={styles.exerciseList}>
-              {exerciseProgress.map((item, index) => (
-                <View key={item.exerciseId}>
-                  <Pressable
-                    style={styles.exerciseRow}
-                    onPress={() => router.push(Routes.workout.exercises as never)}
-                  >
-                    <Text style={styles.exerciseName}>{item.exerciseName}</Text>
-                    <Text style={styles.exerciseMeta}>
-                      {item.trendPct > 0 ? '↑' : item.trendPct < 0 ? '↓' : '→'}{' '}
-                      {Math.abs(item.trendPct)}% · Mejor: {Math.round(item.bestWeight)} kg
-                    </Text>
-                  </Pressable>
-                  {index < exerciseProgress.length - 1 ? <View style={styles.divider} /> : null}
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>Tu progreso real</Text>
+            <Text style={styles.subtitle}>
+              Menos ruido, mas direccion. Aqui solo vive lo que te ayuda a sostener el plan.
+            </Text>
+          </View>
+          <Pressable
+            style={styles.exportButton}
+            onPress={() => router.push(Routes.profile.exportData as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Exportar tus datos"
+          >
+            <Ionicons name="share-social-outline" size={18} color={Colors.textPrimary} />
+          </Pressable>
+        </View>
+
+        <Card accentColor={Colors.brand} decorative style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroNumberWrap}>
+              <Text style={styles.heroEyebrow}>Lo mas importante hoy</Text>
+              <Text style={styles.heroNumber}>{streak}</Text>
+              <Text style={styles.heroLabel}>{streak === 1 ? 'dia de racha' : 'dias de racha'}</Text>
+            </View>
+            <View style={styles.heroBadge}>
+              <Ionicons name="flame" size={14} color={Colors.brand} />
+              <Text style={styles.heroBadgeText}>
+                {completedToday.size}/{Math.max(1, activeModules.length)} modulos tocados hoy
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.heroBody}>
+            {completedToday.size > 0
+              ? 'Ya moviste el dia. Una accion chica tambien sostiene el progreso grande.'
+              : 'Todavia estas a tiempo de salvar hoy con una accion simple y mantener la continuidad viva.'}
+          </Text>
+
+          <View style={styles.weekRow}>
+            {weekDots.map((dot) => (
+              <View
+                key={dot.key}
+                style={[
+                  styles.weekDot,
+                  dot.done && styles.weekDotDone,
+                  dot.isToday && styles.weekDotToday,
+                ]}
+              />
+            ))}
+          </View>
+
+          <View style={styles.heroActions}>
+            <Button
+              onPress={() => router.push((completedToday.size > 0 ? Routes.workout.programs : rescueRoute) as never)}
+              color={Colors.brand}
+              style={styles.flexButton}
+            >
+              {completedToday.size > 0 ? 'Ver mi progreso de hoy' : 'Salvar mi racha ahora'}
+            </Button>
+            <Button
+              onPress={() => router.push(Routes.settings.modules as never)}
+              variant="secondary"
+              color={Colors.brand}
+              style={styles.flexButton}
+            >
+              Ajustar modulos
+            </Button>
+          </View>
+        </Card>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Modulos que elegiste</Text>
+          <Text style={styles.sectionHint}>Solo lo que realmente empuja tu objetivo.</Text>
+        </View>
+
+        <View style={styles.moduleList}>
+          {moduleCards.map((card) => (
+            <Card key={card.id} style={styles.moduleCard}>
+              <View style={styles.moduleTop}>
+                <View style={styles.moduleCopy}>
+                  <Text style={[styles.moduleLabel, { color: card.color }]}>{card.title}</Text>
+                  <Text style={styles.moduleValue}>{card.value}</Text>
+                  <Text style={styles.moduleMeta}>{card.meta}</Text>
+                </View>
+                <View style={[styles.modulePercentBadge, { borderColor: withOpacity(card.color, 0.25) }]}>
+                  <Text style={[styles.modulePercentText, { color: card.color }]}>{clampPercent(card.progress)}%</Text>
+                </View>
+              </View>
+              <ProgressBar color={card.color} progress={card.progress} />
+              <Text style={styles.moduleNote}>{card.note}</Text>
+              <Button
+                onPress={() => router.push(card.route as never)}
+                variant="secondary"
+                color={card.color}
+                fullWidth
+              >
+                {card.cta}
+              </Button>
+            </Card>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Musculos que mejor vienes trabajando</Text>
+          <Text style={styles.sectionHint}>Basado en tus ultimos 30 dias de entreno real.</Text>
+        </View>
+
+        <Card style={styles.muscleCard}>
+          <MuscleSilhouette counts={muscleCounts} />
+          {topMuscles.length ? (
+            <View style={styles.muscleChipRow}>
+              {topMuscles.map(([key, value]) => (
+                <View key={key} style={styles.muscleChip}>
+                  <Text style={styles.muscleChipTitle}>{key.toUpperCase()}</Text>
+                  <Text style={styles.muscleChipBody}>{value} sesiones con foco</Text>
                 </View>
               ))}
             </View>
-          </Card>
-        ) : null}
+          ) : (
+            <Text style={styles.emptyText}>
+              Cuando completes mas sesiones, aqui vas a ver rapido si tu trabajo real esta cayendo en piernas, espalda, core o torso.
+            </Text>
+          )}
+          <Text style={styles.programNote}>{currentProgramLabel}</Text>
+        </Card>
 
-        <View style={styles.sessionsBlock}>
-          <Text style={styles.sectionTitle}>Ultimas sesiones</Text>
-          <View style={styles.sessionList}>
-            {history.slice(0, 8).map((session, index) => (
-              <View key={session.id}>
-                <Pressable
-                  style={styles.sessionRow}
-                  onPress={() =>
-                    router.push({
-                      pathname: Routes.workout.sessionDetail,
-                      params: { id: session.id },
-                    } as never)
-                  }
-                >
-                  <View style={styles.sessionCopy}>
-                    <Text style={styles.sessionTitle}>{session.name}</Text>
-                    <Text style={styles.sessionMeta}>
-                      {humanizeDate(session.started_at)} · {session.duration_min ?? 0} min ·{' '}
-                      {Math.round(session.total_volume_kg ?? 0).toLocaleString('es-UY')} kg
-                    </Text>
-                  </View>
-                </Pressable>
-                {index < Math.min(history.length, 8) - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-          </View>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Energia y peso</Text>
+          <Text style={styles.sectionHint}>Lo importante cambia segun el objetivo que elegiste.</Text>
         </View>
+
+        <View style={styles.energyGrid}>
+          <Card style={styles.energyCard}>
+            <Text style={styles.energyEyebrow}>Calorias de hoy</Text>
+            <Text style={styles.energyTitle}>{goalCopy.title}</Text>
+            <Text style={styles.energyBody}>{goalCopy.body}</Text>
+            <Text style={styles.energyNote}>{goalCopy.note}</Text>
+          </Card>
+
+          <Card style={styles.energyCard}>
+            <Text style={styles.energyEyebrow}>Peso y direccion</Text>
+            <Text style={styles.energyTitle}>{weightCopy.title}</Text>
+            <Text style={styles.energyBody}>{weightCopy.body}</Text>
+            <Text style={styles.energyNote}>{weightCopy.note}</Text>
+          </Card>
+        </View>
+
+        <View style={styles.footerActions}>
+          <Button
+            onPress={() => router.push(Routes.workout.programs as never)}
+            color={Colors.workout}
+            style={styles.flexButton}
+          >
+            Ver programas
+          </Button>
+          <Button
+            onPress={() => router.push(Routes.tabs.home as never)}
+            variant="secondary"
+            color={Colors.textPrimary}
+            style={styles.flexButton}
+          >
+            Volver a inicio
+          </Button>
+        </View>
+
+        <ScreenFooterSpacer />
       </ScrollView>
     </SafeScreen>
   );
@@ -294,210 +665,264 @@ export default function ProgressScreen() {
 const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
-    paddingTop: Spacing[5],
-    paddingBottom: 120,
+    paddingTop: Spacing[2],
+    paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing[3],
+    alignItems: 'flex-start',
+  },
+  headerCopy: {
+    flex: 1,
+    gap: 6,
   },
   title: {
-    fontFamily: FontFamily.bold,
-    fontSize: 28,
+    fontFamily: FontFamily.display,
+    fontSize: 32,
     color: Colors.textPrimary,
   },
-  rangeRow: {
+  subtitle: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  exportButton: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(Colors.surface3, 0.9),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.08),
+  },
+  heroCard: {
+    gap: Spacing[3],
+    backgroundColor: withOpacity(Colors.surface2, 0.9),
+  },
+  heroTopRow: {
+    gap: Spacing[3],
+  },
+  heroNumberWrap: {
+    gap: 2,
+  },
+  heroEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: Colors.brand,
+  },
+  heroNumber: {
+    fontFamily: FontFamily.display,
+    fontSize: 56,
+    lineHeight: 58,
+    color: Colors.textPrimary,
+  },
+  heroLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.brand, 0.1),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.brand, 0.2),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.5],
+  },
+  heroBadgeText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.brand,
+  },
+  heroBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    gap: Spacing[1.5],
+  },
+  weekDot: {
+    flex: 1,
+    height: 10,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.white, 0.08),
+  },
+  weekDotDone: {
+    backgroundColor: withOpacity(Colors.brand, 0.88),
+  },
+  weekDotToday: {
+    borderWidth: 1,
+    borderColor: Colors.white,
+  },
+  heroActions: {
     flexDirection: 'row',
     gap: Spacing[2],
   },
-  rangePill: {
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bgSurface,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-    borderWidth: 1,
-    borderColor: Colors.border,
+  flexButton: {
+    flex: 1,
   },
-  rangePillActive: {
-    backgroundColor: Colors.bgElevated,
-    borderColor: Colors.actionBorder,
-  },
-  rangePillText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-  },
-  rangePillTextActive: {
-    color: Colors.action,
-  },
-  streakCard: {
-    borderTopWidth: 4,
-    borderTopColor: Colors.action,
-    gap: Spacing[1],
-  },
-  streakLabel: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  streakValue: {
-    fontFamily: FontFamily.display,
-    fontSize: 72,
-    lineHeight: 72,
-    color: Colors.action,
-  },
-  streakValueMuted: {
-    color: Colors.textMuted,
-  },
-  streakBody: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    color: Colors.textSecondary,
-  },
-  streakMeta: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing[3],
-  },
-  statCard: {
-    width: '47%',
-    gap: Spacing[1],
-  },
-  statValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 28,
-    color: Colors.textPrimary,
-  },
-  statLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  consistencyCard: {
-    gap: Spacing[3],
+  sectionHeader: {
+    gap: 4,
   },
   sectionTitle: {
     fontFamily: FontFamily.semibold,
-    fontSize: 18,
+    fontSize: 20,
     color: Colors.textPrimary,
   },
-  consistencyRows: {
-    gap: 8,
-  },
-  consistencyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  weekLabel: {
-    width: 20,
-    fontFamily: FontFamily.medium,
-    fontSize: 10,
-    color: Colors.textMuted,
-  },
-  consistencyDayRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  consistencyDot: {
-    width: 12,
-    height: 12,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
-  },
-  consistencyDotActive: {
-    backgroundColor: Colors.action,
-  },
-  consistencyDotToday: {
-    borderWidth: 1.5,
-    borderColor: Colors.action,
-    backgroundColor: 'transparent',
-  },
-  weightCard: {
-    gap: Spacing[3],
-  },
-  weightHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing[3],
-  },
-  weightButton: {
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.action,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-  },
-  weightButtonText: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
-    color: Colors.white,
-  },
-  weightHint: {
+  sectionHint: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  exerciseCard: {
+  moduleList: {
     gap: Spacing[3],
   },
-  exerciseList: {
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
+  moduleCard: {
+    gap: Spacing[2.5],
+    backgroundColor: withOpacity(Colors.surface2, 0.9),
   },
-  exerciseRow: {
-    paddingVertical: Spacing[2.5],
+  moduleTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+    alignItems: 'flex-start',
+  },
+  moduleCopy: {
+    flex: 1,
     gap: 4,
   },
-  exerciseName: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
+  moduleLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  moduleValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 28,
+    lineHeight: 34,
     color: Colors.textPrimary,
   },
-  exerciseMeta: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
+  moduleMeta: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
     color: Colors.textSecondary,
   },
-  sessionsBlock: {
-    gap: Spacing[3],
-  },
-  sessionList: {
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.bgSurface,
+  modulePercentBadge: {
+    minWidth: 58,
+    borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
+    paddingHorizontal: Spacing[2.5],
+    paddingVertical: Spacing[1.5],
+    alignItems: 'center',
+  },
+  modulePercentText: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+  },
+  progressTrack: {
+    height: 9,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.white, 0.08),
     overflow: 'hidden',
   },
-  sessionRow: {
-    paddingHorizontal: Spacing[4],
-    paddingVertical: Spacing[4],
+  progressFill: {
+    height: '100%',
+    borderRadius: Radius.full,
   },
-  sessionCopy: {
-    gap: 2,
-  },
-  sessionTitle: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
-    color: Colors.textPrimary,
-  },
-  sessionMeta: {
+  moduleNote: {
     fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
     color: Colors.textSecondary,
   },
-  divider: {
-    height: 1,
-    backgroundColor: withOpacity(Colors.white, 0.06),
+  muscleCard: {
+    gap: Spacing[3],
+    backgroundColor: withOpacity(Colors.surface2, 0.9),
+  },
+  muscleChipRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+    flexWrap: 'wrap',
+  },
+  muscleChip: {
+    minWidth: 92,
+    borderRadius: Radius.xl,
+    backgroundColor: withOpacity(Colors.surface3, 0.9),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.08),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    gap: 2,
+  },
+  muscleChipTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 11,
+    color: Colors.textPrimary,
+  },
+  muscleChipBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  emptyText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  programNote: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  energyGrid: {
+    gap: Spacing[3],
+  },
+  energyCard: {
+    gap: Spacing[2],
+    backgroundColor: withOpacity(Colors.surface2, 0.9),
+  },
+  energyEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
+  energyTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: 24,
+    lineHeight: 30,
+    color: Colors.textPrimary,
+  },
+  energyBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  energyNote: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    gap: Spacing[2],
   },
 });

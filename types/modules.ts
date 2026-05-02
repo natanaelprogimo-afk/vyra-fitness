@@ -15,7 +15,8 @@ export interface WaterLog {
 
 export type DrinkTypeId =
   | 'water' | 'electrolyte_water' | 'sports_drink'
-  | 'tea' | 'coffee' | 'juice' | 'milk' | 'alcohol' | 'other';
+  | 'electrolyte' | 'sports'
+  | 'tea' | 'coffee' | 'juice' | 'soda' | 'milk' | 'alcohol' | 'other';
 
 // ─── Pasos ────────────────────────────────────────────────────
 export interface StepLog {

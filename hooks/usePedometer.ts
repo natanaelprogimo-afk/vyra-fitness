@@ -43,7 +43,10 @@ export function usePedometer() {
   }, []);
 
   const recheckAvailability = useCallback(async () => {
-    const available = await Pedometer.isAvailableAsync().catch(() => false);
+    const available = await Pedometer.isAvailableAsync().catch((e) => {
+      console.debug?.('[usePedometer] Pedometer.isAvailableAsync failed', e);
+      return false;
+    });
     setIsAvailable(available);
     setIsManualMode(!available);
     return available;

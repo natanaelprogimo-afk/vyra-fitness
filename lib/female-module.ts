@@ -4,7 +4,7 @@ import type { FemaleHealthEntry } from '@/hooks/useFemaleHealth';
 import type { FemalePhase } from '@/lib/female-phase';
 
 
-export type FemaleTabKey = 'cycle' | 'symptoms' | 'history' | 'settings';
+export type FemaleTabKey = 'cycle' | 'settings';
 
 
 
@@ -92,10 +92,6 @@ export const FEMALE_TABS = [
 
   { key: 'cycle' as const, label: 'Ciclo', route: Routes.female.index },
 
-  { key: 'symptoms' as const, label: 'Sintomas', route: Routes.female.symptoms },
-
-  { key: 'history' as const, label: 'Historial', route: Routes.female.history },
-
   { key: 'settings' as const, label: 'Ajustes', route: Routes.female.settings },
 
 ] as const;
@@ -128,13 +124,13 @@ export const FEMALE_SYMPTOMS_BY_PHASE: Record<
 
     primary: ['colicos', 'fatiga', 'hinchazon', 'migranas'],
 
-    secondary: ['cambios de humor', 'sensibilidad mamaria', 'flujo vaginal', 'acne', 'libido baja', 'energia alta'],
+    secondary: ['cambios de humor', 'sensibilidad mamaria', 'flujo vaginal', 'acne', 'libido baja', 'energía alta'],
 
   },
 
   follicular: {
 
-    primary: ['energia alta', 'flujo vaginal', 'libido baja'],
+    primary: ['energía alta', 'flujo vaginal', 'libido baja'],
 
     secondary: ['fatiga', 'hinchazon', 'acne', 'cambios de humor', 'migranas'],
 
@@ -142,7 +138,7 @@ export const FEMALE_SYMPTOMS_BY_PHASE: Record<
 
   ovulation: {
 
-    primary: ['energia alta', 'flujo vaginal', 'libido baja'],
+    primary: ['energía alta', 'flujo vaginal', 'libido baja'],
 
     secondary: ['hinchazon', 'migranas', 'acne', 'fatiga', 'cambios de humor'],
 
@@ -152,7 +148,7 @@ export const FEMALE_SYMPTOMS_BY_PHASE: Record<
 
     primary: ['cambios de humor', 'sensibilidad mamaria', 'hinchazon', 'fatiga'],
 
-    secondary: ['acne', 'migranas', 'colicos', 'libido baja', 'flujo vaginal', 'energia alta'],
+    secondary: ['acne', 'migranas', 'colicos', 'libido baja', 'flujo vaginal', 'energía alta'],
 
   },
 
@@ -450,9 +446,9 @@ export function getSymptomLabel(symptom: string) {
 
     'libido baja': 'Libido baja',
 
-    energia_alta: 'Energia alta',
+    energia_alta: 'Energía alta',
 
-    'energia alta': 'Energia alta',
+    'energía alta': 'Energía alta',
 
     sangrado_ligero: 'Sangrado ligero',
 
@@ -472,7 +468,7 @@ export function getSymptomLabel(symptom: string) {
 
 export function getPhaseDisclaimer() {
 
-  return 'Este modulo es informativo. No reemplaza seguimiento ni consejo medico.';
+  return 'Este módulo es informativo. No reemplaza seguimiento ni consejo médico.';
 
 }
 
@@ -500,7 +496,7 @@ export function buildNextPeriodLabel(nextPeriodDate: string | null) {
 
   return {
 
-    title: `En ${diffDays} dias`,
+    title: `En ${diffDays} días`,
 
     subtitle: new Date(`${nextPeriodDate}T00:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }),
 

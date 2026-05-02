@@ -1,8 +1,3 @@
-// ============================================================
-// VYRA FITNESS — ProgressBar
-// Barra de progreso horizontal animada con color de módulo
-// ============================================================
-
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import Animated, {
@@ -12,29 +7,29 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Radius } from '@/constants/theme';
+import { FontSize, FontFamily } from '@/constants/theme';
 
 interface ProgressBarProps {
-  value:       number;              // 0-100 (puede superar 100 para overflow visual)
-  color?:      string;
-  height?:     number;
-  label?:      string;
-  showPct?:    boolean;
-  animated?:   boolean;
-  style?:      ViewStyle;
-  duration?:   number;
+  value: number;
+  color?: string;
+  height?: number;
+  label?: string;
+  showPct?: boolean;
+  animated?: boolean;
+  style?: ViewStyle;
+  duration?: number;
   trackColor?: string;
 }
 
 export default function ProgressBar({
   value,
-  color      = Colors.brand,
-  height     = 8,
+  color = Colors.brand,
+  height = 8,
   label,
-  showPct    = false,
-  animated   = true,
+  showPct = false,
+  animated = true,
   style,
-  duration   = 600,
+  duration = 600,
   trackColor = Colors.bgElevated,
 }: ProgressBarProps) {
   const width = useSharedValue(0);
@@ -44,7 +39,7 @@ export default function ProgressBar({
     width.value = animated
       ? withTiming(clampedValue, { duration, easing: Easing.out(Easing.cubic) })
       : clampedValue;
-  }, [clampedValue, animated]);
+  }, [animated, clampedValue, duration, width]);
 
   const barStyle = useAnimatedStyle(() => ({
     width: `${width.value}%`,
@@ -54,17 +49,28 @@ export default function ProgressBar({
     <View style={style}>
       {(label || showPct) && (
         <View style={styles.labelRow}>
-          {label && <Text style={styles.label}>{label}</Text>}
-          {showPct && (
-            <Text style={[styles.pct, { color }]}>{Math.round(clampedValue)}%</Text>
-          )}
+          {label ? <Text style={[styles.label, { color: Colors.textSecondary }]}>{label}</Text> : null}
+          {showPct ? <Text style={[styles.pct, { color }]}>{Math.round(clampedValue)}%</Text> : null}
         </View>
       )}
-      <View style={[styles.track, { height, backgroundColor: trackColor, borderRadius: height / 2 }]}>
+      <View
+        style={[
+          styles.track,
+          {
+            height,
+            backgroundColor: trackColor,
+            borderRadius: height / 2,
+          },
+        ]}
+      >
         <Animated.View
           style={[
             styles.bar,
-            { backgroundColor: color, height, borderRadius: height / 2 },
+            {
+              backgroundColor: color,
+              height,
+              borderRadius: height / 2,
+            },
             barStyle,
           ]}
         />
@@ -73,14 +79,12 @@ export default function ProgressBar({
   );
 }
 
-// ─── Variante multi-segmento (macros) ────────────────────────
-
 interface MacroBarProps {
-  protein:  number;
-  carbs:    number;
-  fat:      number;
-  height?:  number;
-  style?:   ViewStyle;
+  protein: number;
+  carbs: number;
+  fat: number;
+  height?: number;
+  style?: ViewStyle;
 }
 
 export function MacroBar({ protein, carbs, fat, height = 10, style }: MacroBarProps) {
@@ -90,7 +94,17 @@ export function MacroBar({ protein, carbs, fat, height = 10, style }: MacroBarPr
   const fPct = (fat / total) * 100;
 
   return (
-    <View style={[styles.macroTrack, { height, borderRadius: height / 2 }, style]}>
+    <View
+      style={[
+        styles.macroTrack,
+        {
+          height,
+          borderRadius: height / 2,
+          backgroundColor: Colors.bgElevated,
+        },
+        style,
+      ]}
+    >
       <View style={{ flex: pPct, backgroundColor: Colors.nutrition, borderRadius: height / 2 }} />
       <View style={{ flex: cPct, backgroundColor: Colors.fasting }} />
       <View style={{ flex: fPct, backgroundColor: Colors.brand, borderRadius: height / 2 }} />
@@ -100,31 +114,28 @@ export function MacroBar({ protein, carbs, fat, height = 10, style }: MacroBarPr
 
 const styles = StyleSheet.create({
   labelRow: {
-    flexDirection:  'row',
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems:     'center',
-    marginBottom:   4,
+    alignItems: 'center',
+    marginBottom: 4,
   },
   label: {
     fontFamily: FontFamily.medium,
-    fontSize:   FontSize.sm,
-    color:      Colors.textSecondary,
+    fontSize: FontSize.sm,
   },
   pct: {
     fontFamily: FontFamily.semibold,
-    fontSize:   FontSize.sm,
+    fontSize: FontSize.sm,
   },
   track: {
-    width:          '100%',
-    overflow:       'hidden',
-    backgroundColor: Colors.bgElevated,
+    width: '100%',
+    overflow: 'hidden',
   },
   bar: {
     minWidth: 4,
   },
   macroTrack: {
-    flexDirection:  'row',
-    overflow:       'hidden',
-    backgroundColor: Colors.bgElevated,
+    flexDirection: 'row',
+    overflow: 'hidden',
   },
 });

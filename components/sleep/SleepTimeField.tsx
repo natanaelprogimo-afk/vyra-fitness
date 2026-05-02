@@ -51,7 +51,14 @@ export default function SleepTimeField({
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
-      <Pressable onPress={openPicker} style={styles.field}>
+      <Pressable
+        onPress={openPicker}
+        style={styles.field}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint="Abre el selector nativo de hora."
+        hitSlop={8}
+      >
         <View style={styles.fieldCopy}>
           <Text style={[styles.value, !value && styles.valuePlaceholder]}>
             {value

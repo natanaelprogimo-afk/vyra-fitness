@@ -1,17 +1,14 @@
-// ============================================================
-// VYRA FITNESS — useWater Hook
-// Lógica completa del módulo de hidratación.
-// Escribe en WatermelonDB (offline-first) + sincroniza a Supabase.
-// Calcula hidratación equivalente según tipo de bebida.
-// ============================================================
+// VYRA FITNESS - useWater Hook
+// Logica completa del módulo de hidratación.
+// Cache local + sincronizacion diferida para hidratar sin internet.
+// Calcula hidratación equivalente segun tipo de bebida.
+
 
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { database } from '@/database/watermelon';
-import { writeLocalAndSync } from '@/database';
 import initSyncService from '@/services/sync';
 import { captureError } from '@/lib/sentry';
 import { todayISO } from '@/utils/dates';
@@ -21,6 +18,15 @@ import type { WaterLog, DrinkTypeId } from '@/types/modules';
 import { ErrorMessages } from '@/constants/strings';
 import { DRINK_TYPES } from '@/constants/modules';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
+import { isRecoverableOfflineError } from '@/lib/offline-errors';
+import {
+  cacheRemoteWaterLogs,
+  deleteOfflineWaterLog,
+  flushOfflineWaterLogs,
+  getOfflineWaterHistory,
+  getOfflineWaterLogsForDay,
+  queueOfflineWaterLog,
+} from '@/lib/water-offline';
 
 interface HydrationGoalAdjustment {
   source: 'steps' | 'fasting' | 'female_phase';
@@ -144,6 +150,25 @@ function getHydrationAlert(current: number, goal: number, hour: number): string 
   return null;
 }
 
+function buildLocalWaterLog(
+  userId: string,
+  id: string,
+  amountMl: number,
+  drinkType: DrinkTypeId,
+  hydrationEquivalent: number,
+  loggedAtIso: string,
+): WaterLog {
+  return {
+    id,
+    user_id: userId,
+    amount_ml: amountMl,
+    drink_type: drinkType,
+    hydration_equivalent_ml: hydrationEquivalent,
+    logged_at: loggedAtIso,
+    synced_at: null,
+  };
+}
+
 export function useWater() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore((s) => s.profile);
@@ -159,30 +184,33 @@ export function useWater() {
       if (!userId) return [];
 
       if (isOnline) {
-        const { data, error } = await supabase
-          .from('water_logs')
-          .select('*')
-          .eq('user_id', userId)
-          .gte('logged_at', `${todayISO()}T00:00:00`)
-          .order('logged_at', { ascending: true });
+        try {
+          const { data, error } = await supabase
+            .from('water_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .gte('logged_at', `${todayISO()}T00:00:00`)
+            .order('logged_at', { ascending: true });
 
-        if (error) throw error;
-        return data ?? [];
+          if (error) throw error;
+          await cacheRemoteWaterLogs(userId, (data ?? []) as Array<{
+            id: string;
+            user_id: string;
+            amount_ml: number;
+            drink_type: string;
+            hydration_equivalent_ml: number;
+            logged_at: string;
+            created_at?: string | null;
+          }>);
+          return data ?? [];
+        } catch (error) {
+          if (!isRecoverableOfflineError(error)) {
+            throw error;
+          }
+        }
       }
 
-      // Offline: leer de WatermelonDB
-      const localLogs = await database.get('water_logs').query().fetch();
-      return (localLogs as any[])
-        .filter((l: any) => !l.deleted && l.user_id === userId && l.logged_date === todayISO())
-        .map((l: any) => ({
-          id:                       l.id,
-          user_id:                  l.user_id,
-          amount_ml:                l.amount_ml,
-          drink_type:               l.drink_type,
-          hydration_equivalent_ml:  l.hydration_equivalent_ml,
-          logged_at:                new Date(l.logged_at).toISOString(),
-          created_at:               new Date(l.created_at).toISOString(),
-        }));
+      return await getOfflineWaterLogsForDay(userId, todayISO());
     },
     enabled:        !!userId,
     staleTime:      30 * 1000,
@@ -213,15 +241,13 @@ export function useWater() {
     queryFn: async () => {
       if (!userId || !isOnline) return null;
       const { data } = await supabase
-        .from('fasting_logs')
+        .from('fasting_sessions')
         .select('id')
         .eq('user_id', userId)
-        .eq('completed', false)
-        .eq('abandoned', false)
-        .is('end_time', null)
+        .eq('status', 'active')
         .order('start_time', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       return data;
     },
     enabled: !!userId && isOnline,
@@ -276,7 +302,7 @@ export function useWater() {
     goalAdjustments.push({
       source: 'female_phase',
       delta: 200,
-      reason: `Fase ${femaleContext.phase} (hidratacion reforzada).`,
+      reason: `Fase ${femaleContext.phase} (hidratación reforzada).`,
     });
   }
 
@@ -300,23 +326,7 @@ export function useWater() {
       if (amountMl <= 0 || amountMl > 5000) throw new Error('Cantidad inválida');
 
       const hydrationEquivalent = calculateHydrationEquivalent(amountMl, drinkType);
-      const loggedAt            = Date.now();
-
-      const payload = {
-        amount_ml:               amountMl,
-        drink_type:              drinkType,
-        hydration_equivalent_ml: hydrationEquivalent,
-        logged_at:               loggedAt,
-        logged_date:             todayISO(),
-        deleted:                 false,
-      };
-
-      const remotePayload = {
-        amount_ml: amountMl,
-        drink_type: drinkType,
-        hydration_equivalent_ml: hydrationEquivalent,
-        logged_at: new Date(loggedAt).toISOString(),
-      };
+      const loggedAtIso         = new Date().toISOString();
 
       if (isOnline) {
         // Escribir directo a Supabase
@@ -327,39 +337,75 @@ export function useWater() {
             amount_ml:               amountMl,
             drink_type:              drinkType,
             hydration_equivalent_ml: hydrationEquivalent,
-            logged_at:               new Date(loggedAt).toISOString(),
+            logged_at:               loggedAtIso,
           })
-          .select('id')
+          .select('*')
           .single();
 
-        if (error) throw error;
-        return data.id;
-      } else {
-        // Offline: escribir local + encolar sync (writeLocalAndSync usa DB y cola)
-        const localId = await writeLocalAndSync('water_logs', payload, userId, remotePayload);
-        return localId;
+        if (!error) {
+          return {
+            log: data as WaterLog,
+            savedOffline: false,
+          };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
       }
+        // Offline: escribir local y sincronizar cuando vuelva la conexión.
+      const localId = await queueOfflineWaterLog(userId, {
+        amount_ml: amountMl,
+        drink_type: drinkType,
+        hydration_equivalent_ml: hydrationEquivalent,
+        logged_at: loggedAtIso,
+        logged_date: todayISO(),
+      });
+
+      return {
+        log: buildLocalWaterLog(userId, localId, amountMl, drinkType, hydrationEquivalent, loggedAtIso),
+        savedOffline: true,
+      };
     },
 
-    onSuccess: async (_, { amountMl, drinkType = 'water' }) => {
-      queryClient.invalidateQueries({ queryKey: ['water_logs'] });
-      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
-      queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+    onSuccess: async ({ log, savedOffline }, { amountMl, drinkType = 'water' }) => {
+      const waterLogsKey = ['water_logs', userId, todayISO()] as const;
+      const waterHistoryKey = ['water_history', userId] as const;
+
+      queryClient.setQueryData<WaterLog[]>(waterLogsKey, (current = []) =>
+        [...current, log].sort((a, b) => new Date(a.logged_at).getTime() - new Date(b.logged_at).getTime()),
+      );
+      queryClient.setQueryData<WaterLog[]>(waterHistoryKey, (current = []) =>
+        [...current, log].sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime()),
+      );
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['water_logs'] }),
+        queryClient.invalidateQueries({ queryKey: ['water_history'] }),
+        queryClient.invalidateQueries({ queryKey: ['today_summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['daily_score'] }),
+      ]);
 
       const hydro = calculateHydrationEquivalent(amountMl, drinkType);
-      const newTotal = totalHydro + hydro;
+      const updatedLogs = queryClient.getQueryData<WaterLog[]>(waterLogsKey) ?? [];
+      const newTotal =
+        updatedLogs.reduce((sum, item) => sum + (item.hydration_equivalent_ml ?? 0), 0) || totalHydro + hydro;
       // Feedback positivo
-      const drink = DRINK_TYPES[drinkType];
+      const drink =
+        DRINK_TYPES.find((item) => item.id === drinkType) ??
+        (drinkType === 'soda'
+          ? { emoji: '🥤' }
+          : { emoji: 'ðŸ’§' });
       showToast(`+${amountMl}ml ${drink?.emoji ?? '💧'} — ${Math.round(newTotal)}/${goal}ml`, 'success');
 
       if (totalHydro < goal && newTotal >= goal) {
         showToast('¡Meta de hidratación alcanzada!', 'success');
       }
 
-      trackLogCreated('water', 'manual', Date.now());
+      trackLogCreated('water', savedOffline ? 'manual_offline' : 'manual', Date.now());
 
       // Recalcular score
-      if (isOnline) {
+      if (!savedOffline && isOnline) {
         void supabase.rpc('calculate_daily_score', { p_user_id: userId });
       }
     },
@@ -382,20 +428,37 @@ export function useWater() {
           .eq('id', logId)
           .eq('user_id', userId); // RLS extra check
 
-        if (error) throw error;
-      } else {
-        // Soft delete en WDB
-        await database.write(async () => {
-          const record = await database.get('water_logs').find(logId);
-          await (record as any).update((r: any) => { r.deleted = true; r.synced = false; });
-        });
+        if (!error) {
+          return { logId, deletedOffline: false };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
       }
+
+      await deleteOfflineWaterLog(userId, logId);
+      return { logId, deletedOffline: true };
     },
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['water_logs'] });
-      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
-      showToast('Registro eliminado', 'info');
+    onSuccess: async ({ logId, deletedOffline }) => {
+      const waterLogsKey = ['water_logs', userId, todayISO()] as const;
+      const waterHistoryKey = ['water_history', userId] as const;
+
+      queryClient.setQueryData<WaterLog[]>(waterLogsKey, (current = []) => current.filter((entry) => entry.id !== logId));
+      queryClient.setQueryData<WaterLog[]>(waterHistoryKey, (current = []) => current.filter((entry) => entry.id !== logId));
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['water_logs'] }),
+        queryClient.invalidateQueries({ queryKey: ['water_history'] }),
+        queryClient.invalidateQueries({ queryKey: ['today_summary'] }),
+      ]);
+      showToast(
+        deletedOffline
+          ? 'Registro quitado sin internet. Lo sincronizaremos cuando vuelvas.'
+          : 'Registro eliminado',
+        'info',
+      );
     },
 
     onError: () => {
@@ -407,16 +470,35 @@ export function useWater() {
   const { data: history = [] } = useQuery({
     queryKey: ['water_history', userId],
     queryFn:  async () => {
-      if (!userId || !isOnline) return [];
-      const { data } = await supabase
-        .from('water_logs')
-        .select('logged_at, hydration_equivalent_ml, drink_type, amount_ml')
-        .eq('user_id', userId)
-        .order('logged_at', { ascending: false })
-        .limit(500);
-      return data ?? [];
+      if (!userId) return [];
+      if (!isOnline) return await getOfflineWaterHistory(userId);
+
+      try {
+        const { data, error } = await supabase
+          .from('water_logs')
+          .select('id, user_id, logged_at, hydration_equivalent_ml, drink_type, amount_ml, created_at')
+          .eq('user_id', userId)
+          .order('logged_at', { ascending: false })
+          .limit(500);
+        if (error) throw error;
+        await cacheRemoteWaterLogs(userId, (data ?? []) as Array<{
+          id: string;
+          user_id: string;
+          amount_ml: number;
+          drink_type: string;
+          hydration_equivalent_ml: number;
+          logged_at: string;
+          created_at?: string | null;
+        }>);
+        return data ?? [];
+      } catch (error) {
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
+        return await getOfflineWaterHistory(userId);
+      }
     },
-    enabled:   !!userId && isOnline,
+    enabled:   !!userId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -442,7 +524,7 @@ export function useWater() {
       .sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())[0];
 
     if (!lastLog) {
-      return 'Arranca con agua ahora: hidratarte temprano mejora energia y foco para todo el dia.';
+      return 'Arranca con agua ahora: hidratarte temprano mejora energía y foco para todo el día.';
     }
 
     const hoursSinceLastDrink = Math.max(
@@ -451,7 +533,7 @@ export function useWater() {
     );
 
     if (hoursSinceLastDrink < 6) {
-      return 'Buen ritmo: mantenelo con un vaso ahora para sostener energia y foco.';
+      return 'Buen ritmo: mantenelo con un vaso ahora para sostener energía y foco.';
     }
 
     const cognitiveDrop = Math.round(Math.min(25, Math.max(10, (hoursSinceLastDrink - 4) * 2.5)));
@@ -462,6 +544,27 @@ export function useWater() {
     // Start background sync service (idempotent)
     try { initSyncService(); } catch (_) { /* ignore */ }
   }, []);
+
+  useEffect(() => {
+    if (!userId || !isOnline) return;
+
+    let active = true;
+
+    const flushPending = async () => {
+      const result = await flushOfflineWaterLogs(userId);
+      if (!active) return;
+      if (result.synced > 0) {
+        queryClient.invalidateQueries({ queryKey: ['water_logs'] });
+        queryClient.invalidateQueries({ queryKey: ['water_history'] });
+      }
+    };
+
+    void flushPending();
+
+    return () => {
+      active = false;
+    };
+  }, [isOnline, queryClient, userId]);
 
   return {
     logs,
@@ -515,3 +618,4 @@ function groupByDay(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, total]) => ({ date, total }));
 }
+

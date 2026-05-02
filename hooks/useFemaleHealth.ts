@@ -34,6 +34,25 @@ interface CycleIrregularity {
   message: string | null;
 }
 
+interface FemaleHealthLogRow {
+  id: string;
+  user_id: string;
+  phase?: FemalePhase | null;
+  symptoms?: string[] | null;
+  notes?: string | null;
+  logged_at: string;
+  [key: string]: unknown;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : String(message ?? '');
+  }
+  return String(error ?? '');
+}
+
 function encodeSymptomsWithSeverity(
   symptoms: string[],
   severityMap?: Record<string, number>,
@@ -157,7 +176,7 @@ export function useFemaleHealth() {
       }
 
       const decryptedEntries = await Promise.all(
-        entries.map(async (entry: any) => {
+        (entries as FemaleHealthLogRow[]).map(async (entry) => {
           const rawSymptoms = await decryptSensitiveStringArray(
             Array.isArray(entry.symptoms) ? entry.symptoms : [],
           );
@@ -208,7 +227,7 @@ export function useFemaleHealth() {
         });
 
       if (error) {
-        const message = String((error as any).message ?? '');
+        const message = getErrorMessage(error);
         const missingSecureColumn = message.includes('phase_encrypted');
 
         if (missingSecureColumn) {
@@ -279,7 +298,7 @@ export function useFemaleHealth() {
         .eq('id', userId);
 
       if (error) {
-        const message = String((error as any).message ?? '');
+        const message = getErrorMessage(error);
         const missingSecureColumns =
           message.includes('female_cycle_length_encrypted') ||
           message.includes('female_last_period_date_encrypted');
@@ -325,7 +344,7 @@ export function useFemaleHealth() {
   const phaseGuidance: FemalePhaseGuidance = (() => {
     if (phase === 'menstrual') {
       return {
-        training: 'Recuperacion activa, movilidad o fuerza liviana.',
+        training: 'Recuperación activa, movilidad o fuerza liviana.',
         fasting: 'Prioriza protocolos cortos (12-14h) o descanso de ayuno.',
         nutrition: 'Refuerza hierro, omega-3 y alimentos antiinflamatorios.',
         hydrationBoostMl: 300,
@@ -335,16 +354,16 @@ export function useFemaleHealth() {
     if (phase === 'follicular') {
       return {
         training: 'Buena fase para progresar carga y volumen.',
-        fasting: 'Mayor tolerancia a protocolos estandar (16:8).',
-        nutrition: 'Sube proteina y zinc para rendimiento y recuperacion.',
+        fasting: 'Mayor tolerancia a protocolos estándar (16:8).',
+        nutrition: 'Sube proteína y zinc para rendimiento y recuperación.',
         hydrationBoostMl: 0,
         weightContext: null,
       };
     }
     if (phase === 'ovulation') {
       return {
-        training: 'Ventana de alta energia: fuerza/intensidad alta.',
-        fasting: 'Puede sostenerse 16:8 o 18:6 si hay buena recuperacion.',
+        training: 'Ventana de alta energía: fuerza/intensidad alta.',
+        fasting: 'Puede sostenerse 16:8 o 18:6 si hay buena recuperación.',
         nutrition: 'Prioriza antioxidantes y carbos de calidad.',
         hydrationBoostMl: 150,
         weightContext: null,
@@ -352,8 +371,8 @@ export function useFemaleHealth() {
     }
     return {
       training: 'Mantener consistencia con intensidad moderada.',
-      fasting: 'En lutea puede costar mas; acorta protocolo si aparece hambre alta.',
-      nutrition: 'Aumenta magnesio y carbos complejos para energia estable.',
+      fasting: 'En lutea puede costar más; acorta protocolo si aparece hambre alta.',
+      nutrition: 'Aumenta magnesio y carbos complejos para energía estable.',
       hydrationBoostMl: 250,
       weightContext: 'En fase lutea es normal retener liquidos y ver subidas transitorias.',
     };
@@ -375,7 +394,7 @@ export function useFemaleHealth() {
       return 'Mañana entrás en ventana ovulatoria: preparamos entrenamiento de intensidad alta.';
     }
     if (daysToPeriod !== null && daysToPeriod <= 2) {
-      return 'Tu menstruacion empieza pronto. Esta semana prioriza hidratacion extra y recuperacion.';
+      return 'Tu menstruacion empieza pronto. Está semana prioriza hidratación extra y recuperación.';
     }
     return null;
   })();
@@ -428,7 +447,7 @@ export function useFemaleHealth() {
       return {
         isIrregular: true,
         message:
-          'Tu ciclo viene variando mas de 7 dias entre periodos. Conviene comentarlo con ginecologia para evaluacion.',
+          'Tu ciclo viene variando más de 7 días entre periodos. Conviene comentarlo con ginecologia para evaluacion.',
       };
     }
 

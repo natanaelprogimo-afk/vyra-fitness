@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Q } from '@nozbe/watermelondb';
+import type { WorkoutHistory } from '@/lib/workout-types';
+import { mergeWorkoutSessionsForTimeline } from '@/lib/workout-local-data';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -26,6 +28,62 @@ export interface TimelineEntry {
   timestamp: string;
 }
 
+interface LocalWaterRow {
+  id: string;
+  server_id?: string | null;
+  deleted?: boolean;
+  logged_at?: number | null;
+  amount_ml?: number | null;
+  drink_type?: string | null;
+}
+
+interface LocalMealRow {
+  id: string;
+  server_id?: string | null;
+  deleted?: boolean;
+  logged_at?: number | null;
+  meal_type?: string | null;
+  food_name?: string | null;
+  calories?: number | null;
+}
+
+interface LocalWorkoutRow {
+  id: string;
+  server_id?: string | null;
+  started_at?: number | null;
+  name?: string | null;
+  total_sets?: number | null;
+}
+
+interface LocalSleepRow {
+  id: string;
+  server_id?: string | null;
+  end_time?: number | null;
+  duration_min?: number | null;
+}
+
+interface LocalFastingRow {
+  id: string;
+  server_id?: string | null;
+  start_time?: number | null;
+  end_time?: number | null;
+  protocol?: string | null;
+}
+
+interface LocalWeightRow {
+  id: string;
+  server_id?: string | null;
+  logged_at?: number | null;
+  weight_kg?: number | null;
+}
+
+interface LocalMentalRow {
+  id: string;
+  server_id?: string | null;
+  check_date?: string | null;
+  mood?: number | null;
+}
+
 function toDayRange(date = new Date()) {
   const day = date.toISOString().split('T')[0] ?? todayISO();
   return {
@@ -46,24 +104,45 @@ const DRINK_LABELS: Record<string, string> = {
   water: 'Agua',
   electrolyte_water: 'Electrolitos',
   sports_drink: 'Isotónica',
+  electrolyte: 'Electrolitos',
+  sports: 'Isotónica',
   tea: 'Té',
   coffee: 'Café',
   juice: 'Jugo',
+  soda: 'Gaseosa',
   milk: 'Leche',
   alcohol: 'Alcohol',
   other: 'Bebida',
 };
 
-function buildLocalWorkoutEntries(day: string, history: Array<{ id: string; name: string; started_at: string; sets_count: number }>) {
-  return history
-    .filter((session) => (session.started_at.split('T')[0] ?? '') === day)
-    .map<TimelineEntry>((session) => ({
-      id: `workout-local-${session.id}`,
+function resolveDrinkLabel(drinkType?: string | null) {
+  if (!drinkType) return 'Agua';
+  return DRINK_LABELS[drinkType] ?? 'Agua';
+}
+
+function resolveMealLabel(mealType?: string | null) {
+  if (!mealType) return 'Comida';
+  return MEAL_LABELS[mealType] ?? 'Comida';
+}
+
+function buildLocalWorkoutEntries(
+  day: string,
+  history: WorkoutHistory[],
+  sessions: Array<{ id: string; name?: string | null; started_at: string; total_sets?: number | null }> = [],
+) {
+  return mergeWorkoutSessionsForTimeline(sessions, {
+    day,
+    localHistory: history,
+  }).map<TimelineEntry>((session) => {
+    const totalSets = Number(session.total_sets ?? session.sets_count ?? 0);
+    return {
+      id: `workout-${session.id}`,
       type: 'workout',
       title: session.name || 'Entreno',
-      detail: session.sets_count ? `${session.sets_count} series` : 'Sesión registrada',
+      detail: totalSets > 0 ? `${totalSets} series` : 'Sesión registrada',
       timestamp: session.started_at,
-    }));
+    };
+  });
 }
 
 export function useDailyTimeline() {
@@ -89,70 +168,80 @@ export function useDailyTimeline() {
           weightRows,
           mentalRows,
         ] = await Promise.all([
-          database.get('water_logs').query(Q.where('user_id', userId)).fetch(),
-          database.get('meals').query(Q.where('user_id', userId)).fetch(),
-          database.get('workout_sessions').query(Q.where('user_id', userId)).fetch(),
-          database.get('sleep_logs').query(Q.where('user_id', userId)).fetch(),
-          database.get('fasting_logs').query(Q.where('user_id', userId)).fetch(),
-          database.get('weight_logs').query(Q.where('user_id', userId)).fetch(),
-          database.get('mental_checkins').query(Q.where('user_id', userId)).fetch(),
+          database.get('water_logs').query(Q.where('user_id', userId)).fetch<LocalWaterRow>(),
+          database.get('meals').query(Q.where('user_id', userId)).fetch<LocalMealRow>(),
+          database.get('workout_sessions').query(Q.where('user_id', userId)).fetch<LocalWorkoutRow>(),
+          database.get('sleep_logs').query(Q.where('user_id', userId)).fetch<LocalSleepRow>(),
+          database.get('fasting_sessions').query(Q.where('user_id', userId)).fetch<LocalFastingRow>(),
+          database.get('weight_logs').query(Q.where('user_id', userId)).fetch<LocalWeightRow>(),
+          database.get('mental_checkins').query(Q.where('user_id', userId)).fetch<LocalMentalRow>(),
         ]);
 
         const entries: TimelineEntry[] = [];
+        const localWaterRows = (waterRows ?? []) as LocalWaterRow[];
+        const localMealRows = (mealRows ?? []) as LocalMealRow[];
+        const localWorkoutRows = (workoutRows ?? []) as LocalWorkoutRow[];
+        const localSleepRows = (sleepRows ?? []) as LocalSleepRow[];
+        const localFastingRows = (fastingRows ?? []) as LocalFastingRow[];
+        const localWeightRows = (weightRows ?? []) as LocalWeightRow[];
+        const localMentalRows = (mentalRows ?? []) as LocalMentalRow[];
 
-        (waterRows ?? [])
-          .filter((row: any) => {
+        localWaterRows
+          .filter((row) => {
             if (row.deleted) return false;
             const ts = Number(row.logged_at ?? 0);
             return ts >= startMs && ts <= endMs;
           })
-          .forEach((log: any) => {
+          .forEach((log) => {
             entries.push({
               id: `water-${log.server_id ?? log.id}`,
               type: 'water',
-              title: `${DRINK_LABELS[log.drink_type] ?? 'Agua'} ${log.amount_ml} ml`,
+              title: `${resolveDrinkLabel(log.drink_type)} ${log.amount_ml} ml`,
               detail: log.drink_type !== 'water' ? 'Bebida registrada' : null,
               timestamp: new Date(Number(log.logged_at ?? startMs)).toISOString(),
             });
           });
 
-        (mealRows ?? [])
-          .filter((row: any) => {
+        localMealRows
+          .filter((row) => {
             if (row.deleted) return false;
             const ts = Number(row.logged_at ?? 0);
             return ts >= startMs && ts <= endMs;
           })
-          .forEach((meal: any) => {
+          .forEach((meal) => {
             entries.push({
               id: `meal-${meal.server_id ?? meal.id}`,
               type: 'meal',
               title: meal.food_name ?? 'Comida',
-              detail: `${MEAL_LABELS[meal.meal_type] ?? 'Comida'} · ${Math.round(Number(meal.calories ?? 0))} kcal`,
+              detail: `${resolveMealLabel(meal.meal_type)} · ${Math.round(Number(meal.calories ?? 0))} kcal`,
               timestamp: new Date(Number(meal.logged_at ?? startMs)).toISOString(),
             });
           });
 
-        (workoutRows ?? [])
-          .filter((row: any) => {
-            const ts = Number(row.started_at ?? 0);
-            return ts >= startMs && ts <= endMs;
-          })
-          .forEach((session: any) => {
-            entries.push({
-              id: `workout-${session.server_id ?? session.id}`,
-              type: 'workout',
-              title: session.name || 'Entreno',
-              detail: session.total_sets ? `${session.total_sets} series` : 'Sesión registrada',
-              timestamp: new Date(Number(session.started_at ?? startMs)).toISOString(),
-            });
-          });
+        buildLocalWorkoutEntries(
+          day,
+          workoutHistory,
+          localWorkoutRows
+            .filter((row) => {
+              const ts = Number(row.started_at ?? 0);
+              return ts >= startMs && ts <= endMs;
+            })
+            .map((session) => ({
+              id: String(session.server_id ?? session.id),
+              name: session.name ?? 'Entreno',
+              started_at: new Date(Number(session.started_at ?? startMs)).toISOString(),
+              total_sets: Number(session.total_sets ?? 0),
+            })),
+        ).forEach((entry) => {
+          entries.push(entry);
+        });
 
-        (sleepRows ?? [])
-          .filter((row: any) => {
+        localSleepRows
+          .filter((row) => {
             const ts = Number(row.end_time ?? 0);
             return ts >= startMs && ts <= endMs;
           })
-          .forEach((log: any) => {
+          .forEach((log) => {
             const hours = Number(log.duration_min ?? 0) / 60;
             entries.push({
               id: `sleep-${log.server_id ?? log.id}`,
@@ -163,9 +252,9 @@ export function useDailyTimeline() {
             });
           });
 
-        (fastingRows ?? [])
-          .filter((row: any) => Number(row.start_time ?? 0) >= startMs && Number(row.start_time ?? 0) <= endMs)
-          .forEach((log: any) => {
+        localFastingRows
+          .filter((row) => Number(row.start_time ?? 0) >= startMs && Number(row.start_time ?? 0) <= endMs)
+          .forEach((log) => {
             entries.push({
               id: `fasting-start-${log.server_id ?? log.id}`,
               type: 'fasting_start',
@@ -175,9 +264,9 @@ export function useDailyTimeline() {
             });
           });
 
-        (fastingRows ?? [])
-          .filter((row: any) => Number(row.end_time ?? 0) >= startMs && Number(row.end_time ?? 0) <= endMs)
-          .forEach((log: any) => {
+        localFastingRows
+          .filter((row) => Number(row.end_time ?? 0) >= startMs && Number(row.end_time ?? 0) <= endMs)
+          .forEach((log) => {
             if (!log.end_time) return;
             entries.push({
               id: `fasting-end-${log.server_id ?? log.id}`,
@@ -188,12 +277,12 @@ export function useDailyTimeline() {
             });
           });
 
-        (weightRows ?? [])
-          .filter((row: any) => {
+        localWeightRows
+          .filter((row) => {
             const ts = Number(row.logged_at ?? 0);
             return ts >= startMs && ts <= endMs;
           })
-          .forEach((log: any) => {
+          .forEach((log) => {
             entries.push({
               id: `weight-${log.server_id ?? log.id}`,
               type: 'weight',
@@ -203,7 +292,7 @@ export function useDailyTimeline() {
             });
           });
 
-        const mental = ((mentalRows ?? []) as any[]).find((row) => row.check_date === day) as any;
+        const mental = localMentalRows.find((row) => row.check_date === day);
         if (mental?.id) {
           const mentalTime = new Date(`${day}T12:00:00`).toISOString();
           entries.push({
@@ -266,13 +355,13 @@ export function useDailyTimeline() {
             .lte('end_time', end)
             .order('end_time', { ascending: true }),
           supabase
-            .from('fasting_logs')
+            .from('fasting_sessions')
             .select('id, protocol, start_time, end_time')
             .eq('user_id', userId)
             .gte('start_time', start)
             .lte('start_time', end),
           supabase
-            .from('fasting_logs')
+            .from('fasting_sessions')
             .select('id, protocol, start_time, end_time')
             .eq('user_id', userId)
             .gte('end_time', start)
@@ -298,7 +387,7 @@ export function useDailyTimeline() {
           entries.push({
             id: `water-${log.id}`,
             type: 'water',
-            title: `${DRINK_LABELS[log.drink_type] ?? 'Agua'} ${log.amount_ml} ml`,
+            title: `${resolveDrinkLabel(log.drink_type)} ${log.amount_ml} ml`,
             detail: log.drink_type !== 'water' ? 'Bebida registrada' : null,
             timestamp: log.logged_at,
           });
@@ -309,19 +398,22 @@ export function useDailyTimeline() {
             id: `meal-${meal.id}`,
             type: 'meal',
             title: meal.food_name,
-            detail: `${MEAL_LABELS[meal.meal_type] ?? 'Comida'} · ${Math.round(Number(meal.calories ?? 0))} kcal`,
+            detail: `${resolveMealLabel(meal.meal_type)} · ${Math.round(Number(meal.calories ?? 0))} kcal`,
             timestamp: meal.logged_at,
           });
         });
 
-        (workoutsRes.data ?? []).forEach((session) => {
-          entries.push({
-            id: `workout-${session.id}`,
-            type: 'workout',
-            title: session.name || 'Entreno',
-            detail: session.total_sets ? `${session.total_sets} series` : 'Sesión registrada',
-            timestamp: session.started_at,
-          });
+        buildLocalWorkoutEntries(
+          day,
+          workoutHistory,
+          (workoutsRes.data ?? []).map((session) => ({
+            id: session.id,
+            name: session.name,
+            started_at: session.started_at,
+            total_sets: Number(session.total_sets ?? 0),
+          })),
+        ).forEach((entry) => {
+          entries.push(entry);
         });
 
         (sleepRes.data ?? []).forEach((log) => {

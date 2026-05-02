@@ -16,6 +16,7 @@ export interface DailyScore {
     hasSleepLog: boolean;
     hasMentalCheckin: boolean;
     hasMealsLog: boolean;
+    hasWorkoutLog: boolean;
     steps: number;
     totalMl: number;
     totalCalories: number;
@@ -94,11 +95,57 @@ export function normalizeDailyScorePayload(raw: unknown, date: string): DailySco
       hasSleepLog: Boolean(metaSource.hasSleepLog ?? source.hasSleepLog ?? false),
       hasMentalCheckin: Boolean(metaSource.hasMentalCheckin ?? source.hasMentalCheckin ?? false),
       hasMealsLog: Boolean(metaSource.hasMealsLog ?? source.hasMealsLog ?? false),
+      hasWorkoutLog: Boolean(metaSource.hasWorkoutLog ?? source.hasWorkoutLog ?? false),
       steps: toNumericScore(metaSource.steps ?? source.steps),
       totalMl: toNumericScore(metaSource.totalMl ?? source.totalMl),
       totalCalories: toNumericScore(metaSource.totalCalories ?? source.totalCalories),
     },
   };
+}
+
+export function applyLocalWorkoutToDailyScore(
+  score: DailyScore | null,
+  hasLocalWorkout: boolean,
+): DailyScore | null {
+  if (!score || !hasLocalWorkout || score.meta.hasWorkoutLog) return score;
+
+  const cappedScore = score.meta.stressCapped ? 75 : 100;
+  return {
+    ...score,
+    score: Math.min(cappedScore, Math.max(score.score, score.score + 20)),
+    breakdown: {
+      ...score.breakdown,
+      activity: Math.max(score.breakdown.activity, 100),
+    },
+    meta: {
+      ...score.meta,
+      hasWorkoutLog: true,
+    },
+  };
+}
+
+export function buildScoreHistoryRow(score: DailyScore): ScoreHistory {
+  return {
+    date: score.date,
+    total_score: score.score,
+    hydration_pct: score.breakdown.hydration,
+    sleep_pct: score.breakdown.sleep,
+    activity_pct: score.breakdown.activity,
+    nutrition_pct: score.breakdown.nutrition,
+    mental_pct: score.breakdown.mental,
+  };
+}
+
+export function upsertScoreHistoryRow(history: ScoreHistory[], score: DailyScore | null): ScoreHistory[] {
+  if (!score) return history;
+
+  const row = buildScoreHistoryRow(score);
+  const existingIndex = history.findIndex((entry) => entry.date === row.date);
+  if (existingIndex === -1) {
+    return [...history, row];
+  }
+
+  return history.map((entry, index) => (index === existingIndex ? { ...entry, ...row } : entry));
 }
 
 export function buildScoreReasons(score: DailyScore | null): ScoreReason[] {
@@ -112,10 +159,10 @@ export function buildScoreReasons(score: DailyScore | null): ScoreReason[] {
     mental: 0.2,
   };
   const labels: Record<keyof ScoreBreakdown, string> = {
-    hydration: 'Hidratacion',
+    hydration: 'Hidratación',
     activity: 'Pasos',
-    sleep: 'Sueno',
-    nutrition: 'Nutricion',
+    sleep: 'Sueño',
+    nutrition: 'Nutrición',
     mental: 'Mental',
   };
 
@@ -124,10 +171,10 @@ export function buildScoreReasons(score: DailyScore | null): ScoreReason[] {
       const impact = Math.round(((value - 65) * weights[key]) / 5);
       const text =
         value >= 80
-          ? `${labels[key]} hoy sostiene bien el dia`
+          ? `${labels[key]} hoy sostiene bien el día`
           : value <= 45
-            ? `${labels[key]} hoy necesita atencion`
-            : `${labels[key]} esta en zona media`;
+            ? `${labels[key]} hoy necesita atención`
+            : `${labels[key]} está en zona media`;
 
       return {
         text,
@@ -141,7 +188,7 @@ export function buildScoreReasons(score: DailyScore | null): ScoreReason[] {
     baseReasons.push({ text: 'Sin check-in mental hoy', impact: -4, type: 'negative' });
   }
   if (!score.meta.hasSleepLog) {
-    baseReasons.push({ text: 'Sin registro de sueno', impact: -5, type: 'negative' });
+    baseReasons.push({ text: 'Sin registro de sueño', impact: -5, type: 'negative' });
   }
 
   return baseReasons.slice(0, 3);
@@ -179,19 +226,19 @@ export function buildMorningNarrative(score: DailyScore | null): string | null {
   const lowest = [...entries].sort((a, b) => a[1] - b[1])[0];
 
   const labels: Record<keyof ScoreBreakdown, string> = {
-    hydration: 'hidratacion',
+    hydration: 'hidratación',
     activity: 'actividad',
-    sleep: 'sueno',
-    nutrition: 'nutricion',
+    sleep: 'sueño',
+    nutrition: 'nutrición',
     mental: 'estado mental',
   };
 
   if (lowest[0] === 'hydration' && !score.meta.hasWaterLog) {
-    return 'Hoy no hay agua registrada. Un vaso ahora seria el mejor primer paso.';
+    return 'Hoy no hay agua registrada. Un vaso ahora sería el mejor primer paso.';
   }
 
   if (lowest[0] === 'sleep' && !score.meta.hasSleepLog) {
-    return 'Hoy no hay sueno registrado. Toma cualquier lectura como una estimacion.';
+    return 'Hoy no hay sueño registrado. Toma cualquier lectura como una estimación.';
   }
 
   if (lowest[1] >= 75) {
@@ -233,8 +280,8 @@ export function buildSimilarDayComparison(
     sameWeekdayPast.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0) / sameWeekdayPast.length,
   );
   const delta = todayScore.score - avg;
-  const dayNames = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-  const dayName = dayNames[weekday] ?? 'dia';
+  const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const dayName = dayNames[weekday] ?? 'día';
   const trendText =
     delta > 0
       ? 'por encima de tu promedio'
@@ -244,7 +291,7 @@ export function buildSimilarDayComparison(
 
   return {
     delta,
-    message: `Los ${dayName}s sueles moverte cerca de ${avg}. Hoy estas en ${todayScore.score}, ${trendText}.`,
+    message: `Los ${dayName}s sueles moverte cerca de ${avg}. Hoy estás en ${todayScore.score}, ${trendText}.`,
   };
 }
 
@@ -279,9 +326,9 @@ export function buildFocusActions(score: DailyScore | null): FocusAction[] {
   const moduleByMetric: Record<keyof ScoreBreakdown, { title: string; route: string }> = {
     hydration: { title: 'Toma un vaso de agua', route: '/modules/water' },
     activity: { title: 'Haz una caminata corta', route: '/modules/steps' },
-    sleep: { title: 'Planifica el sueno de hoy', route: '/modules/sleep' },
+    sleep: { title: 'Planifica el sueño de hoy', route: '/modules/sleep' },
     nutrition: { title: 'Registra una comida simple', route: '/modules/nutrition' },
-    mental: { title: 'Haz un check-in mental', route: '/daily-summary' },
+    mental: { title: 'Haz un check-in mental', route: '/readiness' },
   };
 
   return getScoreBreakdownEntries(score)
@@ -311,8 +358,8 @@ export function buildCrossModuleInsights(history: ScoreHistory[]): string[] {
     if (Math.abs(diff) >= 6) {
       insights.push(
         diff > 0
-          ? 'En tus dias con mejor agua, el sueno suele verse mas estable.'
-          : 'Cuando hidratas menos, el sueno suele caer.',
+          ? 'En tus días con mejor agua, el sueño suele verse más estable.'
+          : 'Cuando hidratas menos, el sueño suele caer.',
       );
     }
   }
@@ -330,8 +377,8 @@ export function buildCrossModuleInsights(history: ScoreHistory[]): string[] {
     if (Math.abs(diff) >= 6) {
       insights.push(
         diff > 0
-          ? 'Cuando duermes mejor, el dia suele salir mas estable.'
-          : 'Tus dias de poco sueno suelen dejarte mas irregular.',
+          ? 'Cuando duermes mejor, el día suele salir más estable.'
+          : 'Tus días de poco sueño suelen dejarte más irregular.',
       );
     }
   }
@@ -349,8 +396,8 @@ export function buildCrossModuleInsights(history: ScoreHistory[]): string[] {
     if (Math.abs(diff) >= 6) {
       insights.push(
         diff > 0
-          ? 'Con mejor nutricion, tu senal mental suele verse mejor.'
-          : 'Los dias de nutricion floja suelen notarse en lo mental.',
+          ? 'Con mejor nutrición, tu señal mental suele verse mejor.'
+          : 'Los días de nutrición floja suelen notarse en lo mental.',
       );
     }
   }

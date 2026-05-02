@@ -59,6 +59,10 @@ export default function SleepSettingsScreen() {
                   key={goal}
                   onPress={() => setGoalHours(goal)}
                   style={[styles.chip, active && styles.chipActive]}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${goal} horas`}
+                  accessibilityState={{ selected: active }}
+                  hitSlop={8}
                 >
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>{goal}h</Text>
                 </Pressable>
@@ -77,6 +81,10 @@ export default function SleepSettingsScreen() {
                   key={value}
                   onPress={() => setSleepTime(value)}
                   style={[styles.chip, active && styles.chipActive]}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Dormir a las ${formatMinutes(value)}`}
+                  accessibilityState={{ selected: active }}
+                  hitSlop={8}
                 >
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {formatMinutes(value)}
@@ -97,6 +105,10 @@ export default function SleepSettingsScreen() {
                   key={value}
                   onPress={() => setWakeTime(value)}
                   style={[styles.chip, active && styles.chipActive]}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Despertar a las ${formatMinutes(value)}`}
+                  accessibilityState={{ selected: active }}
+                  hitSlop={8}
                 >
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {formatMinutes(value)}

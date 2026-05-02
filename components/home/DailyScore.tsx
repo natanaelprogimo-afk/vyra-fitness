@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import Animated, {
   Easing,
@@ -168,7 +168,13 @@ export function DailyScore({ data, loading, onPress }: DailyScoreProps) {
   }
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.92}>
+    <Pressable
+      style={({ pressed }) => [styles.container, pressed && onPress ? styles.containerPressed : null]}
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? 'Abrir detalle del balance diario' : undefined}
+    >
       <View style={styles.ringWrapper}>
         <ScoreRing score={score} color={color} />
         <View style={styles.ringCenter}>
@@ -199,7 +205,7 @@ export function DailyScore({ data, loading, onPress }: DailyScoreProps) {
           </Text>
         </View>
       ) : null}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -209,6 +215,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius['2xl'],
     padding: Spacing[4],
     gap: Spacing[4],
+  },
+  containerPressed: {
+    opacity: 0.92,
   },
   loadingRing: {
     width: 124,

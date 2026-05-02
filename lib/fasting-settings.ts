@@ -7,6 +7,14 @@ export interface FastingSettings {
   notifyComplete: boolean;
   showPhaseLabels: boolean;
   showPredictions: boolean;
+  // Optional: current active protocol id (e.g. '16:8'). Persisted locally for preview.
+  activeProtocol?: string | null;
+  // 5:2 scheduling: array of weekday numbers (0=Sunday..6=Saturday)
+  fiveTwoDays: number[];
+  // HH:MM start time for 5:2 days
+  fiveTwoStartTime: string | null;
+  // Whether to auto-start on scheduled 5:2 days
+  fiveTwoAutoStart: boolean;
 }
 
 const STORAGE_KEY = 'vyra_fasting_settings_v1';
@@ -18,6 +26,10 @@ const DEFAULT_SETTINGS: FastingSettings = {
   notifyComplete: true,
   showPhaseLabels: true,
   showPredictions: true,
+  activeProtocol: undefined,
+  fiveTwoDays: [],
+  fiveTwoStartTime: null,
+  fiveTwoAutoStart: false,
 };
 
 export function parseTimeInput(value: string): { hour: number; minute: number } | null {
@@ -40,7 +52,10 @@ export async function loadFastingSettings(): Promise<FastingSettings> {
       ...DEFAULT_SETTINGS,
       ...parsed,
     };
-  } catch {
+  } catch (e) {
+    // Log load errors to help troubleshooting in the wild
+    // eslint-disable-next-line no-console
+    console.warn('[fasting-settings] failed to load settings, using defaults', e);
     return { ...DEFAULT_SETTINGS };
   }
 }

@@ -3,6 +3,7 @@ export const FontFamily = {
   medium: 'Inter_500Medium',
   semibold: 'Inter_600SemiBold',
   bold: 'Inter_700Bold',
+  black: 'Inter_900Black',
   display: 'Inter_800ExtraBold',
   mono: 'JetBrainsMono_600SemiBold',
 } as const;
@@ -15,9 +16,9 @@ export const FontSize = {
   lg: 17,
   xl: 22,
   '2xl': 28,
-  '3xl': 42,
-  '4xl': 56,
-  '5xl': 72,
+  '3xl': 48,
+  '4xl': 64,
+  '5xl': 80,
   '6xl': 96,
 } as const;
 

@@ -1,35 +1,39 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import { Colors } from '@/constants/colors';
-import { Spacing, Radius, FontFamily } from '@/constants/theme';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { Supplement } from '@/hooks/useSupplements';
 
 type Unit = Supplement['unit'];
 type Freq = Supplement['frequency'];
 
-const UNITS: { value: Unit; label: string }[] = [
+const UNITS: Array<{ value: Unit; label: string }> = [
   { value: 'mg', label: 'mg' },
   { value: 'g', label: 'g' },
   { value: 'ml', label: 'ml' },
-  { value: 'caps', label: 'Cáps.' },
+  { value: 'caps', label: 'Caps.' },
   { value: 'IU', label: 'UI' },
 ];
 
-const FREQS: { value: Freq; label: string }[] = [
+const FREQS: Array<{ value: Freq; label: string }> = [
   { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
-  { value: 'as_needed', label: 'Según necesidad' },
+  { value: 'as_needed', label: 'Segun necesidad' },
 ];
+
+const SHEET_HEIGHT = Math.min(Dimensions.get('window').height * 0.82, 720);
 
 interface AddSupplementSheetProps {
   visible: boolean;
@@ -57,20 +61,35 @@ export function AddSupplementSheet({
 
   const isValid = name.trim().length > 0 && parseFloat(dose) > 0;
 
-  const handleSave = async () => {
-    if (!isValid) return;
-    await onSave(name, parseFloat(dose), unit, frequency, []);
+  const resetForm = () => {
     setName('');
     setDose('');
     setUnit('mg');
     setFrequency('daily');
   };
 
+  const handleSave = async () => {
+    if (!isValid) return;
+    await onSave(name.trim(), parseFloat(dose), unit, frequency, []);
+    resetForm();
+  };
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Agregar suplemento">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={styles.content}>
-          {/* Nombre */}
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Agregar suplemento"
+      snapHeight={SHEET_HEIGHT}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardWrap}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={styles.fieldLabel}>Nombre</Text>
           <TextInput
             style={styles.input}
@@ -82,7 +101,6 @@ export function AddSupplementSheet({
             maxLength={60}
           />
 
-          {/* Dosis */}
           <Text style={styles.fieldLabel}>Dosis</Text>
           <View style={styles.doseRow}>
             <TextInput
@@ -95,48 +113,55 @@ export function AddSupplementSheet({
               selectTextOnFocus
             />
 
-            {/* Selector unidad */}
             <View style={styles.unitSelector}>
-              {UNITS.map((u) => (
-                <TouchableOpacity
-                  key={u.value}
-                  style={[styles.unitPill, unit === u.value && styles.unitPillActive]}
-                  onPress={() => setUnit(u.value)}
+              {UNITS.map((option) => (
+                <Pressable
+                  key={option.value}
+                  style={({ pressed }) => [
+                    styles.unitPill,
+                    unit === option.value && styles.unitPillActive,
+                    pressed && styles.choicePressed,
+                  ]}
+                  onPress={() => setUnit(option.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Unidad ${option.label}`}
                 >
                   <Text
                     style={[
                       styles.unitPillText,
-                      unit === u.value && styles.unitPillTextActive,
+                      unit === option.value && styles.unitPillTextActive,
                     ]}
                   >
-                    {u.label}
+                    {option.label}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
           </View>
 
-          {/* Frecuencia */}
           <Text style={styles.fieldLabel}>Frecuencia</Text>
           <View style={styles.freqRow}>
-            {FREQS.map((f) => (
-              <TouchableOpacity
-                key={f.value}
-                style={[
+            {FREQS.map((option) => (
+              <Pressable
+                key={option.value}
+                style={({ pressed }) => [
                   styles.freqBtn,
-                  frequency === f.value && styles.freqBtnActive,
+                  frequency === option.value && styles.freqBtnActive,
+                  pressed && styles.choicePressed,
                 ]}
-                onPress={() => setFrequency(f.value)}
+                onPress={() => setFrequency(option.value)}
+                accessibilityRole="button"
+                accessibilityLabel={`Frecuencia ${option.label}`}
               >
                 <Text
                   style={[
                     styles.freqBtnText,
-                    frequency === f.value && styles.freqBtnTextActive,
+                    frequency === option.value && styles.freqBtnTextActive,
                   ]}
                 >
-                  {f.label}
+                  {option.label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
 
@@ -147,16 +172,19 @@ export function AddSupplementSheet({
             color={Colors.brand}
             style={styles.saveBtn}
           />
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardWrap: {
+    flex: 1,
+  },
   content: {
     gap: Spacing[3],
-    paddingBottom: Spacing[4],
+    paddingBottom: Spacing[8],
   },
   fieldLabel: {
     fontFamily: FontFamily.medium,
@@ -224,10 +252,13 @@ const styles = StyleSheet.create({
   freqBtnTextActive: {
     color: '#fff',
   },
+  choicePressed: {
+    opacity: 0.88,
+  },
   saveBtn: {
     marginTop: Spacing[2],
+    marginBottom: Spacing[2],
   },
 });
 
-// Expo Router expects a default export for any file under `app/`.
 export default AddSupplementSheet;

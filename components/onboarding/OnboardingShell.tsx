@@ -18,6 +18,9 @@ interface OnboardingShellProps {
   footer?: React.ReactNode;
   contentStyle?: ViewStyle;
   scrollable?: boolean;
+  skipLabel?: string;
+  skipHint?: string;
+  onSkip?: () => void;
 }
 
 export default function OnboardingShell({
@@ -29,6 +32,9 @@ export default function OnboardingShell({
   footer,
   contentStyle,
   scrollable = true,
+  skipLabel = 'Omitir',
+  skipHint,
+  onSkip,
 }: OnboardingShellProps) {
   const meta = getOnboardingStepMeta(pathname);
   const shouldShowBack = (meta?.order ?? 99) > 1;
@@ -40,7 +46,23 @@ export default function OnboardingShell({
       contentStyle={contentStyle ? { ...styles.content, ...contentStyle } : styles.content}
     >
       <View style={styles.topRail}>
-        <OnboardingProgress pathname={pathname} />
+        <View style={styles.progressRow}>
+          <View style={styles.progressCopy}>
+            <Text style={styles.progressLabel}>{meta?.blockLabel ?? 'Configurando Vyra'}</Text>
+            <OnboardingProgress pathname={pathname} />
+          </View>
+          {onSkip ? (
+            <Pressable
+              onPress={onSkip}
+              style={styles.skipButton}
+              accessibilityRole="button"
+              accessibilityLabel={skipLabel}
+            >
+              <Text style={styles.skipText}>{skipLabel}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {skipHint ? <Text style={styles.skipHint}>{skipHint}</Text> : null}
       </View>
 
       {shouldShowBack ? (
@@ -82,6 +104,44 @@ const styles = StyleSheet.create({
   },
   topRail: {
     gap: Spacing[3],
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+  },
+  progressCopy: {
+    flex: 1,
+    gap: Spacing[2],
+  },
+  progressLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    color: Colors.textMuted,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  skipButton: {
+    minHeight: 44,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.action, 0.22),
+    backgroundColor: withOpacity(Colors.action, 0.08),
+    paddingHorizontal: Spacing[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skipText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.action,
+  },
+  skipHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    maxWidth: 320,
   },
   backButton: {
     width: 42,

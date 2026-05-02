@@ -64,6 +64,12 @@ type HealthConnectSleepRecord = {
 
 const HEALTH_CONNECT_WEB_URL =
   'https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata';
+const NATIVE_TIMEOUT_MS = 4500;
+const PERMISSION_TIMEOUT_MS = 15000;
+
+type SleepReadResult = {
+  records?: HealthConnectSleepRecord[];
+};
 
 function hasSleepReadPermission(
   permissions: SleepPermission[],
@@ -72,6 +78,27 @@ function hasSleepReadPermission(
     (permission) =>
       permission.accessType === 'read' && permission.recordType === 'SleepSession',
   );
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallbackValue: T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race<T>([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallbackValue), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function durationMinutes(startTime: string, endTime: string): number {
@@ -176,8 +203,11 @@ export async function openHealthConnectApp(): Promise<void> {
   try {
     openHealthConnectSettings();
     return;
-  } catch {
-    const canOpen = await Linking.canOpenURL(HEALTH_CONNECT_WEB_URL).catch(() => false);
+  } catch (err) {
+    const canOpen = await Linking.canOpenURL(HEALTH_CONNECT_WEB_URL).catch((e) => {
+      console.debug?.('[health-connect-sleep] Linking.canOpenURL failed', e);
+      return false;
+    });
     if (canOpen) {
       await Linking.openURL(HEALTH_CONNECT_WEB_URL);
     }
@@ -193,13 +223,18 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
       status: 'unsupported',
       permissionsGranted: false,
       records: [],
-      message: 'Health Connect solo esta disponible en Android.',
+      message: 'Health Connect solo está disponible en Android.',
     };
   }
 
   try {
-    const sdkStatus = await getSdkStatus().catch(
-      () => SdkAvailabilityStatus.SDK_UNAVAILABLE,
+    const sdkStatus = await withTimeout(
+      getSdkStatus().catch((e) => {
+        console.debug?.('[health-connect-sleep] getSdkStatus failed', e);
+        return SdkAvailabilityStatus.SDK_UNAVAILABLE;
+      }),
+      NATIVE_TIMEOUT_MS,
+      SdkAvailabilityStatus.SDK_UNAVAILABLE,
     );
     if (sdkStatus === SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED) {
       return {
@@ -215,11 +250,18 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
         status: 'unavailable',
         permissionsGranted: false,
         records: [],
-        message: 'Health Connect no esta disponible en este dispositivo.',
+        message: 'Health Connect no está disponible en este dispositivo.',
       };
     }
 
-    const initialized = await initialize().catch(() => false);
+    const initialized = await withTimeout(
+      initialize().catch((e) => {
+        console.debug?.('[health-connect-sleep] initialize failed', e);
+        return false;
+      }),
+      NATIVE_TIMEOUT_MS,
+      false,
+    );
     if (!initialized) {
       return {
         status: 'error',
@@ -229,14 +271,41 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
       };
     }
 
-    let grantedPermissions: SleepPermission[] = await getGrantedPermissions().catch(() => []);
+    let grantedPermissions: SleepPermission[] = await withTimeout(
+      getGrantedPermissions().catch((e) => {
+        console.debug?.('[health-connect-sleep] getGrantedPermissions failed', e);
+        return [] as SleepPermission[];
+      }),
+      PERMISSION_TIMEOUT_MS,
+      [],
+    );
     let granted = hasSleepReadPermission(grantedPermissions);
 
     if (!granted && options?.promptForPermissions) {
-      grantedPermissions = await requestPermission([
-        { accessType: 'read', recordType: 'SleepSession' },
-      ]).catch(() => []);
-      granted = hasSleepReadPermission(grantedPermissions);
+      const requestedPermissions = await withTimeout(
+        requestPermission([
+          { accessType: 'read', recordType: 'SleepSession' },
+        ]).catch((e) => {
+          console.debug?.('[health-connect-sleep] requestPermission failed', e);
+          return [] as SleepPermission[];
+        }),
+        PERMISSION_TIMEOUT_MS,
+        [],
+      );
+      grantedPermissions = requestedPermissions;
+      granted = hasSleepReadPermission(requestedPermissions);
+
+      if (!granted) {
+        grantedPermissions = await withTimeout(
+          getGrantedPermissions().catch((e) => {
+            console.debug?.('[health-connect-sleep] getGrantedPermissions (second) failed', e);
+            return [] as SleepPermission[];
+          }),
+          PERMISSION_TIMEOUT_MS,
+          [],
+        );
+        granted = hasSleepReadPermission(grantedPermissions);
+      }
     }
 
     if (!granted) {
@@ -245,7 +314,7 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
         permissionsGranted: false,
         records: [],
         message:
-          'Permite lectura de sueño en Health Connect para recuperar sesiónes automáticamente.',
+          'Permite lectura de sueño en Health Connect para recuperar sesiones automáticamente.',
       };
     }
 
@@ -254,15 +323,31 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
     start.setDate(start.getDate() - daysBack);
     start.setHours(0, 0, 0, 0);
 
-    const result = await readRecords('SleepSession', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: new Date().toISOString(),
-      },
-      ascendingOrder: false,
-      pageSize: 30,
-    }).catch(() => ({ records: [] as HealthConnectSleepRecord[] }));
+    const result = await withTimeout(
+      readRecords('SleepSession', {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime: start.toISOString(),
+          endTime: new Date().toISOString(),
+        },
+        ascendingOrder: false,
+        pageSize: 30,
+      }).catch((e) => {
+        console.debug?.('[health-connect-sleep] readRecords SleepSession failed', e);
+        return null;
+      }) as Promise<SleepReadResult | null>,
+      NATIVE_TIMEOUT_MS,
+      null,
+    );
+
+    if (!result) {
+      return {
+        status: 'error',
+        permissionsGranted: granted,
+        records: [],
+        message: 'No se pudo leer sueÃ±o desde Health Connect.',
+      };
+    }
 
     const records = (result.records ?? []).map((record) =>
       mapSleepRecord(record as HealthConnectSleepRecord),
@@ -275,7 +360,7 @@ export async function syncSleepSessionsFromHealthConnect(options?: {
       message:
         records.length > 0
           ? `Leímos ${records.length} sesión${records.length === 1 ? '' : 'es'} de sueño desde Health Connect.`
-          : 'No encontramos sesiónes de sueño en Health Connect para este periodo.',
+          : 'No encontramos sesiones de sueño en Health Connect para este periodo.',
     };
   } catch (error) {
     return {

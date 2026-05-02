@@ -27,7 +27,7 @@ interface SleepLogFormProps {
   getOptimalAlarmTimes: (bedtime: Date) => Date[];
 }
 
-const REASON_OPTIONS = ['Estres', 'Calor', 'Ruido', 'Alcohol', 'Enfermedad', 'Otro'] as const;
+const REASON_OPTIONS = ['Estrés', 'Calor', 'Ruido', 'Alcohol', 'Enfermedad', 'Otro'] as const;
 
 export default function SleepLogForm({
   goalHours,
@@ -35,7 +35,7 @@ export default function SleepLogForm({
   onSubmit,
   onCancel,
   showCancel = false,
-  submitLabel = 'Guardar sueno',
+  submitLabel = 'Guardar sueño',
   getOptimalAlarmTimes,
 }: SleepLogFormProps) {
   const [bedtime, setBedtime] = useState<Date | null>(buildDefaultTime(23));
@@ -70,15 +70,15 @@ export default function SleepLogForm({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>{isRetroactive ? 'Registrar sueno de anoche' : 'Registrar sueno'}</Text>
+      <Text style={styles.title}>{isRetroactive ? 'Registrar sueño de anoche' : 'Registrar sueño'}</Text>
       <Text style={styles.subtitle}>
         {isRetroactive
-          ? 'Si te acordaste mas tarde, igual conviene cargarlo ahora.'
-          : 'Registra la noche aqui y deja el hub para lectura y contexto.'}
+          ? 'Si te acordaste más tarde, igual conviene cargarlo ahora.'
+          : 'Registra la noche aquí y deja el hub para lectura y contexto.'}
       </Text>
 
       <SleepTimeField
-        label={isRetroactive ? 'Me dormi aproximadamente a las' : 'Me dormi a las'}
+        label={isRetroactive ? 'Me dormí aproximadamente a las' : 'Me dormí a las'}
         value={bedtime}
         placeholder="23:00"
         defaultHour={23}
@@ -86,7 +86,7 @@ export default function SleepLogForm({
       />
 
       <SleepTimeField
-        label="Me desperte a las"
+        label="Me desperté a las"
         value={wakeTime}
         placeholder="07:00"
         defaultHour={7}
@@ -94,7 +94,7 @@ export default function SleepLogForm({
       />
 
       <View style={styles.durationCard}>
-        <Text style={styles.durationLabel}>Duracion estimada</Text>
+        <Text style={styles.durationLabel}>Duración estimada</Text>
         <Text
           style={[
             styles.durationValue,
@@ -112,7 +112,7 @@ export default function SleepLogForm({
       </View>
 
       <View style={styles.block}>
-        <Text style={styles.blockLabel}>Como sentiste la noche</Text>
+        <Text style={styles.blockLabel}>Cómo sentiste la noche</Text>
         <View style={styles.qualityRow}>
           {SLEEP_QUALITY_OPTIONS.map((option) => {
             const isActive = quality === option.value;
@@ -121,6 +121,10 @@ export default function SleepLogForm({
                 key={option.value}
                 onPress={() => setQuality(option.value)}
                 style={[styles.qualityChip, isActive && styles.qualityChipActive]}
+                accessibilityRole="radio"
+                accessibilityLabel={option.short}
+                accessibilityState={{ selected: isActive }}
+                hitSlop={8}
               >
                 <Text style={styles.qualityEmoji}>{option.emoji}</Text>
                 <Text
@@ -139,7 +143,7 @@ export default function SleepLogForm({
 
       {quality <= 2 ? (
         <View style={styles.block}>
-          <Text style={styles.blockLabel}>Si fue una noche dificil, por que?</Text>
+          <Text style={styles.blockLabel}>Si fue una noche difícil, ¿por qué?</Text>
           <View style={styles.reasonRow}>
             {REASON_OPTIONS.map((reason) => {
               const active = selectedReasons.includes(reason);
@@ -154,6 +158,10 @@ export default function SleepLogForm({
                     )
                   }
                   style={[styles.reasonChip, active && styles.reasonChipActive]}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={reason}
+                  accessibilityState={{ checked: active }}
+                  hitSlop={8}
                 >
                   <Text style={[styles.reasonText, active && styles.reasonTextActive]}>
                     {reason}
@@ -257,6 +265,10 @@ function SleepPhasePicker({
                 styles.phaseChip,
                 isActive && { borderColor: color, backgroundColor: color },
               ]}
+              accessibilityRole="radio"
+              accessibilityLabel={`${option}%`}
+              accessibilityState={{ selected: isActive }}
+              hitSlop={8}
             >
               <Text
                 style={[

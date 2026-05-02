@@ -6,6 +6,7 @@ export const Routes = {
     forgotPassword: '/(auth)/forgot-password',
     resetPassword: '/reset-password',
     google: '/(auth)/google',
+    apple: '/(auth)/apple',
     onboarding: {
       transition: '/(auth)/onboarding/step-goals',
       goals: '/(auth)/onboarding/step-goals',
@@ -18,11 +19,13 @@ export const Routes = {
   },
 
   tabs: {
-    home: '/(tabs)/',
+    home: '/(tabs)',
+    explore: '/(tabs)/explore',
     progress: '/(tabs)/progress',
     profile: '/profile/sheet',
-    context: '/(tabs)/',
   },
+
+  readiness: '/readiness',
 
   progress: {
     index: '/(tabs)/progress',
@@ -30,38 +33,27 @@ export const Routes = {
     insights: '/modules/progress/insights',
   },
 
-  log: '/(tabs)/',
-
   water: {
-    index: '/modules/water/',
-    day: '/modules/water/',
+    index: '/modules/water',
     history: '/modules/water/history',
     settings: '/modules/water/settings',
-    custom: '/modules/water/',
-    drinkBuilder: '/modules/water/',
-    reminders: '/modules/water/settings',
   },
 
   steps: {
-    index: '/modules/steps/',
-    cardio: '/modules/steps/',
-    map: '/modules/steps/',
-    history: '/modules/steps/history',
+    index: '/modules/steps',
     week: '/modules/steps/week',
-    calibration: '/modules/steps/settings',
     settings: '/modules/steps/settings',
   },
 
   fasting: {
-    index: '/modules/fasting/',
+    index: '/modules/fasting',
     protocols: '/modules/fasting/protocols',
-    history: '/modules/fasting/history',
     analysis: '/modules/fasting/analysis',
     settings: '/modules/fasting/settings',
   },
 
   sleep: {
-    index: '/modules/sleep/',
+    index: '/modules/sleep',
     log: '/modules/sleep/log',
     insights: '/modules/sleep/insights',
     history: '/modules/sleep/history',
@@ -69,90 +61,50 @@ export const Routes = {
   },
 
   nutrition: {
-    index: '/modules/nutrition/',
+    index: '/modules/nutrition',
     log: '/modules/nutrition/log',
-    search: '/modules/nutrition/search',
-    food: '/modules/nutrition/food-detail',
     barcode: '/modules/nutrition/barcode-scan',
-    recipes: '/modules/nutrition/recipes',
     history: '/modules/nutrition/history',
-    mode: '/modules/nutrition/log',
     settings: '/modules/nutrition/settings',
   },
 
-  weight: {
-    index: '/(tabs)/progress',
-    log: '/(tabs)/progress',
-    photos: '/(tabs)/progress',
-    history: '/modules/progress/history',
-    settings: '/settings/account',
-  },
-
-  recovery: {
-    index: '/modules/recovery/',
-    history: '/modules/recovery/history',
-    settings: '/modules/recovery/settings',
-  },
-
   workout: {
-    index: '/modules/workout/',
+    index: '/modules/workout',
     preview: '/modules/workout/session-preview',
     session: '/modules/workout/session',
     sessionDetail: '/modules/workout/session-detail',
     programs: '/modules/workout/programs',
-    exercises: '/modules/workout/exercises',
+    exercises: '/modules/workout/exercise-create',
     exerciseDetail: '/modules/workout/exercise-detail',
-    exerciseCreate: '/modules/workout/exercise-create',
     routines: '/modules/workout/routines',
-    routineBuilder: '/modules/workout/routine-editor',
     routineEditor: '/modules/workout/routine-editor',
-    routineTemplates: '/modules/workout/routine-editor',
-    prs: '/modules/workout/insights?tab=prs',
-    stats: '/modules/workout/insights?tab=stats',
     planner: '/modules/workout/planner',
     summary: '/modules/workout/summary',
     done: '/modules/workout/done',
-    history: '/modules/workout/insights?tab=history',
-    insights: '/modules/workout/insights',
     settings: '/modules/workout/settings',
   },
 
-  mental: {
-    index: '/(tabs)/progress',
-    history: '/(tabs)/progress',
-    insights: '/(tabs)/progress',
-    settings: '/settings/notifications-settings',
-  },
-
-  context: {
-    index: '/(tabs)/',
-    history: '/settings/notifications-history',
-    settings: '/settings/notifications-settings',
-  },
-
   supplements: {
-    index: '/modules/supplements/',
+    index: '/modules/supplements',
     history: '/modules/supplements/history',
     settings: '/modules/supplements/settings',
   },
 
   female: {
-    index: '/modules/female/',
-    symptoms: '/modules/female/symptoms',
-    history: '/modules/female/history',
+    index: '/modules/female',
     settings: '/modules/female/settings',
   },
 
   profile: {
-    index: '/profile/sheet',
     sheet: '/profile/sheet',
     edit: '/profile/edit',
-    weightGoal: '/settings/account',
+    claimAccount: '/profile/claim-account',
     femaleHealth: '/profile/female-health',
     changePassword: '/profile/change-password',
     deleteAccount: '/profile/delete-account',
     support: '/profile/support',
     exportData: '/profile/export-data',
+    referral: '/profile/referral',
   },
 
   legal: {
@@ -160,41 +112,26 @@ export const Routes = {
     privacy: '/legal/privacy',
   },
 
-  dailySummary: '/(tabs)/progress',
-
-  intelligence: {
-    whyVyra: '/(tabs)/',
-  },
-
-  kora: '/(tabs)/progress',
-
   premium: {
     paywall: '/premium/paywall',
     manage: '/premium/manage',
   },
 
-  paywall: '/premium/paywall',
-
-  growth: {
-    invite: '/growth/invite',
-  },
-
   settings: {
     index: '/settings/',
-    sessions: '/settings/account',
     modules: '/settings/modules',
-    notifications: '/settings/notifications-settings',
-    notificationsHistory: '/settings/notifications-history',
     notificationsSettings: '/settings/notifications-settings',
+    notificationsHistory: '/settings/notifications-history',
     appearance: '/settings/appearance',
-    context: '/settings/notifications-settings',
-    coach: '/settings/notifications-settings',
     widgets: '/settings/widgets',
-    theme: '/settings/appearance',
     units: '/settings/appearance',
-    language: '/settings/appearance',
     privacy: '/settings/privacy',
     account: '/settings/account',
-    danger: '/settings/account',
+    systemHealth: '/settings/system-health',
+  },
+
+  internal: {
+    uiGallery: '/internal/ui-gallery',
+    adsLab: '/internal/ads-lab',
   },
 } as const;

@@ -41,33 +41,49 @@ async function getCurrentNativeStepTotal(): Promise<number | null> {
 
   const pedometerApi = Pedometer as PedometerPermissionsApi;
   const permission = pedometerApi.getPermissionsAsync
-    ?  await pedometerApi.getPermissionsAsync().catch(() => null)
+    ?  await pedometerApi.getPermissionsAsync().catch((e) => {
+      console.debug?.('[steps-bg] getPermissionsAsync failed', e);
+      return null;
+    })
     : null;
 
   if (permission && !permission.granted) return null;
 
-  const available = await Pedometer.isAvailableAsync().catch(() => false);
+  const available = await Pedometer.isAvailableAsync().catch((e) => {
+    console.debug?.('[steps-bg] isAvailableAsync failed', e);
+    return false;
+  });
   if (!available) return null;
 
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
-  const result = await Pedometer.getStepCountAsync(dayStart, new Date()).catch(() => null);
+  const result = await Pedometer.getStepCountAsync(dayStart, new Date()).catch((e) => {
+    console.debug?.('[steps-bg] getStepCountAsync failed', e);
+    return null;
+  });
   if (!result) return null;
   return Math.max(0, Math.round(result.steps ?? 0));
 }
 
 export async function setStepsBackgroundSyncUser(userId: string | null): Promise<void> {
   if (!userId) {
-    await AsyncStorage.removeItem(STEPS_BG_USER_KEY).catch(() => {});
+      await AsyncStorage.removeItem(STEPS_BG_USER_KEY).catch((e) => {
+      console.debug?.('[steps-bg] AsyncStorage.removeItem failed', e);
+    });
     return;
   }
-  await AsyncStorage.setItem(STEPS_BG_USER_KEY, userId).catch(() => {});
+  await AsyncStorage.setItem(STEPS_BG_USER_KEY, userId).catch((e) => {
+    console.debug?.('[steps-bg] AsyncStorage.setItem failed', e);
+  });
 }
 
 export async function captureStepsBackgroundSnapshotNow(
   userIdOverride?: string | null,
 ): Promise<StepsBackgroundSnapshot | null> {
-  const userId = userIdOverride ?? (await AsyncStorage.getItem(STEPS_BG_USER_KEY).catch(() => null));
+  const userId = userIdOverride ?? (await AsyncStorage.getItem(STEPS_BG_USER_KEY).catch((e) => {
+    console.debug?.('[steps-bg] AsyncStorage.getItem failed', e);
+    return null;
+  }));
   if (!userId) return null;
 
   const steps = await getCurrentNativeStepTotal();
@@ -84,7 +100,9 @@ export async function captureStepsBackgroundSnapshotNow(
   await AsyncStorage.multiSet([
     [getSnapshotKey(userId, snapshot.dayKey), JSON.stringify(snapshot)],
     [getLatestKey(userId), JSON.stringify(snapshot)],
-  ]).catch(() => {});
+  ]).catch((e) => {
+    console.debug?.('[steps-bg] AsyncStorage.multiSet failed', e);
+  });
 
   return snapshot;
 }
@@ -93,7 +111,10 @@ export async function readStepsBackgroundSnapshot(
   userId: string,
   dayKey = getLocalDayKey(),
 ): Promise<StepsBackgroundSnapshot | null> {
-  const direct = await AsyncStorage.getItem(getSnapshotKey(userId, dayKey)).catch(() => null);
+  const direct = await AsyncStorage.getItem(getSnapshotKey(userId, dayKey)).catch((e) => {
+    console.debug?.('[steps-bg] AsyncStorage.getItem(snapshot) failed', e);
+    return null;
+  });
   if (direct) {
     try {
       return JSON.parse(direct) as StepsBackgroundSnapshot;
@@ -102,7 +123,10 @@ export async function readStepsBackgroundSnapshot(
     }
   }
 
-  const latest = await AsyncStorage.getItem(getLatestKey(userId)).catch(() => null);
+  const latest = await AsyncStorage.getItem(getLatestKey(userId)).catch((e) => {
+    console.debug?.('[steps-bg] AsyncStorage.getItem(latest) failed', e);
+    return null;
+  });
   if (!latest) return null;
 
   try {
@@ -120,7 +144,8 @@ if (!TaskManager.isTaskDefined(STEPS_BG_TASK)) {
       return snapshot
         ?  BackgroundFetch.BackgroundFetchResult.NewData
         : BackgroundFetch.BackgroundFetchResult.NoData;
-    } catch {
+    } catch (e) {
+      console.debug?.('[steps-bg] capture snapshot task failed', e);
       return BackgroundFetch.BackgroundFetchResult.Failed;
     }
   });
@@ -130,14 +155,19 @@ export async function registerStepsBackgroundSync(): Promise<void> {
   if (Platform.OS !== 'android' && Platform.OS !== 'ios') return;
   if (await syncQaBackgroundFetchTask(STEPS_BG_TASK)) return;
 
-  const isRegistered = await TaskManager.isTaskRegisteredAsync(STEPS_BG_TASK).catch(() => false);
+  const isRegistered = await TaskManager.isTaskRegisteredAsync(STEPS_BG_TASK).catch((e) => {
+    console.debug?.('[steps-bg] isTaskRegisteredAsync failed', e);
+    return false;
+  });
   if (isRegistered) return;
 
   await BackgroundFetch.registerTaskAsync(STEPS_BG_TASK, {
     minimumInterval: 15 * 60,
     stopOnTerminate: false,
     startOnBoot: true,
-  }).catch(() => {});
+  }).catch((e) => {
+    console.debug?.('[steps-bg] BackgroundFetch.registerTaskAsync failed', e);
+  });
 }
 
 export { STEPS_BG_TASK };

@@ -42,6 +42,15 @@ interface EmotionalDrift {
 
 type MentalRow = Record<string, unknown>;
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : String(message ?? '');
+  }
+  return String(error ?? '');
+}
+
 function parseMentalMetric(value: unknown, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -193,7 +202,7 @@ export function useMental() {
         .single();
 
       if (error) {
-        const message = String((error as any).message ?? '');
+        const message = getErrorMessage(error);
         const missingSecureColumns =
           message.includes('mood_encrypted') ||
           message.includes('energy_encrypted') ||

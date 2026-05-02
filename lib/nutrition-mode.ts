@@ -15,29 +15,29 @@ export const NUTRITION_MODE_OPTIONS: NutritionModeOption[] = [
     id: 'athlete',
     title: 'Modo atleta',
     shortTitle: 'Atleta',
-    description: 'Macros, calorias y precision para rendimiento o recomposicion.',
+    description: 'Macros, calorías y precisión para rendimiento o recomposicion.',
   },
   {
     id: 'competition',
     title: 'Modo competicion',
     shortTitle: 'Competicion',
-    description: 'Control mas fino para etapas exigentes: peso, tendencia, refeeds y ventanas de ajuste.',
+    description: 'Control más fino para etapas exigentes: peso, tendencia, refeeds y ventanas de ajuste.',
   },
   {
     id: 'simple',
     title: 'Modo simple',
     shortTitle: 'Simple',
-    description: 'Menos friccion: foco en calorias, proteina y consistencia.',
+    description: 'Menos fricción: foco en calorías, proteína y consistencia.',
   },
   {
     id: 'awareness',
     title: 'Modo consciencia',
     shortTitle: 'Consciencia',
-    description: 'Mas presencia y adherencia, menos presion por cada gramo.',
+    description: 'Más presencia y adherencia, menos presion por cada gramo.',
   },
 ];
 
-function getCoachMemory(profile: UserProfile | null): Record<string, unknown> {
+function getContextMemory(profile: UserProfile | null): Record<string, unknown> {
   return getProfileContextMemory(profile);
 }
 
@@ -56,7 +56,7 @@ function inferModeFromGoal(profile: UserProfile | null): NutritionMode {
 }
 
 export function getNutritionMode(profile: UserProfile | null): NutritionMode {
-  const raw = getCoachMemory(profile).nutrition_mode;
+  const raw = getContextMemory(profile).nutrition_mode;
   if (raw === 'athlete' || raw === 'competition' || raw === 'simple' || raw === 'awareness') {
     return raw;
   }

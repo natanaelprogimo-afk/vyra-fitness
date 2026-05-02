@@ -24,10 +24,8 @@ import {
 } from '@/lib/workout-types';
 import {
   WORKOUT_DEFAULT_SETTINGS,
-  WORKOUT_SEED_DETAILS,
   WORKOUT_SEED_EXERCISES,
   WORKOUT_SEED_FAVORITES,
-  WORKOUT_SEED_HISTORY,
   WORKOUT_SEED_PROGRAMS,
   WORKOUT_SEED_ROUTINES,
   WORKOUT_SEED_VERSION,
@@ -64,6 +62,7 @@ interface CreateExerciseInput {
 }
 
 interface WorkoutStoreState {
+  ownerUserId: string | null;
   exercises: Exercise[];
   routines: Routine[];
   routineTemplates: Routine[];
@@ -93,6 +92,7 @@ interface WorkoutStoreState {
   toggleFavoriteExercise: (exerciseId: string) => void;
   setActiveProgram: (programId: string | null) => Promise<boolean>;
   updateSettings: (patch: Partial<WorkoutSettings>) => void;
+  bindOwner: (userId: string) => void;
   setCurrentExerciseIndex: (index: number) => void;
   startRestTimer: () => void;
   clearRestTimer: () => void;
@@ -161,6 +161,30 @@ function buildPersonalRecords(details: Record<string, WorkoutSessionDetail>) {
   return records;
 }
 
+function isSeedSessionId(value: string | null | undefined) {
+  return typeof value === 'string' && value.startsWith('session_seed_');
+}
+
+function sanitizePersistedHistory(history: WorkoutHistory[] | undefined) {
+  return (history ?? []).filter((entry) => !isSeedSessionId(entry.id));
+}
+
+function sanitizePersistedSessionDetails(details: Record<string, WorkoutSessionDetail> | undefined) {
+  return Object.fromEntries(
+    Object.entries(details ?? {}).filter(([sessionId, detail]) => {
+      const detailSessionId = detail?.session?.id ?? sessionId;
+      return !isSeedSessionId(sessionId) && !isSeedSessionId(detailSessionId);
+    }),
+  ) as Record<string, WorkoutSessionDetail>;
+}
+
+function matchesSeedFavorites(favorites: string[] | undefined) {
+  if (!favorites?.length) return false;
+  const current = [...new Set(favorites)].sort().join('|');
+  const seeded = [...WORKOUT_SEED_FAVORITES].sort().join('|');
+  return current === seeded;
+}
+
 function sortHistory(items: WorkoutHistory[]) {
   return [...items].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
 }
@@ -222,31 +246,69 @@ function getRangeStart(days: number) {
   return limit.getTime();
 }
 
+function mergeSeedExercises(current: Exercise[]) {
+  const seedIds = new Set(WORKOUT_SEED_EXERCISES.map((item) => item.id));
+  const custom = current.filter((item) => !seedIds.has(item.id));
+  return [...custom, ...WORKOUT_SEED_EXERCISES];
+}
+
+function mergeSeedRoutines(current: Routine[]) {
+  const seedIds = new Set(WORKOUT_SEED_ROUTINES.map((item) => item.id));
+  const currentById = new Map(current.map((item) => [item.id, item]));
+  const mergedSeed = WORKOUT_SEED_ROUTINES.map((routine) => {
+    const existing = currentById.get(routine.id);
+    if (!existing) return routine;
+    return {
+      ...routine,
+      last_used_at: existing.last_used_at ?? routine.last_used_at,
+    };
+  });
+  const custom = current.filter((item) => !seedIds.has(item.id));
+  return [...custom, ...mergedSeed];
+}
+
+function mergeSeedTemplates(current: Routine[]) {
+  const seedIds = new Set(WORKOUT_TEMPLATE_ROUTINES.map((item) => item.id));
+  const custom = current.filter((item) => !seedIds.has(item.id));
+  return [...custom, ...WORKOUT_TEMPLATE_ROUTINES];
+}
+
+function mergeSeedPrograms(current: WorkoutProgram[]) {
+  const seedIds = new Set(WORKOUT_SEED_PROGRAMS.map((item) => item.id));
+  const custom = current.filter((item) => !seedIds.has(item.id));
+  return [...custom, ...WORKOUT_SEED_PROGRAMS];
+}
+
 const initialState = () => ({
+  ownerUserId: null,
   exercises: WORKOUT_SEED_EXERCISES,
   routines: WORKOUT_SEED_ROUTINES,
   routineTemplates: WORKOUT_TEMPLATE_ROUTINES,
   programs: WORKOUT_SEED_PROGRAMS,
-  history: WORKOUT_SEED_HISTORY,
-  sessionDetails: WORKOUT_SEED_DETAILS,
-  personalRecords: buildPersonalRecords(WORKOUT_SEED_DETAILS),
+  history: [],
+  sessionDetails: {},
+  personalRecords: {},
   activeProgram: {
-    programId:
-      WORKOUT_SEED_PROGRAMS.find((program) => program.slug === 'foundation_3d')?.id ??
-      WORKOUT_SEED_PROGRAMS[0]?.id ??
-      null,
-    startedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-    currentWeek: 3,
-    currentDay: 2,
+    programId: null,
+    startedAt: null,
+    currentWeek: 1,
+    currentDay: 1,
   },
   activeSession: null,
   summary: null,
   settings: WORKOUT_DEFAULT_SETTINGS,
-  favoriteExerciseIds: WORKOUT_SEED_FAVORITES,
+  favoriteExerciseIds: [],
   loading: false,
   loadError: null,
   saving: false,
 });
+
+function createOwnerScopedState(ownerUserId: string | null) {
+  return {
+    ...initialState(),
+    ownerUserId,
+  };
+}
 
 export const useWorkoutStore = create<WorkoutStoreState>()(
   persist(
@@ -574,6 +636,21 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
       updateSettings: (patch) => {
         set((state) => ({ settings: { ...state.settings, ...patch } }));
       },
+      bindOwner: (userId) => {
+        const currentOwner = get().ownerUserId;
+        if (!userId || currentOwner === userId) return;
+
+        if (!currentOwner) {
+          set({ ownerUserId: userId });
+          return;
+        }
+
+        set((state) => ({
+          ...createOwnerScopedState(userId),
+          loading: state.loading,
+          saving: state.saving,
+        }));
+      },
       startRestTimer: () => {
         const session = get().activeSession;
         if (!session) return;
@@ -815,13 +892,31 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           reasons,
         };
       },
-      refresh: async () => {},
+      refresh: async () => {
+        set({ loading: true, loadError: null });
+        try {
+          const state = get();
+          set({
+            exercises: mergeSeedExercises(state.exercises),
+            routines: mergeSeedRoutines(state.routines),
+            routineTemplates: mergeSeedTemplates(state.routineTemplates),
+            programs: mergeSeedPrograms(state.programs),
+            loading: false,
+          });
+        } catch (err) {
+          set({
+            loading: false,
+            loadError: err instanceof Error ? err.message : 'No se pudo refrescar el catalogo de entreno.',
+          });
+        }
+      },
       clearSummary: () => set({ summary: null }),
     }),
     {
       name: `vyra-workout-store-v${WORKOUT_SEED_VERSION}`,
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
+        ownerUserId: state.ownerUserId,
         exercises: state.exercises,
         routines: state.routines,
         routineTemplates: state.routineTemplates,
@@ -837,27 +932,52 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
       }),
       merge: (persistedState, currentState) => {
         const persisted = (persistedState as Partial<WorkoutStoreState>) ?? {};
+        const sanitizedHistory = sanitizePersistedHistory(persisted.history);
+        const sanitizedSessionDetails = sanitizePersistedSessionDetails(
+          persisted.sessionDetails as Record<string, WorkoutSessionDetail> | undefined,
+        );
+        const hadSeedHistory = (persisted.history ?? []).some((entry) => isSeedSessionId(entry.id));
+        const hadSeedSessionDetails = Object.keys(
+          persisted.sessionDetails ?? {},
+        ).some((sessionId) => isSeedSessionId(sessionId));
+        const shouldResetSeededActiveProgram =
+          (hadSeedHistory || hadSeedSessionDetails) && sanitizedHistory.length === 0;
+        const sanitizedPersonalRecords = Object.keys(sanitizedSessionDetails).length
+          ? buildPersonalRecords(sanitizedSessionDetails)
+          : {};
+        const sanitizedFavorites =
+          (hadSeedHistory || hadSeedSessionDetails) && matchesSeedFavorites(persisted.favoriteExerciseIds)
+            ? currentState.favoriteExerciseIds
+            : persisted.favoriteExerciseIds?.length
+              ? persisted.favoriteExerciseIds
+              : currentState.favoriteExerciseIds;
+
         return {
           ...currentState,
           ...persisted,
+          ownerUserId: persisted.ownerUserId ?? currentState.ownerUserId,
           exercises: persisted.exercises?.length ? persisted.exercises : currentState.exercises,
           routines: persisted.routines?.length ? persisted.routines : currentState.routines,
           routineTemplates: persisted.routineTemplates?.length ? persisted.routineTemplates : currentState.routineTemplates,
           programs: persisted.programs?.length ? persisted.programs : currentState.programs,
-          history: persisted.history?.length ? persisted.history : currentState.history,
+          history: sanitizedHistory.length ? sanitizedHistory : currentState.history,
           sessionDetails:
-            persisted.sessionDetails && Object.keys(persisted.sessionDetails).length
-              ? persisted.sessionDetails
+            Object.keys(sanitizedSessionDetails).length
+              ? sanitizedSessionDetails
               : currentState.sessionDetails,
           personalRecords:
-            persisted.personalRecords && Object.keys(persisted.personalRecords).length
+            Object.keys(sanitizedPersonalRecords).length
+              ? sanitizedPersonalRecords
+              : persisted.personalRecords && Object.keys(persisted.personalRecords).length
               ? persisted.personalRecords
               : currentState.personalRecords,
-          activeProgram: persisted.activeProgram ?? currentState.activeProgram,
+          activeProgram: shouldResetSeededActiveProgram
+            ? currentState.activeProgram
+            : persisted.activeProgram ?? currentState.activeProgram,
           activeSession: persisted.activeSession ?? currentState.activeSession,
           summary: persisted.summary ?? currentState.summary,
           settings: { ...currentState.settings, ...(persisted.settings ?? {}) },
-          favoriteExerciseIds: persisted.favoriteExerciseIds?.length ? persisted.favoriteExerciseIds : currentState.favoriteExerciseIds,
+          favoriteExerciseIds: sanitizedFavorites,
         } as WorkoutStoreState;
       },
     },

@@ -1,4 +1,5 @@
 import type { UserProfile } from '@/types/user';
+import { buildProfileContextUpdate } from '@/lib/profile-context';
 
 let ignoreNextSignedOutEvent = false;
 let qaBridgeRuntimeMode = false;
@@ -16,12 +17,88 @@ function normalizeQaBridgePath(url: URL) {
   return `${url.host || ''}${url.pathname || ''}`.replace(/^\/+|\/+$/g, '');
 }
 
+function isQaBridgePayloadKey(value: string): value is keyof QaBridgePayload {
+  return ['access_token', 'refresh_token', 'email', 'password', 'next', 'hold'].includes(value);
+}
+
+function sanitizeQaBridgePayload(input: unknown): QaBridgePayload | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const payload: QaBridgePayload = {};
+
+  for (const [rawKey, rawValue] of Object.entries(input as Record<string, unknown>)) {
+    if (!isQaBridgePayloadKey(rawKey) || typeof rawValue !== 'string') continue;
+
+    const normalized = rawValue.trim();
+    if (!normalized) continue;
+    payload[rawKey] = normalized;
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+
+  if (typeof globalThis.atob === 'function') {
+    return globalThis.atob(`${normalized}${padding}`);
+  }
+
+  return null;
+}
+
+export function decodeQaBridgePayloadParam(value: string | null | undefined): QaBridgePayload | null {
+  if (!value) return null;
+
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const candidates = [normalized];
+
+  try {
+    const decoded = decodeURIComponent(normalized);
+    if (decoded && decoded !== normalized) {
+      candidates.push(decoded);
+    }
+  } catch {
+    // Ignore malformed URI sequences and keep trying with the raw value.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const payload = sanitizeQaBridgePayload(parsed);
+      if (payload) return payload;
+    } catch {
+      // Try the next decoding strategy.
+    }
+
+    try {
+      const base64Decoded = decodeBase64Url(candidate);
+      if (!base64Decoded) continue;
+      const parsed = JSON.parse(base64Decoded);
+      const payload = sanitizeQaBridgePayload(parsed);
+      if (payload) return payload;
+    } catch {
+      // Ignore invalid base64/json payloads.
+    }
+  }
+
+  return null;
+}
+
 export function extractQaBridgePayload(url: string | null | undefined): QaBridgePayload | null {
   if (!url) return null;
 
   try {
     const parsed = new URL(url);
     if (normalizeQaBridgePath(parsed) !== 'session-bridge') return null;
+
+    const payloadParam = decodeQaBridgePayloadParam(parsed.searchParams.get('payload'));
+    if (payloadParam) {
+      return payloadParam;
+    }
 
     const payload: QaBridgePayload = {};
     const keys: Array<keyof QaBridgePayload> = [
@@ -128,16 +205,13 @@ export function buildQaBridgeProfileSeed(params: {
     female_health_enabled: false,
     female_cycle_length: null,
     female_last_period_date: null,
-    context_name_preference: null,
-    context_memory_json: {
-      qa_bridge_seeded: true,
-      onboarding_completed_at: nowIso,
-    },
-    coach_name_preference: null,
-    coach_memory_json: {
-      qa_bridge_seeded: true,
-      onboarding_completed_at: nowIso,
-    },
+    ...buildProfileContextUpdate({
+      name: null,
+      memory: {
+        qa_bridge_seeded: true,
+        onboarding_completed_at: nowIso,
+      },
+    }),
     onboarding_completed: true,
     first_week_completed: false,
     created_at: nowIso,

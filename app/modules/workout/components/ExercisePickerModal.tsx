@@ -2,11 +2,11 @@ import React, { useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { Colors } from '@/constants/colors';
@@ -98,9 +98,15 @@ export function ExercisePickerModal({
         <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Seleccionar ejercicio</Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button">
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar selector de ejercicios"
+              accessibilityHint="Vuelve a la sesión sin agregar un ejercicio."
+              style={({ pressed }) => pressed && styles.pressablePressed}
+            >
               <Text style={styles.closeBtn}>X</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           <TextInput
@@ -122,16 +128,24 @@ export function ExercisePickerModal({
               {MAIN_GROUPS.map((group) => {
                 const active = selectedGroup === group;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={group}
-                    style={[styles.pill, active && styles.pillActive]}
+                    style={({ pressed }) => [
+                      styles.pill,
+                      active && styles.pillActive,
+                      pressed && styles.pressablePressed,
+                    ]}
                     onPress={() => {
                       setSelectedGroup(group);
                       setSelectedSubtype('Todos');
                     }}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`Grupo ${group}`}
+                    accessibilityState={{ selected: active }}
+                    hitSlop={8}
                   >
                     <Text style={[styles.pillText, active && styles.pillTextActive]}>{group}</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </ScrollView>
@@ -147,10 +161,19 @@ export function ExercisePickerModal({
               {subtypeOptions.map((subtype) => {
                 const active = selectedSubtype === subtype;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={subtype}
-                    style={[styles.pill, styles.subtypePill, active && styles.subtypePillActive]}
+                    style={({ pressed }) => [
+                      styles.pill,
+                      styles.subtypePill,
+                      active && styles.subtypePillActive,
+                      pressed && styles.pressablePressed,
+                    ]}
                     onPress={() => setSelectedSubtype(subtype)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`Subtipo ${subtype}`}
+                    accessibilityState={{ selected: active }}
+                    hitSlop={8}
                   >
                     <Text
                       style={[
@@ -161,7 +184,7 @@ export function ExercisePickerModal({
                     >
                       {subtype}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </ScrollView>
@@ -171,9 +194,12 @@ export function ExercisePickerModal({
             data={filtered}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.exerciseItem}
+              <Pressable
+                style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
                 onPress={() => onSelect(item)}
+                accessibilityRole="button"
+                accessibilityLabel={item.name}
+                accessibilityHint="Agrega este ejercicio a la sesion."
               >
                 <View style={styles.exerciseLeft}>
                   <Text style={styles.exerciseName}>{item.name}</Text>
@@ -183,7 +209,7 @@ export function ExercisePickerModal({
                   </Text>
                 </View>
                 <Text style={styles.exerciseArrow}>{'>'}</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
@@ -289,12 +315,18 @@ const styles = StyleSheet.create({
   pillTextActive: {
     color: '#fff',
   },
+  pressablePressed: {
+    opacity: 0.88,
+  },
   exerciseItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing[5],
     paddingVertical: Spacing[4],
     minHeight: 56,
+  },
+  exerciseItemPressed: {
+    backgroundColor: Colors.bgElevated,
   },
   exerciseLeft: {
     flex: 1,

@@ -17,7 +17,7 @@ type FeaturePausedScreenProps = {
 };
 
 export default function FeaturePausedScreen({
-  eyebrow = 'Próximamente',
+  eyebrow = 'Proximamente',
   title,
   subtitle,
   accentColor = Colors.workout,
@@ -34,25 +34,52 @@ export default function FeaturePausedScreen({
         />
 
         <Card accentColor={accentColor} style={styles.card} decorative={false}>
-          <Text style={styles.eyebrow}>Módulo pausado</Text>
-          <Text style={styles.heading}>Lo reharemos desde cero</Text>
-          <Text style={styles.body}>
-            Esta parte quedó fuera por ahora para no sostener una experiencia que ya no queremos conservar.
+          <Text style={[styles.eyebrow, { color: Colors.textMuted }]}>Modulo pausado</Text>
+          <Text style={[styles.heading, { color: Colors.textPrimary }]}>Lo reharemos desde cero</Text>
+          <Text style={[styles.body, { color: Colors.textSecondary }]}>
+            Está parte quedó fuera por ahora para no sostener una experiencia que ya no queremos conservar.
             Cuando definamos la nueva versión, la montamos desde una base limpia.
           </Text>
 
           <View style={styles.pillRow}>
-            <View style={[styles.pill, { borderColor: withOpacity(accentColor, 0.22), backgroundColor: withOpacity(accentColor, 0.12) }]}>
+            <View
+              style={[
+                styles.pill,
+                {
+                  borderColor: withOpacity(accentColor, 0.22),
+                  backgroundColor: withOpacity(accentColor, 0.12),
+                },
+              ]}
+            >
               <Text style={[styles.pillText, { color: accentColor }]}>Rediseño pendiente</Text>
             </View>
-            <View style={[styles.pill, { borderColor: withOpacity(accentColor, 0.22), backgroundColor: withOpacity(accentColor, 0.12) }]}>
+            <View
+              style={[
+                styles.pill,
+                {
+                  borderColor: withOpacity(accentColor, 0.22),
+                  backgroundColor: withOpacity(accentColor, 0.12),
+                },
+              ]}
+            >
               <Text style={[styles.pillText, { color: accentColor }]}>Sin flujo viejo</Text>
             </View>
           </View>
 
           <View style={styles.actions}>
-            <Button onPress={() => router.replace(Routes.tabs.home as never)} label="Volver al inicio" color={accentColor} fullWidth />
-            <Button onPress={() => router.replace(Routes.tabs.progress as never)} label="Abrir progreso" variant="secondary" color={accentColor} fullWidth />
+            <Button
+              onPress={() => router.replace(Routes.tabs.home as never)}
+              label="Volver al inicio"
+              color={accentColor}
+              fullWidth
+            />
+            <Button
+              onPress={() => router.replace(Routes.tabs.progress as never)}
+              label="Abrir progreso"
+              variant="secondary"
+              color={accentColor}
+              fullWidth
+            />
           </View>
         </Card>
       </ScrollView>
@@ -75,18 +102,15 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    color: Colors.textMuted,
   },
   heading: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xl,
-    color: Colors.textPrimary,
   },
   body: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.md,
     lineHeight: 22,
-    color: Colors.textSecondary,
   },
   pillRow: {
     flexDirection: 'row',

@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useCameraPermissions } from 'expo-camera';
-import * as Haptics from 'expo-haptics';
-import { Alert } from 'react-native';
 import { captureError } from '@/lib/sentry';
+import { triggerNotificationHaptic } from '@/lib/haptics';
 
 export interface BarcodeEvent {
   data: string;
@@ -34,48 +33,43 @@ export function useBarcodeScan() {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setError(errorMsg);
-      captureError(err instanceof Error ? err : new Error(errorMsg), { 
-        action: "useBarcodeScan.requestPermission" 
+      captureError(err instanceof Error ? err : new Error(errorMsg), {
+        action: 'useBarcodeScan.requestPermission',
       });
       return false;
     }
   }, [requestPermission]);
 
-  const validateBarcode = useCallback((data: string, type: string): boolean => {
+  const validateBarcode = useCallback((data: string, type: string): string | null => {
     if (!data || data.trim().length === 0) {
-      setError('El código escaneado está vacío');
-      return false;
+      return 'El código escaneado está vacío.';
     }
     if (!type) {
-      setError('Tipo de código desconocido');
-      return false;
+      return 'No pudimos reconocer el tipo de código.';
     }
-    return true;
+    return null;
   }, []);
 
   const handleBarcodeScanned = useCallback(
     async (
       event: BarcodeEvent,
       onSuccess: (barcode: string, type: string) => void,
-      onError?: (error: string) => void,
+      onError?: (message: string) => void,
     ) => {
-      // Evitar múltiples escaneos simultáneos o muy seguidos
-      if (scanned || isScanning) {
-        return;
-      }
+      if (scanned || isScanning) return;
 
       try {
         setIsScanning(true);
         setError(null);
 
-        // Validar el código escaneado
-        if (!validateBarcode(event.data, event.type)) {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          onError?.(error || 'Código inválido');
+        const validationError = validateBarcode(event.data, event.type);
+        if (validationError) {
+          setError(validationError);
+          await triggerNotificationHaptic('warning');
+          onError?.(validationError);
           return;
         }
 
-        // Marcar como escaneado
         setScanned(true);
         setLastScanned({
           data: event.data,
@@ -83,24 +77,21 @@ export function useBarcodeScan() {
           timestamp: Date.now(),
         });
 
-        // Haptic feedback de éxito
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-        // Llamar al callback con los datos
+        await triggerNotificationHaptic('success');
         onSuccess(event.data, event.type);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Error al procesar código';
+        const errorMsg = err instanceof Error ? err.message : 'Error al procesar el código.';
         setError(errorMsg);
-        captureError(err instanceof Error ? err : new Error(errorMsg), { 
-          action: "useBarcodeScan.handleBarcodeScanned" 
+        captureError(err instanceof Error ? err : new Error(errorMsg), {
+          action: 'useBarcodeScan.handleBarcodeScanned',
         });
         onError?.(errorMsg);
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        await triggerNotificationHaptic('warning');
       } finally {
         setIsScanning(false);
       }
     },
-    [scanned, isScanning, validateBarcode, error],
+    [error, isScanning, scanned, validateBarcode],
   );
 
   const resetScan = useCallback(() => {
@@ -114,15 +105,12 @@ export function useBarcodeScan() {
   }, []);
 
   return {
-    // Estado
     hasPermission,
     scanned,
     isScanning,
     torch,
     lastScanned,
     error,
-
-    // Acciones
     requestPermission: requestCameraPermission,
     handleBarcodeScanned,
     resetScan,
@@ -131,6 +119,3 @@ export function useBarcodeScan() {
     clearError: () => setError(null),
   };
 }
-
-
-

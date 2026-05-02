@@ -10,6 +10,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { useNavigationStore } from '@/stores/navigationStore';
 import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
+import { isGuestAuthUser } from '@/lib/guest-auth';
+import { isPasswordRecoveryFlowActive } from '@/lib/password-recovery';
 
 export default function AuthLayout() {
   const isInitialized = useAuthStore((s) => s.isInitialized);
@@ -27,11 +29,16 @@ export default function AuthLayout() {
   const holdValue = Array.isArray(params.hold) ? params.hold[0] : params.hold;
   const isSessionBridge = pathname.includes('session-bridge');
   const isHoldingSessionBridge = isSessionBridge && (holdValue === '1' || holdValue === 'true');
+  const isGuestUpgradeRoute = pathname.includes('/google') || pathname.includes('/apple');
+  const isAnonymousUser = isGuestAuthUser(user);
+  const isPasswordRecovery = isPasswordRecoveryFlowActive();
 
   useEffect(() => {
     if (!isInitialized) return;
     if (isSessionBridge) return;
     if (isHoldingSessionBridge) return;
+    if (isPasswordRecovery) return;
+    if (isAuthenticated && isAnonymousUser && isGuestUpgradeRoute) return;
     if (isAuthenticated && !hasResolvedProfile) return;
     if (isAuthenticated) {
       if (isOnboarded) {
@@ -50,8 +57,11 @@ export default function AuthLayout() {
     isHoldingSessionBridge,
     isInitialized,
     isAuthenticated,
+    isAnonymousUser,
     isOnboarded,
+    isPasswordRecovery,
     isSessionBridge,
+    isGuestUpgradeRoute,
     postAuthRoute,
   ]);
 
@@ -66,6 +76,9 @@ export default function AuthLayout() {
       <Stack.Screen name="welcome" />
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
+      <Stack.Screen name="google" />
+      <Stack.Screen name="apple" />
+      <Stack.Screen name="forgot-password" />
       <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
     </Stack>
   );

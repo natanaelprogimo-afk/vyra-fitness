@@ -4,6 +4,7 @@
 // ============================================================
 
 import { create } from 'zustand';
+import { announceAccessibility } from '@/lib/accessibility';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -59,6 +60,10 @@ interface UIState {
 
   notificationsRefreshKey: number;
   bumpNotificationsRefresh: () => void;
+
+  isQuickLogOpen: boolean;
+  openQuickLog: () => void;
+  closeQuickLog: () => void;
 }
 
 let toastIdCounter = 0;
@@ -76,6 +81,7 @@ export const useUIStore = create<UIState>((set, get) => ({
           : 3000;
     const toast: Toast = { id, message, type, duration: resolvedDuration };
     set((state) => ({ toasts: [...state.toasts, toast] }));
+    void announceAccessibility(message);
     setTimeout(() => {
       get().dismissToast(id);
     }, resolvedDuration);
@@ -104,4 +110,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   notificationsRefreshKey: 0,
   bumpNotificationsRefresh: () =>
     set((state) => ({ notificationsRefreshKey: state.notificationsRefreshKey + 1 })),
+
+  isQuickLogOpen: false,
+  openQuickLog: () => set({ isQuickLogOpen: true }),
+  closeQuickLog: () => set({ isQuickLogOpen: false }),
 }));

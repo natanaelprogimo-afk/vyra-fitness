@@ -19,9 +19,14 @@ export { default as Modal }           from './Modal';
 export { default as BottomSheet }     from './BottomSheet';
 export { default as Toast }           from './Toast';
 export { default as EmptyState }      from './EmptyState';
-export { default as PremiumLock }     from './PremiumLock';
-export { usePremiumGate }             from './PremiumLock';
 export { default as GradientText }    from './GradientText';
+export { default as NoticeCard }      from './NoticeCard';
+export { default as SegmentedControl } from './SegmentedControl';
+export { default as SettingToggleRow } from './SettingToggleRow';
+export { default as LinkRow }         from './LinkRow';
+export { default as SectionHeader }   from './SectionHeader';
+export { default as MetricCard }      from './MetricCard';
+export { default as ScreenFooterSpacer } from './ScreenFooterSpacer';
 
 // Re-export named for people importing with named syntax
 export { default as Card_default } from './Card';

@@ -1,6 +1,6 @@
 // ============================================================
 // VYRA FITNESS - Fasting Store (Zustand)
-// Estado del ayuno activo - persiste durante la sesi?n
+// Estado del ayuno activo - persiste durante la sesion
 // ============================================================
 
 import { create } from 'zustand';

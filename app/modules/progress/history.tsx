@@ -20,9 +20,9 @@ function factorsForRow(row: ScoreHistory | null) {
 
   const items = [
     { label: 'Agua', value: Number(row.hydration_pct ?? 0) },
-    { label: 'Sueno', value: Number(row.sleep_pct ?? 0) },
+    { label: 'Sueño', value: Number(row.sleep_pct ?? 0) },
     { label: 'Actividad', value: Number(row.activity_pct ?? 0) },
-    { label: 'Nutricion', value: Number(row.nutrition_pct ?? 0) },
+    { label: 'Nutrición', value: Number(row.nutrition_pct ?? 0) },
     { label: 'Mental', value: Number(row.mental_pct ?? 0) },
   ];
 
@@ -49,12 +49,18 @@ export default function ProgressHistoryScreen() {
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Historial de recuperacion"
-        subtitle="Los ultimos 14 dias por defecto"
+        title="Historial de recuperación"
+        subtitle="Los últimos 14 días por defecto"
         showBack
         color={Colors.brand}
         rightElement={
-          <Pressable onPress={() => router.push(Routes.progress.insights as never)}>
+          <Pressable
+            onPress={() => router.push(Routes.progress.insights as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir informe"
+            accessibilityHint="Muestra los insights de progreso."
+            hitSlop={8}
+          >
             <Text style={styles.headerLink}>Informe</Text>
           </Pressable>
         }
@@ -69,7 +75,16 @@ export default function ProgressHistoryScreen() {
               const active = row.date === selectedRow?.date;
 
               return (
-                <Pressable key={row.date} onPress={() => setSelectedDate(row.date)} style={styles.dayColumn}>
+                <Pressable
+                  key={row.date}
+                  onPress={() => setSelectedDate(row.date)}
+                  style={styles.dayColumn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Seleccionar ${formatShortDate(row.date)}`}
+                  accessibilityHint="Muestra el detalle de ese día en el panel inferior."
+                  accessibilityState={{ selected: active }}
+                  hitSlop={8}
+                >
                   <View style={styles.barTrack}>
                     <View
                       style={[
@@ -106,17 +121,17 @@ export default function ProgressHistoryScreen() {
                 ))}
               </View>
               <Text style={styles.helperText}>
-                Toca cualquier dia del grafico para ver que factores estuvieron mas fuertes o mas flojos.
+                Toca cualquier día del gráfico para ver que factores estuvieron más fuertes o más flojos.
               </Text>
             </>
           ) : (
-            <Text style={styles.helperText}>Aun no hay historial suficiente para esta vista.</Text>
+            <Text style={styles.helperText}>Aún no hay historial suficiente para esta vista.</Text>
           )}
         </Card>
 
         {sortedHistory.length > 14 ? (
           <Card style={styles.listCard}>
-            <Text style={styles.sectionTitle}>Mas atras</Text>
+            <Text style={styles.sectionTitle}>Más atrás</Text>
             <View style={styles.historyList}>
               {[...sortedHistory].reverse().slice(14, 24).map((row) => (
                 <View key={`row-${row.date}`} style={styles.historyRow}>

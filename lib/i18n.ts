@@ -6,8 +6,8 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import * as ES from '@/constants/strings.es';
 import * as EN from '@/constants/strings.en';
-
-export type SupportedLanguage = 'es' | 'en';
+import * as PT from '@/constants/strings.pt';
+import { detectDeviceLanguage, type SupportedLanguage } from '@/lib/language';
 
 if (!Intl.PluralRules) {
   // Polyfill for Hermes / older Android Intl
@@ -17,16 +17,14 @@ if (!Intl.PluralRules) {
   require('@formatjs/intl-pluralrules/locale-data/es.js');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   require('@formatjs/intl-pluralrules/locale-data/en.js');
-}
-
-function detectDeviceLanguage(): SupportedLanguage {
-  const locale = Intl.DateTimeFormat().resolvedOptions().locale ?? 'es';
-  return locale.toLowerCase().startsWith('en') ? 'en' : 'es';
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('@formatjs/intl-pluralrules/locale-data/pt.js');
 }
 
 const resources = {
   es: { translation: ES },
   en: { translation: EN },
+  pt: { translation: PT },
 } as const;
 
 if (!i18n.isInitialized) {

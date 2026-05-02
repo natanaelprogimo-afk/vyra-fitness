@@ -13,6 +13,7 @@ import {
   armQaBridgeSignedOutBypass,
   buildQaBridgeProfileSeed,
   clearQaBridgePayload,
+  decodeQaBridgePayloadParam,
   getQaBridgePayload,
 } from '@/lib/qa-auth-bridge';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,6 +22,7 @@ import { useQaBridgeDebugStore } from '@/stores/qaBridgeDebugStore';
 import type { UserProfile } from '@/types/user';
 
 type SessionBridgeParams = {
+  payload?: string | string[];
   access_token?: string | string[];
   refresh_token?: string | string[];
   email?: string | string[];
@@ -44,7 +46,8 @@ type BridgeStage =
   | 'redirecting'
   | 'error';
 
-const QA_BRIDGE_ENABLED = __DEV__;
+const QA_BRIDGE_ENABLED =
+  __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
 const QA_SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const QA_SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -71,10 +74,13 @@ function normalizeBridgeDestination(route: string | null): string | null {
     '/(tabs)/': Routes.tabs.home,
     '/(tabs)/index': Routes.tabs.home,
     '/profile': Routes.tabs.profile,
+    '/profile/referral': Routes.profile.referral,
     '/progress': Routes.progress.index,
     '/coach': Routes.tabs.home,
     '/nutrition': Routes.nutrition.index,
+    '/referral': Routes.profile.referral,
     '/workout': Routes.workout.index,
+    '/growth/invite': Routes.profile.referral,
   };
 
   return aliasMap[normalized] ?? normalized;
@@ -197,6 +203,11 @@ async function ensureQaProfile(params: {
 export default function SessionBridgeScreen() {
   const params = useLocalSearchParams<SessionBridgeParams>();
   const cachedPayload = QA_BRIDGE_ENABLED ? getQaBridgePayload() : null;
+  const encodedPayload = useMemo(() => firstParam(params.payload), [params.payload]);
+  const decodedPayload = useMemo(
+    () => decodeQaBridgePayloadParam(encodedPayload),
+    [encodedPayload]
+  );
   const setPostAuthRoute = useNavigationStore((s) => s.setPostAuthRoute);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const session = useAuthStore((s) => s.session);
@@ -212,29 +223,31 @@ export default function SessionBridgeScreen() {
   const setQaDebugSnapshot = useQaBridgeDebugStore((s) => s.setSnapshot);
 
   const accessToken = useMemo(
-    () => firstParam(params.access_token) ?? cachedPayload?.access_token ?? null,
-    [cachedPayload?.access_token, params.access_token]
+    () => firstParam(params.access_token) ?? decodedPayload?.access_token ?? cachedPayload?.access_token ?? null,
+    [cachedPayload?.access_token, decodedPayload?.access_token, params.access_token]
   );
   const refreshToken = useMemo(
-    () => firstParam(params.refresh_token) ?? cachedPayload?.refresh_token ?? null,
-    [cachedPayload?.refresh_token, params.refresh_token]
+    () =>
+      firstParam(params.refresh_token) ?? decodedPayload?.refresh_token ?? cachedPayload?.refresh_token ?? null,
+    [cachedPayload?.refresh_token, decodedPayload?.refresh_token, params.refresh_token]
   );
   const email = useMemo(
-    () => firstParam(params.email) ?? cachedPayload?.email ?? null,
-    [cachedPayload?.email, params.email]
+    () => firstParam(params.email) ?? decodedPayload?.email ?? cachedPayload?.email ?? null,
+    [cachedPayload?.email, decodedPayload?.email, params.email]
   );
   const password = useMemo(
-    () => firstParam(params.password) ?? cachedPayload?.password ?? null,
-    [cachedPayload?.password, params.password]
+    () => firstParam(params.password) ?? decodedPayload?.password ?? cachedPayload?.password ?? null,
+    [cachedPayload?.password, decodedPayload?.password, params.password]
   );
   const nextRoute = useMemo(
-    () => normalizeBridgeDestination(firstParam(params.next) ?? cachedPayload?.next ?? null),
-    [cachedPayload?.next, params.next]
+    () =>
+      normalizeBridgeDestination(firstParam(params.next) ?? decodedPayload?.next ?? cachedPayload?.next ?? null),
+    [cachedPayload?.next, decodedPayload?.next, params.next]
   );
   const holdBridge = useMemo(() => {
-    const value = firstParam(params.hold) ?? cachedPayload?.hold ?? null;
+    const value = firstParam(params.hold) ?? decodedPayload?.hold ?? cachedPayload?.hold ?? null;
     return value === '1' || value === 'true';
-  }, [cachedPayload?.hold, params.hold]);
+  }, [cachedPayload?.hold, decodedPayload?.hold, params.hold]);
 
   useEffect(() => {
     if (!QA_BRIDGE_ENABLED) return;
@@ -289,7 +302,7 @@ export default function SessionBridgeScreen() {
         if (error) throw error;
 
         if (!active) return;
-        updateBridgeStatus('auth_result_received', 'Supabase acepto la autenticacion. Buscando la sesión efectiva.');
+        updateBridgeStatus('auth_result_received', 'Supabase aceptó la autenticación. Buscando la sesión efectiva.');
 
         const resolvedSession =
           'session' in result.data && result.data.session
@@ -297,13 +310,13 @@ export default function SessionBridgeScreen() {
             : (await supabase.auth.getSession()).data.session;
 
         if (!resolvedSession?.user) {
-          throw new Error('Supabase no devolvio una sesión útil despues del bridge QA.');
+          throw new Error('Supabase no devolvió una sesión útil después del bridge QA.');
         }
 
         if (!active) return;
         updateBridgeStatus(
           'session_restored',
-          'La sesión QA ya existe. Hidratando un perfil minimo para destrabar pantallas privadas.'
+          'La sesión QA ya existe. Hidratando un perfil mínimo para destrabar pantallas privadas.'
         );
 
         const fallbackEmail = resolvedSession.user.email ?? email?.trim().toLowerCase() ?? '';
@@ -335,7 +348,7 @@ export default function SessionBridgeScreen() {
           'store_hydrated',
           holdBridge
             ?  'Bridge listo. Dejamos la sesión QA abierta para revisar el estado antes de saltar a otra pantalla.'
-            : 'Bridge listo. Sesion QA abierta y esperando una acción manual.'
+            : 'Bridge listo. Sesión QA abierta y esperando una acción manual.'
         );
 
         if (holdBridge || !nextRoute) {
@@ -344,7 +357,7 @@ export default function SessionBridgeScreen() {
 
         updateBridgeStatus(
           'store_hydrated',
-          'Store local hidratado. Redirigiendo a la ruta privada para seguir la auditoria visual.'
+          'Store local hidratado. Redirigiendo a la ruta privada para seguir la auditoría visual.'
         );
 
         const targetRoute = nextRoute as never;
@@ -401,7 +414,7 @@ export default function SessionBridgeScreen() {
           <Text style={[styles.kicker, { color: Colors.warning }]}>Ruta interna</Text>
           <Text style={styles.title}>Session bridge desactivado</Text>
           <Text style={styles.body}>
-            Esta pantalla solo queda disponible en desarrollo local. La app publica ya no hidrata sesiones QA desde esta ruta.
+            Esta pantalla solo queda disponible en desarrollo local. La app pública ya no hidrata sesiones QA desde esta ruta.
           </Text>
           <View style={styles.statusCard}>
             <Text style={styles.statusLabel}>Estado</Text>
@@ -420,7 +433,7 @@ export default function SessionBridgeScreen() {
     <SafeScreen contentStyle={styles.content}>
       <Card style={styles.card} accentColor={Colors.brand}>
         <Text style={styles.kicker}>QA interno del emulador</Text>
-        <Text style={styles.title}>{bridgeError ? 'Sesion QA no disponible' : 'Abriendo sesión QA'}</Text>
+        <Text style={styles.title}>{bridgeError ? 'Sesión QA no disponible' : 'Abriendo sesión QA'}</Text>
         <Text style={styles.body}>
           {bridgeError ??
             'Estamos conectando la cuenta QA del emulador para abrir pantallas privadas con contexto real.'}

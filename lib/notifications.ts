@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 // import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +10,7 @@ import {
 } from '@/lib/profile-context';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
+import { asRecord, getAuthHeaders, requestJson } from '@/services/backend/client';
 
 // Configurar cómo se muestran las notificaciones cuando la app está en primer plano
 Notifications.setNotificationHandler({
@@ -68,9 +70,84 @@ type HourBucket = Record<string, { scheduled: number; opened: number; actioned: 
 type NotifEngagementStore = Partial<Record<NotifType, HourBucket>>;
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 const IOS_NOTIFICATION_SOUND = Platform.OS === 'ios' ? 'default' : undefined;
+type TriggerShape = Partial<{ type: string; hour: number; date: string | number | Date }>;
+type NotificationHoursResponse = { hours?: unknown[] };
+type NotificationCountResponse = { scheduled?: unknown };
+
+export type PushTokenDiagnostic = {
+  permissionStatus: string;
+  granted: boolean;
+  projectId: string | null;
+  token: string | null;
+  error: string | null;
+};
+
+export const NOTIFICATION_ACTIONS = {
+  openQuickLog: 'open_quick_log',
+  quickLogWater: 'quick_log_water',
+  openWorkout: 'open_workout',
+  markWorkoutDone: 'mark_workout_done',
+} as const;
 
 function getCurrentUtcOffsetMinutes(): number {
   return -new Date().getTimezoneOffset();
+}
+
+function resolveExpoProjectId(): string | null {
+  const envProjectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim();
+  if (envProjectId) return envProjectId;
+
+  const easConfigProjectId = Constants.easConfig?.projectId;
+  if (typeof easConfigProjectId === 'string' && easConfigProjectId.trim().length > 0) {
+    return easConfigProjectId.trim();
+  }
+
+  const extra = Constants.expoConfig?.extra as
+    | { eas?: { projectId?: string | null } | null }
+    | undefined;
+  const extraProjectId = extra?.eas?.projectId;
+  return typeof extraProjectId === 'string' && extraProjectId.trim().length > 0
+    ? extraProjectId.trim()
+    : null;
+}
+
+export async function getExpoPushTokenDiagnostic(): Promise<PushTokenDiagnostic> {
+  const permissions = await Notifications.getPermissionsAsync().catch((e) => {
+    console.debug?.('[notifications] getPermissionsAsync failed', e);
+    return null;
+  });
+  const permissionStatus = permissions?.status ?? 'unknown';
+  const granted = permissions?.granted === true || permissionStatus === 'granted';
+  const projectId = resolveExpoProjectId();
+
+  if (!projectId) {
+    return {
+      permissionStatus,
+      granted,
+      projectId: null,
+      token: null,
+      error: 'Missing Expo projectId for push token registration.',
+    };
+  }
+
+  try {
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return {
+      permissionStatus,
+      granted,
+      projectId,
+      token: typeof token === 'string' && token.trim().length > 0 ? token : null,
+      error: token ? null : 'Expo did not return a push token.',
+    };
+  } catch (error) {
+    return {
+      permissionStatus,
+      granted,
+      projectId,
+      token: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function resolveAndroidChannelId(type: NotifType): string {
@@ -78,6 +155,36 @@ function resolveAndroidChannelId(type: NotifType): string {
   if (type === 'context_proactive') return 'vyra-context';
   if (type === 'streak_at_risk') return 'vyra-important';
   return 'vyra-reminders';
+}
+
+function buildNotificationActions(type: NotifType): Notifications.NotificationAction[] {
+  if (type === 'water_reminder' || type === 'streak_at_risk' || type === 'context_proactive') {
+    return [
+      {
+        identifier: NOTIFICATION_ACTIONS.quickLogWater,
+        buttonTitle: 'Registrar 250ml',
+      },
+      {
+        identifier: NOTIFICATION_ACTIONS.openQuickLog,
+        buttonTitle: 'Ver opciones',
+      },
+    ];
+  }
+
+  if (type === 'workout_reminder') {
+    return [
+      {
+        identifier: NOTIFICATION_ACTIONS.openWorkout,
+        buttonTitle: 'Abrir rutina',
+      },
+      {
+        identifier: NOTIFICATION_ACTIONS.markWorkoutDone,
+        buttonTitle: 'Marcar rutina',
+      },
+    ];
+  }
+
+  return [];
 }
 
 function sanitizeNotificationData(
@@ -154,12 +261,13 @@ function extractTriggerHour(trigger: Notifications.NotificationTriggerInput): nu
     return Number.isNaN(trigger.getTime()) ? null : trigger.getHours();
   }
   if (!trigger || typeof trigger !== 'object') return null;
-  if ('type' in trigger && (trigger as any).type === 'daily') {
-    const hour = Number((trigger as any).hour);
+  const triggerShape = trigger as TriggerShape;
+  if (triggerShape.type === 'daily') {
+    const hour = Number(triggerShape.hour);
     if (Number.isFinite(hour)) return Math.max(0, Math.min(23, hour));
   }
-  if ('date' in trigger) {
-    const rawDate = (trigger as any).date;
+  if ('date' in trigger && triggerShape.date !== undefined) {
+    const rawDate = triggerShape.date;
     const date = rawDate instanceof Date ? rawDate : new Date(rawDate);
     if (!Number.isNaN(date.getTime())) return date.getHours();
   }
@@ -182,7 +290,9 @@ async function readEngagementStore(): Promise<NotifEngagementStore> {
 async function writeEngagementStore(store: NotifEngagementStore): Promise<void> {
   try {
     await AsyncStorage.setItem(NOTIF_ENGAGEMENT_KEY, JSON.stringify(store));
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 async function getAuthToken(): Promise<string | null> {
@@ -222,7 +332,9 @@ async function sendEngagementToBackend(input: {
         source: input.source ?? 'app',
       }),
     });
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 async function recordEngagement(
@@ -253,7 +365,9 @@ async function recordEngagement(
       actionId: meta?.actionId,
       source: meta?.source,
     });
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 export async function getLowEngagementHours(
@@ -302,7 +416,10 @@ export async function getLowEngagementHoursFromBackend(
     });
 
     if (!res.ok) return [];
-    const payload = await res.json().catch(() => ({} as any));
+    const payload = (await res.json().catch((e) => {
+      console.debug?.('[notifications] low-engagement response.json failed', e);
+      return {};
+    })) as NotificationHoursResponse;
     const parsedHours: number[] = [];
     if (Array.isArray(payload?.hours)) {
       for (const raw of payload.hours as unknown[]) {
@@ -342,7 +459,10 @@ export async function getBackendTodayScheduledCount(): Promise<number> {
       },
     });
     if (!res.ok) return 0;
-    const payload = await res.json().catch(() => ({} as any));
+    const payload = (await res.json().catch((e) => {
+      console.debug?.('[notifications] today-count response.json failed', e);
+      return {};
+    })) as NotificationCountResponse;
     const scheduled = Number(payload?.scheduled ?? 0);
     return Number.isFinite(scheduled) ? Math.max(0, Math.floor(scheduled)) : 0;
   } catch {
@@ -399,16 +519,51 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     });
   }
 
+  await registerNotificationCategories();
+
   return true;
+}
+
+export async function registerNotificationCategories(): Promise<void> {
+  const categoryTypes: NotifType[] = [
+    'water_reminder',
+    'streak_at_risk',
+    'context_proactive',
+    'workout_reminder',
+  ];
+
+  await Promise.all(
+    categoryTypes.map(async (type) => {
+      const actions = buildNotificationActions(type);
+      if (!actions.length) return;
+      try {
+        await Notifications.setNotificationCategoryAsync(type, actions);
+      } catch {
+        return;
+      }
+    }),
+  );
+}
+
+export async function getNotificationPermissionsGranted(): Promise<boolean> {
+  try {
+    const permissions = await Notifications.getPermissionsAsync();
+    return permissions.granted === true || permissions.status === 'granted';
+  } catch {
+    return false;
+  }
 }
 
 // ── Registrar token de push (para notifs remotas desde backend) ────────────
 export async function registerPushToken(userId: string): Promise<void> {
   try {
-    // Assuming device - Device module not available
-    // const isDevice = true;
+    const projectId = resolveExpoProjectId();
+    if (!projectId) {
+      throw new Error('Missing Expo projectId for push token registration.');
+    }
+
     const { data: token } = await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
+      projectId,
     });
     if (!token || !userId) return;
 
@@ -419,22 +574,44 @@ export async function registerPushToken(userId: string): Promise<void> {
       .single();
 
     const coachMemory = getProfileContextMemory(profile);
+    const notificationUtcOffsetMinutes = getCurrentUtcOffsetMinutes();
 
-    // Guardar el token en la memoria contextual y espejar al alias legacy mientras termina la migracion.
+    const headers = await getAuthHeaders();
+    const response = await requestJson('/api/notifications/push-token', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        token,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        notificationUtcOffsetMinutes,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = asRecord(response.data);
+      const errorMessage =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : `Push token registration failed with status ${response.status}.`;
+      throw new Error(errorMessage);
+    }
+
+    // Mirror the token locally so the current session sees the same state immediately.
     await supabase
       .from('profiles')
       .update({
         ...buildProfileContextUpdate({
           memory: {
-          ...coachMemory,
-          push_token: token,
-          notification_utc_offset_minutes: getCurrentUtcOffsetMinutes(),
+            ...coachMemory,
+            push_token: token,
+            notification_utc_offset_minutes: notificationUtcOffsetMinutes,
           },
         }),
       })
       .eq('id', userId);
   } catch (err) {
     captureError(err instanceof Error ? err : new Error(String(err)), { action: 'registerPushToken' });
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -444,16 +621,20 @@ export async function scheduleNotif(notif: ScheduledNotif): Promise<string | nul
     const androidChannelId = resolveAndroidChannelId(notif.type);
     const safeData = sanitizeNotificationData(notif.data);
     const normalizedTrigger = normalizeTriggerInput(notif.trigger, androidChannelId);
+    const localData =
+      Platform.OS === 'android'
+        ? undefined
+        : { type: notif.type, ...(safeData ?? {}) };
     const id = await Notifications.scheduleNotificationAsync({
       identifier: notif.id,
       content: {
         title:    notif.title,
         body:     notif.body,
-        data:     { type: notif.type, ...(safeData ?? {}) },
+        data:     localData,
         ...(IOS_NOTIFICATION_SOUND ? { sound: IOS_NOTIFICATION_SOUND } : {}),
         categoryIdentifier: notif.type,
         channelId: androidChannelId,
-      } as any,
+      } as Notifications.NotificationRequestInput['content'],
       trigger: normalizedTrigger,
     });
 
@@ -476,7 +657,9 @@ export async function scheduleNotif(notif: ScheduledNotif): Promise<string | nul
 export async function cancelNotif(identifier: string): Promise<void> {
   try {
     await Notifications.cancelScheduledNotificationAsync(identifier);
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 // ── Cancelar todas las notificaciones de un tipo ──────────────────────────
@@ -485,7 +668,9 @@ export async function cancelNotifsByType(type: NotifType): Promise<void> {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     const toCancel = scheduled.filter((n) => n.identifier.startsWith(type));
     await Promise.all(toCancel.map((n) => cancelNotif(n.identifier)));
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 // ── Cancelar TODAS las notificaciones ─────────────────────────────────────
@@ -512,7 +697,12 @@ export async function scheduleWaterReminders(
         hour:    time.hour,
         minute:  time.minute,
         repeats: true,
-      } as any,
+      } as Notifications.NotificationTriggerInput,
+      data: {
+        action: NOTIFICATION_ACTIONS.openQuickLog,
+        quickActionAmountMl: 250,
+        source: 'water_reminder',
+      },
     });
   }
 }
@@ -536,7 +726,7 @@ export async function scheduleSleepReminder(bedHour: number, bedMinute: number):
       hour:    warnHour,
       minute:  warnMinute,
       repeats: true,
-    } as any,
+    } as Notifications.NotificationTriggerInput,
   });
 }
 
@@ -553,7 +743,7 @@ export async function scheduleMentalCheckinReminder(hour = 8, minute = 30): Prom
       hour,
       minute,
       repeats: true,
-    } as any,
+    } as Notifications.NotificationTriggerInput,
   });
 }
 
@@ -570,7 +760,29 @@ export async function scheduleDailySummaryReminder(hour = 21, minute = 0): Promi
       hour,
       minute,
       repeats: true,
-    } as any,
+    } as Notifications.NotificationTriggerInput,
+  });
+}
+
+export async function scheduleWorkoutReminder(
+  copy?: { title?: string; body?: string; hour?: number; minute?: number },
+): Promise<void> {
+  await cancelNotifsByType('workout_reminder');
+  await scheduleNotif({
+    id: 'workout_reminder_daily',
+    type: 'workout_reminder',
+    title: copy?.title ?? 'Tu rutina de hoy está lista',
+    body: copy?.body ?? 'Abre tu bloque de hoy o marcalo rápido desde la notificacion.',
+    trigger: {
+      type: 'daily',
+      hour: copy?.hour ?? 18,
+      minute: copy?.minute ?? 30,
+      repeats: true,
+    } as Notifications.NotificationTriggerInput,
+    data: {
+      action: NOTIFICATION_ACTIONS.openWorkout,
+      source: 'workout_reminder',
+    },
   });
 }
 
@@ -589,8 +801,12 @@ export async function scheduleStreakAtRisk(
       hour:    copy?.hour ?? 20,
       minute:  copy?.minute ?? 0,
       repeats: true,
-    } as any,
-    data: { action: 'open_quick_log' },
+    } as Notifications.NotificationTriggerInput,
+    data: {
+      action: NOTIFICATION_ACTIONS.openQuickLog,
+      quickActionAmountMl: 250,
+      source: 'streak_at_risk',
+    },
   });
 }
 
@@ -604,7 +820,7 @@ export async function scheduleFastingPhaseNotif(
     type:  'fasting_phase',
     title: `⏳ Fase: ${phaseName}`,
     body:  `Acabás de entrar a la fase ${phaseName}. ¡Seguí así!`,
-    trigger: { date: triggerDate } as any,
+    trigger: { date: triggerDate } as Notifications.NotificationTriggerInput,
   });
 }
 
@@ -615,7 +831,7 @@ export async function scheduleFastingCompleteNotif(triggerDate: Date): Promise<v
     type:  'fasting_complete',
     title: '🎉 ¡Ayuno completado!',
     body:  '¡Terminaste tu ayuno! Registrá cómo te sentís en la app.',
-    trigger: { date: triggerDate } as any,
+    trigger: { date: triggerDate } as Notifications.NotificationTriggerInput,
   });
 }
 
@@ -635,7 +851,7 @@ export async function scheduleSupplementReminder(
       hour,
       minute,
       repeats: true,
-    } as any,
+    } as Notifications.NotificationTriggerInput,
   });
 }
 
@@ -649,14 +865,18 @@ export async function scheduleOnboardingWelcomeReminder(triggerDate: Date, displ
     type: 'context_proactive',
     title: 'Tu racha empieza hoy',
     body: `${safeName}, un log de agua de 10 segundos alcanza para arrancar fuerte.`,
-    trigger: { date: triggerDate } as any,
-    data: { action: 'open_quick_log', source: 'onboarding_welcome_24h' },
+    trigger: { date: triggerDate } as Notifications.NotificationTriggerInput,
+    data: {
+      action: NOTIFICATION_ACTIONS.openQuickLog,
+      quickActionAmountMl: 250,
+      source: 'onboarding_welcome_24h',
+    },
   });
 }
 
 // ── Listener de respuesta a notificaciones ────────────────────────────────
 export function setupNotificationResponseListener(
-  handler: (notification: Notifications.Notification) => void,
+  handler: (response: Notifications.NotificationResponse) => void,
 ): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
     const notification = response.notification;
@@ -677,7 +897,7 @@ export function setupNotificationResponseListener(
         source: 'response_listener',
       });
     }
-    handler(notification);
+    handler(response);
   });
   return () => sub.remove();
 }

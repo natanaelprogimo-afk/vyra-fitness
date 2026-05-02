@@ -19,27 +19,17 @@ export type RootStackParamList = {
   'modules/water/history':    undefined;
   'modules/water/settings':   undefined;
   'modules/steps/index':      undefined;
-  'modules/steps/history':    undefined;
   'modules/fasting/index':    undefined;
   'modules/fasting/protocols':undefined;
-  'modules/fasting/history':  undefined;
   'modules/sleep/index':      undefined;
   'modules/sleep/log':        undefined;
   'modules/sleep/history':    undefined;
   'modules/nutrition/index':  undefined;
-  'modules/nutrition/search': undefined;
-  'modules/nutrition/food-detail': { foodId: string } | { mode: 'new' };
-  'modules/nutrition/recipes':     undefined;
   'modules/nutrition/history':     undefined;
   'modules/workout/index':    undefined;
-  'modules/workout/exercises':undefined;
-  'modules/workout/routines': undefined;
-  'modules/workout/insights': undefined;
   'modules/workout/summary':  { sessionId: string };
   'modules/supplements/index':undefined;
   'modules/female/index':     undefined;
-  'modules/female/symptoms':  undefined;
-  'modules/female/history':   undefined;
 
   // Premium
   'premium/paywall': { trigger?: PaywallTrigger };
@@ -48,7 +38,6 @@ export type RootStackParamList = {
   // Settings
   'settings/index':         undefined;
   'settings/notifications-settings': undefined;
-  'settings/notifications-history': undefined;
   'settings/appearance':    undefined;
   'settings/privacy':       undefined;
   'settings/account':       undefined;

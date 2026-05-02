@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from 'react';
 import { router } from 'expo-router';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -24,6 +25,12 @@ import {
   getProfileContextMemory,
   shouldFallbackToLegacyProfileContext,
 } from '@/lib/profile-context';
+import { ensureProfileExists } from '@/lib/auth-session';
+import {
+  buildManagedGuestCredentials,
+  buildManagedGuestMetadata,
+  isGuestAuthUser,
+} from '@/lib/guest-auth';
 import type { UserProfile, UserProfileUpdate, OnboardingData } from '@/types/user';
 import { calculateTDEE, calculateBMR } from '@/utils/calculations';
 
@@ -49,7 +56,7 @@ function mapAuthErrorMessage(err: unknown, fallback: string): string {
   }
 
   if (normalized.includes('already registered') || normalized.includes('already been registered')) {
-    return 'Este email ya esta registrado. Puedes iniciar sesion con esa cuenta.';
+    return 'Este email ya está registrado. Puedes iniciar sesión con esa cuenta.';
   }
 
   if (
@@ -58,7 +65,7 @@ function mapAuthErrorMessage(err: unknown, fallback: string): string {
     normalized.includes('timeout') ||
     normalized.includes('failed to fetch')
   ) {
-    return 'No pudimos conectar con Vyra ahora mismo. Revisa tu conexion e intenta otra vez.';
+    return 'No pudimos conectar con Vyra ahora mismo. Revisa tu conexión e intenta otra vez.';
   }
 
   return fallback;
@@ -67,8 +74,19 @@ function mapAuthErrorMessage(err: unknown, fallback: string): string {
 export function useAuth() {
   const [isLoading, setIsLoading] = useState(false);
 
-  const { updateProfile, profile, session, user } = useAuthStore();
+  const { updateProfile, profile, session, user, setProfile } = useAuthStore();
   const showToast = useUIStore((s) => s.showToast);
+
+  const resolveContextDisplayName = (input: OnboardingData): string | null => {
+    if (typeof input.context_display_name === 'string' && input.context_display_name.trim().length > 0) {
+      return input.context_display_name.trim();
+    }
+
+    const legacyDisplayName = (input as OnboardingData & { coach_display_name?: string | null }).coach_display_name;
+    return typeof legacyDisplayName === 'string' && legacyDisplayName.trim().length > 0
+      ? legacyDisplayName.trim()
+      : null;
+  };
 
   // Login
   const login = useCallback(async (email: string, password: string): Promise<AuthActionResult> => {
@@ -118,6 +136,71 @@ export function useAuth() {
     }
   }, [showToast]);
 
+  const continueAsGuest = useCallback(async (): Promise<AuthActionResult> => {
+    setIsLoading(true);
+    try {
+      if (isGuestAuthUser(user)) {
+        router.replace(Routes.auth.onboarding.goals as never);
+        return { ok: true };
+      }
+
+      let resolvedUser: User | null = null;
+
+      const anonymousResult = await supabase.auth.signInAnonymously({
+        options: {
+          data: buildManagedGuestMetadata(),
+        },
+      });
+
+      if (anonymousResult.data.user && !anonymousResult.error) {
+        resolvedUser = anonymousResult.data.user;
+      } else {
+        const managedGuest = buildManagedGuestCredentials();
+        const managedGuestResult = await supabase.auth.signUp({
+          email: managedGuest.email,
+          password: managedGuest.password,
+          options: {
+            data: buildManagedGuestMetadata(),
+          },
+        });
+
+        if (managedGuestResult.error) throw managedGuestResult.error;
+
+        if (managedGuestResult.data.user) {
+          resolvedUser = managedGuestResult.data.user;
+        } else {
+          const managedGuestLoginResult = await supabase.auth.signInWithPassword({
+            email: managedGuest.email,
+            password: managedGuest.password,
+          });
+
+          if (managedGuestLoginResult.error) throw managedGuestLoginResult.error;
+          resolvedUser = managedGuestLoginResult.data.user ?? null;
+        }
+      }
+
+      if (!resolvedUser) throw new Error('No se pudo crear la sesion invitada.');
+
+      const seededProfile = await ensureProfileExists(resolvedUser);
+      if (seededProfile) {
+        setProfile(seededProfile);
+      }
+
+      router.replace(Routes.auth.onboarding.goals as never);
+      return { ok: true };
+    } catch (err: unknown) {
+      const message = mapAuthErrorMessage(
+        err,
+        'No pudimos abrir una sesión temporal ahora mismo. Intenta otra vez.',
+      );
+      showToast(message, 'error');
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: "'continueAsGuest'" });
+      return { ok: false, error: message };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [setProfile, showToast, user]);
+
   // Logout
   const logout = useCallback(async () => {
     setIsLoading(true);
@@ -142,7 +225,7 @@ export function useAuth() {
       showToast('Revisa tu email para restablecer tu contrasena.', 'success');
       return true;
     } catch {
-      showToast('No pudimos enviar el email. Verifica la direccion.', 'error');
+      showToast('No pudimos enviar el email. Verifica la dirección.', 'error');
       return false;
     } finally {
       setIsLoading(false);
@@ -194,7 +277,7 @@ export function useAuth() {
       }
 
       const contextUpdate = buildProfileContextUpdate({
-        name: data.context_display_name?.trim() || data.coach_display_name?.trim() || null,
+        name: resolveContextDisplayName(data),
         memory: nextContextMemory,
       });
 
@@ -225,7 +308,7 @@ export function useAuth() {
         const legacyPayload: Record<string, unknown> = {
           ...updatePayload,
           ...buildLegacyProfileContextUpdate({
-            name: data.context_display_name?.trim() || data.coach_display_name?.trim() || null,
+            name: resolveContextDisplayName(data),
             memory: nextContextMemory,
           }),
         };
@@ -248,7 +331,7 @@ export function useAuth() {
         goal: data.goal,
         tdee: Math.round(tdee),
       });
-      trackOnboardingCompleted('free');
+      trackOnboardingCompleted('included');
       await clearOnboardingProgress();
 
       return true;
@@ -290,20 +373,42 @@ export function useAuth() {
   const requestAccountDeletion = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No user');
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
 
-      await supabase.from('deletion_requests').insert({
-        user_id: user.id,
-        requested_at: new Date().toISOString(),
-        status: 'pending',
+      const currentUser = currentSession?.user;
+      if (!currentUser || !currentSession?.access_token) {
+        throw new Error('No user');
+      }
+
+      const backendUrl =
+        process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+      if (!backendUrl) {
+        throw new Error('Missing backend URL');
+      }
+
+      const response = await fetch(`${backendUrl}/api/profile/account`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${currentSession.access_token}`,
+          'Content-Type': 'application/json',
+        },
       });
 
-      showToast('Solicitud enviada. Procesaremos la eliminacion en maximo 30 dias.', 'info');
+      if (!response.ok) {
+        const payload = (await response.json().catch((e) => {
+          console.debug?.('[useAuth] requestAccountDeletion response.json failed', e);
+          return null;
+        })) as { error?: string } | null;
+        throw new Error(payload?.error ?? 'No se pudo eliminar la cuenta.');
+      }
+
+      showToast('Tu solicitud se procesó y cerramos la sesión. El borrado final sigue la política vigente.', 'success');
       await logout();
       return true;
     } catch {
-      showToast(ErrorMessages.generic, 'error');
+      showToast('No pudimos borrar la cuenta completa ahora mismo. Intenta otra vez.', 'error');
       return false;
     } finally {
       setIsLoading(false);
@@ -318,6 +423,7 @@ export function useAuth() {
     isOnboardingComplete: profile?.onboarding_completed ?? false,
     login,
     register,
+    continueAsGuest,
     logout,
     resetPassword,
     saveOnboarding,

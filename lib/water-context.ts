@@ -55,27 +55,32 @@ const DEFAULT_CONTEXT: WaterContextSettings = {
   },
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string): number | null {
+  const parsed = Number(record[key]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function getWaterContext(profile: UserProfile | null | undefined): WaterContextSettings {
   const memory = getProfileContextMemory(profile);
   if (!Object.keys(memory).length) {
     return DEFAULT_CONTEXT;
   }
-  const context = memory.water_context && typeof memory.water_context === 'object'
-    ?  (memory.water_context as Record<string, unknown>)
-    : {};
-  const auto = memory.water_context_auto && typeof memory.water_context_auto === 'object'
-    ?  (memory.water_context_auto as Record<string, unknown>)
-    : {};
+  const context = asRecord(memory.water_context);
+  const auto = asRecord(memory.water_context_auto);
 
   const climate = typeof context.climate === 'string' ? (context.climate as WaterClimate) : DEFAULT_CONTEXT.climate;
   const illness = typeof context.illness === 'string' ? (context.illness as WaterIllness) : DEFAULT_CONTEXT.illness;
   const sweatLevel = typeof context.sweatLevel === 'string' ? (context.sweatLevel as WaterSweatLevel) : DEFAULT_CONTEXT.sweatLevel;
 
-  const autoEnabled = typeof auto.enabled === 'boolean' ? (auto.enabled as boolean) : DEFAULT_CONTEXT.auto.enabled;
+  const autoEnabled = typeof auto.enabled === 'boolean' ? auto.enabled : DEFAULT_CONTEXT.auto.enabled;
   const autoClimate = typeof auto.climate === 'string' ? (auto.climate as WaterClimate) : null;
   const autoUpdatedAt = typeof auto.updated_at === 'string' ? (auto.updated_at as string) : null;
-  const temperatureC = Number.isFinite(Number((auto as any).temperature_c)) ? Number((auto as any).temperature_c) : null;
-  const humidityPct = Number.isFinite(Number((auto as any).humidity_pct)) ? Number((auto as any).humidity_pct) : null;
+  const temperatureC = readOptionalNumber(auto, 'temperature_c');
+  const humidityPct = readOptionalNumber(auto, 'humidity_pct');
   const source = typeof auto.source === 'string' ? (auto.source as string) : null;
 
   const climateValid = (WATER_CLIMATE_OPTIONS.find((option) => option.id === climate)?.id) ?? DEFAULT_CONTEXT.climate;
@@ -103,10 +108,7 @@ export function withWaterContext(
   context: Pick<WaterContextSettings, 'climate' | 'illness' | 'sweatLevel'>,
 ): Record<string, unknown> {
   const memory = contextMemory ? contextMemory : {};
-  const existingAuto =
-    memory && (memory as any).water_context_auto && typeof (memory as any).water_context_auto === 'object'
-      ?  ((memory as any).water_context_auto as Record<string, unknown>)
-      : {};
+  const existingAuto = asRecord(memory.water_context_auto);
 
   return {
     ...memory,
@@ -124,10 +126,7 @@ export function withWaterAutoContext(
   auto: Partial<WaterAutoContext>,
 ): Record<string, unknown> {
   const memory = contextMemory ? contextMemory : {};
-  const current =
-    memory && (memory as any).water_context_auto && typeof (memory as any).water_context_auto === 'object'
-      ?  ((memory as any).water_context_auto as Record<string, any>)
-      : {};
+  const current = asRecord(memory.water_context_auto);
 
   const currentEnabled = typeof current.enabled === 'boolean' ? current.enabled : undefined;
   const currentClimate = typeof current.climate === 'string' ? (current.climate as WaterClimate) : null;

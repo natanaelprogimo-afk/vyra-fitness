@@ -5,26 +5,37 @@ import { assertRequiredTables } from '@/lib/watermelondb';
 import { captureError } from '@/lib/sentry';
 
 export default function OfflineSyncBootstrap() {
-  const { status, error, pendingCount } = useOfflineSync();
+  const { status, error, pendingCount, queueEnabled } = useOfflineSync();
   const showToast = useUIStore((s) => s.showToast);
   const lastStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (error) {
-      showToast('No se pudo sincronizar. Los datos quedan guardados localmente.', 'error');
+      showToast(
+        queueEnabled
+          ? 'No se pudo sincronizar. Los datos pendientes siguen esperando sync.'
+          : 'No se pudo revisar la sync parcial. Algunos modulos siguen guardando localmente.',
+        'error',
+      );
     }
-  }, [error, showToast]);
+  }, [error, queueEnabled, showToast]);
 
   useEffect(() => {
+    if (!queueEnabled) {
+      return;
+    }
     const { ok, missing } = assertRequiredTables();
     if (!ok) {
       const message = `Faltan tablas offline: ${missing.join(', ')}`;
       showToast('Faltan tablas offline. Reinstala o actualiza la app.', 'error');
       captureError(new Error(message), { action: 'OfflineSyncBootstrap.assertRequiredTables' });
     }
-  }, [showToast]);
+  }, [queueEnabled, showToast]);
 
   useEffect(() => {
+    if (!queueEnabled) {
+      return;
+    }
     if (status === 'idle' && pendingCount === 0) {
       return;
     }
@@ -32,7 +43,7 @@ export default function OfflineSyncBootstrap() {
       showToast('Datos pendientes por sincronizar.', 'info');
     }
     lastStatusRef.current = status;
-  }, [pendingCount, showToast, status]);
+  }, [pendingCount, queueEnabled, showToast, status]);
 
   return null;
 }

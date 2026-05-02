@@ -5,10 +5,12 @@ import OnboardingShell from '@/components/onboarding/OnboardingShell';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { Colors, withOpacity } from '@/constants/colors';
+import { DEFAULT_ACTIVE_MODULES } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkout } from '@/hooks/useWorkout';
+import { requestNotificationPermissions } from '@/lib/notifications';
 import {
   loadOnboardingProgress,
   type OnboardingDraft,
@@ -30,7 +32,7 @@ function goalPriority(goal: OnboardingDraft['goal']) {
     case 'sport_performance':
       return ['potencia', 'fuerza', 'resistencia'];
     default:
-      return ['continuidad', 'bienestar', 'funcional', 'recuperacion'];
+      return ['continuidad', 'bienestar', 'funcional', 'recuperación'];
   }
 }
 
@@ -153,6 +155,8 @@ export default function StepReadyScreen() {
   const { saveOnboarding, isLoading } = useAuth();
   const { routines, exercises } = useWorkout();
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
+  const [notifPermissionState, setNotifPermissionState] = useState<'granted' | 'denied' | 'skipped'>('skipped');
+  const [notifLoading, setNotifLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -160,6 +164,7 @@ export default function StepReadyScreen() {
       const progress = await loadOnboardingProgress();
       if (!active) return;
       setDraft(progress.data ?? null);
+      setNotifPermissionState(progress.data?.notifications_permission_state ?? 'skipped');
     })();
     return () => {
       active = false;
@@ -168,7 +173,7 @@ export default function StepReadyScreen() {
 
   const primaryModule = useMemo(() => {
     const activeModules = Array.isArray(draft?.active_modules) ? draft.active_modules : [];
-    return activeModules[0] ?? 'workout';
+    return activeModules[0] ?? DEFAULT_ACTIVE_MODULES[0];
   }, [draft?.active_modules]);
 
   const suggestedRoutine = useMemo(() => {
@@ -185,31 +190,49 @@ export default function StepReadyScreen() {
 
   const onboardingData = useMemo(() => {
     const name = draft?.name?.trim() || 'Usuario';
+    const age = Math.max(13, Number(draft?.age ?? 25));
+    const heightCm = Math.max(120, Number(draft?.height_cm ?? 170));
+    const weightStartKg = Math.max(35, Number(draft?.weight_start_kg ?? 70));
+    const weightGoalKg =
+      typeof draft?.weight_goal_kg === 'number' && draft.weight_goal_kg >= 35
+        ? draft.weight_goal_kg
+        : undefined;
+    const activityLevel = Math.max(0, Math.min(5, Number(draft?.activity_level ?? 1))) as 0 | 1 | 2 | 3 | 4 | 5;
     return {
       name,
-      age: 25,
+      age,
       goal: draft?.goal ?? 'general_health',
       gender: draft?.gender ?? 'prefer_not_to_say',
-      height_cm: 170,
-      weight_start_kg: 70,
-      activity_level: 1,
+      height_cm: heightCm,
+      weight_start_kg: weightStartKg,
+      weight_goal_kg: weightGoalKg,
+      activity_level: activityLevel,
       water_goal_ml: draft?.water_goal_ml ?? 2400,
       step_goal: draft?.step_goal ?? buildStepGoal(draft?.goal),
       sleep_goal_hours: 8,
       equipment: draft?.equipment,
       active_modules: Array.isArray(draft?.active_modules) && draft.active_modules.length
         ? draft.active_modules
-        : ['workout'],
+        : DEFAULT_ACTIVE_MODULES,
       wake_time_minutes: 420,
       sleep_time_minutes: 1380,
       fasting_protocol: null,
       context_display_name: name,
-      coach_display_name: name,
-      notifications_permission_state: 'skipped',
+      notifications_permission_state: notifPermissionState,
       terms_accepted: true,
       privacy_accepted: true,
     } satisfies OnboardingData;
-  }, [draft]);
+  }, [draft, notifPermissionState]);
+
+  const handleEnableNotifications = async () => {
+    setNotifLoading(true);
+    try {
+      const granted = await requestNotificationPermissions();
+      setNotifPermissionState(granted ? 'granted' : 'denied');
+    } finally {
+      setNotifLoading(false);
+    }
+  };
 
   const completeOnboarding = async () => {
     return saveOnboarding(onboardingData);
@@ -242,7 +265,7 @@ export default function StepReadyScreen() {
       pathname: Routes.workout.preview,
       params: routineId
         ? { routineId, name: suggestedRoutine.name }
-        : { free: '1', name: suggestedRoutine?.name ?? 'Sesion libre' },
+        : { free: '1', name: suggestedRoutine?.name ?? 'Sesión libre' },
     } as never);
   };
 
@@ -256,7 +279,7 @@ export default function StepReadyScreen() {
     primaryModule === 'nutrition'
       ? 'Registrar mi primera comida'
       : primaryModule === 'sleep'
-        ? 'Registrar sueno de anoche'
+        ? 'Registrar sueño de anoche'
         : primaryModule === 'steps'
           ? 'Entrar a VYRA'
           : 'Empezar mi primera rutina';
@@ -270,17 +293,7 @@ export default function StepReadyScreen() {
           <Text style={styles.title}>Todo listo, {draft?.name?.trim() || 'Usuario'}.</Text>
         </View>
       }
-      subtitle="Ya hay una primera accion clara esperandote."
-      footer={
-        <View style={styles.footer}>
-          <Button onPress={handlePrimaryAction} fullWidth size="lg" haptic="medium" loading={isLoading}>
-            {primaryCta}
-          </Button>
-          <Button onPress={handleExplore} variant="ghost" fullWidth disabled={isLoading}>
-            Explorar primero
-          </Button>
-        </View>
-      }
+      subtitle="Ya hay una primera acción clara esperandote."
     >
       <Card style={styles.card} shadow={false}>
         <View style={styles.heroAccent} />
@@ -288,8 +301,8 @@ export default function StepReadyScreen() {
 
         {primaryModule === 'nutrition' ? (
           <>
-            <Text style={styles.heroTitle}>Empieza registrando tu proxima comida</Text>
-            <Text style={styles.heroMeta}>Tu hub de nutricion ya esta listo para foto, busqueda o log manual.</Text>
+            <Text style={styles.heroTitle}>Empieza registrando tu próxima comida</Text>
+            <Text style={styles.heroMeta}>Tu hub de nutrición ya está listo para foto, busqueda o log manual.</Text>
           </>
         ) : primaryModule === 'steps' ? (
           <>
@@ -299,7 +312,7 @@ export default function StepReadyScreen() {
         ) : primaryModule === 'sleep' ? (
           <>
             <Text style={styles.heroTitle}>Registra cuando dormiste anoche</Text>
-            <Text style={styles.heroMeta}>Con ese primer dato ya podemos contextualizar mejor tus dias.</Text>
+            <Text style={styles.heroMeta}>Con ese primer dato ya podemos contextualizar mejor tus días.</Text>
           </>
         ) : (
           <>
@@ -319,7 +332,64 @@ export default function StepReadyScreen() {
             </View>
           </>
         )}
+
       </Card>
+
+      <View style={styles.heroActions}>
+        <Button onPress={handlePrimaryAction} fullWidth size="lg" haptic="medium" loading={isLoading}>
+          {primaryCta}
+        </Button>
+        <Button onPress={handleExplore} variant="ghost" fullWidth disabled={isLoading}>
+          Explorar primero
+        </Button>
+      </View>
+
+      <View style={styles.autoList}>
+        <View style={styles.notificationCard}>
+          <Text style={styles.notificationTitle}>Avisos útiles desde el día 1</Text>
+          <Text style={styles.notificationBody}>
+            Te podemos avisar cuando termine un descanso o cuando tu meta del día se este quedando atrás.
+            Nunca más de 1-2 por día y luego puedes apagarlos por tipo.
+          </Text>
+          <View style={styles.notificationActions}>
+            <Button
+              onPress={() => {
+                void handleEnableNotifications();
+              }}
+              variant={notifPermissionState === 'granted' ? 'secondary' : 'primary'}
+              loading={notifLoading}
+              fullWidth
+            >
+              {notifPermissionState === 'granted'
+                ? 'Avisos útiles activados'
+                : notifPermissionState === 'denied'
+                  ? 'Volver a intentar'
+                  : 'Activar avisos útiles'}
+            </Button>
+            {notifPermissionState !== 'granted' ? (
+              <Button
+                onPress={() => setNotifPermissionState('skipped')}
+                variant="ghost"
+                fullWidth
+                disabled={notifLoading}
+              >
+                Ahora no
+              </Button>
+            ) : null}
+          </View>
+          <Text style={styles.notificationMeta}>
+            {notifPermissionState === 'granted'
+              ? 'Quedaron activadas y las podras ajustar en Notificaciones.'
+              : notifPermissionState === 'denied'
+                ? 'Si el sistema no muestra el permiso, podrás cambiarlo después desde ajustes.'
+                : 'Puedes seguir sin activarlas y decidirlo más tarde.'}
+          </Text>
+        </View>
+
+        <Text style={styles.autoItem}>Tu primer plan ya está listo</Text>
+        <Text style={styles.autoItem}>La app aprende de tus datos</Text>
+        <Text style={styles.autoItem}>Sin configuracion manual extra</Text>
+      </View>
     </OnboardingShell>
   );
 }
@@ -332,7 +402,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     letterSpacing: -1.5,
   },
-  footer: {
+  heroActions: {
     gap: Spacing[2],
   },
   card: {
@@ -390,6 +460,47 @@ const styles = StyleSheet.create({
   },
   exerciseReps: {
     fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  autoList: {
+    gap: Spacing[1],
+    marginTop: Spacing[2],
+    paddingTop: Spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: withOpacity(Colors.white, 0.08),
+  },
+  notificationCard: {
+    gap: Spacing[2],
+    marginBottom: Spacing[2],
+    padding: Spacing[3],
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.action, 0.18),
+    backgroundColor: withOpacity(Colors.action, 0.08),
+  },
+  notificationTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  notificationBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  notificationActions: {
+    gap: Spacing[2],
+  },
+  notificationMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textMuted,
+  },
+  autoItem: {
+    fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },

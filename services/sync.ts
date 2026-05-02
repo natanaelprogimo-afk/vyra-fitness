@@ -1,5 +1,5 @@
 // Minimal sync service: listens to NetInfo and triggers syncPendingChanges
-import NetInfo from '@/shims/netinfo';
+import NetInfo from '@react-native-community/netinfo';
 import { syncPendingChanges } from '@/database';
 import { captureError } from '@/lib/sentry';
 

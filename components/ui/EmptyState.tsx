@@ -29,7 +29,7 @@ export default function EmptyState({
   emoji,
   icon,
   eyebrow,
-  tone,
+  tone: _tone,
   title,
   subtitle,
   description,
@@ -48,10 +48,10 @@ export default function EmptyState({
   return (
     <View style={[styles.container, compact && styles.compact, style]}>
       {displayEmoji && <Text style={[styles.emoji, compact && styles.emojiCompact]}>{displayEmoji}</Text>}
-      {eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
-      <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+      {eyebrow && <Text style={[styles.eyebrow, { color: Colors.textSecondary }]}>{eyebrow}</Text>}
+      <Text style={[styles.title, compact && styles.titleCompact, { color: Colors.textPrimary }]}>{title}</Text>
       {displayText && (
-        <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
+        <Text style={[styles.subtitle, compact && styles.subtitleCompact, { color: Colors.textSecondary }]}>
           {displayText}
         </Text>
       )}
@@ -91,7 +91,6 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
-    color: Colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
@@ -99,7 +98,6 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: FontFamily.bold,
     fontSize:   FontSize.xl,
-    color:      Colors.textPrimary,
     textAlign:  'center',
     marginBottom: Spacing[2],
   },
@@ -109,7 +107,6 @@ const styles = StyleSheet.create({
   subtitle: {
     fontFamily: FontFamily.regular,
     fontSize:   FontSize.base,
-    color:      Colors.textSecondary,
     textAlign:  'center',
     lineHeight: FontSize.base * 1.5,
   },

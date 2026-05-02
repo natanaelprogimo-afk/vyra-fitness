@@ -58,10 +58,10 @@ describe('module correlations helpers', () => {
     );
   });
 
-  test('returns contextual paywall copy for progress trigger', () => {
+  test('returns contextual included-access copy for progress trigger', () => {
     expect(getPaywallContextCopy('progress_trends')).toEqual(
       expect.objectContaining({
-        eyebrow: 'Correlaciones premium',
+        eyebrow: 'Progreso cruzado',
       }),
     );
   });

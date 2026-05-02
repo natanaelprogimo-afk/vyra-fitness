@@ -7,7 +7,11 @@ import { FEMALE_TABS, type FemaleTabKey } from '@/lib/female-module';
 
 export default function FemaleModuleTabs({ active }: { active: FemaleTabKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de salud femenina"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {FEMALE_TABS.map((tab) => {
           const isActive = tab.key === active;
@@ -15,6 +19,15 @@ export default function FemaleModuleTabs({ active }: { active: FemaleTabKey }) {
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de salud femenina.`
+              }
+              hitSlop={8}
               onPress={() => {
                 if (!isActive) router.push(tab.route as never);
               }}
@@ -38,6 +51,9 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
   },
   pill: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),

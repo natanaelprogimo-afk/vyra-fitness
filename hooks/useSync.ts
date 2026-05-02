@@ -1,25 +1,32 @@
 // ============================================================
-// VYRA FITNESS — useSync Hook
-// Dispara sincronización al reconectar y al pasar a foreground
+// VYRA FITNESS - useSync Hook
+// Solo dispara la cola global cuando esa capa existe de verdad.
 // ============================================================
 
 import { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import NetInfo from '@/shims/netinfo';
+import NetInfo from '@react-native-community/netinfo';
+import { isDatabaseLayerEnabled, syncPendingChanges } from '@/database';
 import { useUIStore } from '@/stores/uiStore';
-import { syncPendingChanges } from '@/database';
 import { captureError } from '@/lib/sentry';
 
 export function useSync() {
-  const setIsOnline  = useUIStore((s) => s.setIsOnline);
-  const isOnline     = useUIStore((s) => s.isOnline);
-  const lastSyncRef  = useRef<number>(0);
+  const setIsOnline = useUIStore((s) => s.setIsOnline);
+  const isOnline = useUIStore((s) => s.isOnline);
+  const lastSyncRef = useRef<number>(0);
+  const queueEnabled = isDatabaseLayerEnabled();
 
-  const MIN_SYNC_INTERVAL = 30 * 1000; // 30s entre syncs automáticos
+  const MIN_SYNC_INTERVAL = 30 * 1000;
 
   const triggerSync = async () => {
+    if (!queueEnabled) {
+      return { synced: 0, failed: 0, skipped: true as const };
+    }
+
     const now = Date.now();
-    if (now - lastSyncRef.current < MIN_SYNC_INTERVAL) return;
+    if (now - lastSyncRef.current < MIN_SYNC_INTERVAL) {
+      return { synced: 0, failed: 0, skipped: true as const };
+    }
     lastSyncRef.current = now;
 
     try {
@@ -30,33 +37,51 @@ export function useSync() {
       if (result.failed > 0) {
         console.warn(`[Sync] ${result.failed} items fallaron`);
       }
+      return { ...result, skipped: false as const };
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), { context: 'useSync' });
+      return { synced: 0, failed: 0, skipped: false as const };
     }
   };
 
-  // Monitorear conexión
   useEffect(() => {
+    let active = true;
+    void NetInfo.fetch().then((state) => {
+      if (!active) return;
+      const online = state.isConnected === true && state.isInternetReachable !== false;
+      setIsOnline(online);
+      if (online && queueEnabled) {
+        setTimeout(() => {
+          void triggerSync();
+        }, 1500);
+      }
+    });
+
     const unsubscribe = NetInfo.addEventListener((state) => {
       const online = state.isConnected === true && state.isInternetReachable !== false;
       setIsOnline(online);
-      if (online) {
-        // Pequeño delay para que la conexión se estabilice
-        setTimeout(triggerSync, 1500);
+      if (online && queueEnabled) {
+        setTimeout(() => {
+          void triggerSync();
+        }, 1500);
       }
     });
-    return unsubscribe;
-  }, []);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [queueEnabled, setIsOnline]);
 
-  // Sync al volver a foreground
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active' && isOnline) {
-        triggerSync();
+      if (state === 'active' && isOnline && queueEnabled) {
+        void triggerSync();
       }
     });
     return () => subscription.remove();
-  }, [isOnline]);
+  }, [isOnline, queueEnabled]);
 
-  return { triggerSync };
+  return { triggerSync, queueEnabled };
 }
+
+export default useSync;

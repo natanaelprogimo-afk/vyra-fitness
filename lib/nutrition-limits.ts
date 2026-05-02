@@ -10,16 +10,11 @@ export async function checkDailyMealSourceLimit(params: {
   userId: string;
   source: NutritionLimitedSource;
   limit: number;
-  isPremium: boolean;
 }) {
-  const { userId, source, limit, isPremium } = params;
+  const { userId, source, limit } = params;
 
   if (!userId) {
    return { allowed: false, remaining: 0, limit };
-  }
-
-  if (isPremium) {
-   return { allowed: true, remaining: Infinity, limit: Infinity };
   }
 
   const { count, error } = await supabase

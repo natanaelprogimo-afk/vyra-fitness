@@ -37,7 +37,14 @@
       ]
     },
     "ios": {
+      "bundleIdentifier": "com.vyrafitness.app",
+      "supportsTablet": false,
       "infoPlist": {
+        "NSCameraUsageDescription": "Vyra necesita tu camara para escanear codigos y analizar comidas cuando tu lo eliges.",
+        "NSMicrophoneUsageDescription": "Vyra necesita tu microfono para registrar comidas por voz cuando tu lo activas.",
+        "NSPhotoLibraryUsageDescription": "Vyra necesita acceso a tus fotos para analizar comidas desde tu galeria.",
+        "NSPhotoLibraryAddUsageDescription": "Vyra necesita guardar y compartir exportaciones o capturas generadas por ti.",
+        "NSFaceIDUsageDescription": "Vyra puede usar biometria para proteger tu reingreso y tus datos sensibles.",
         "NSLocationWhenInUseUsageDescription": "Vyra necesita tu ubicacion para registrar rutas de caminata.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Vyra necesita tu ubicacion para registrar rutas incluso en segundo plano.",
         "UIBackgroundModes": [
@@ -47,6 +54,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-web-browser",
       "expo-font",
       [
         "expo-build-properties",
@@ -58,6 +66,12 @@
       ],
       "react-native-health-connect",
       "@react-native-community/datetimepicker",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Vyra necesita tu microfono para registrar comidas por voz cuando tu lo activas."
+        }
+      ],
       [
         "expo-camera",
         {
@@ -93,54 +107,6 @@
               {
                 "name": "VyraExpandedWidgetProvider",
                 "resourceName": "@xml/vyra_widget_expanded_info"
-              },
-              {
-                "name": "VyraKoraWidgetProvider",
-                "resourceName": "@xml/vyra_widget_kora_info"
-              },
-              {
-                "name": "VyraStepsWidgetProvider",
-                "resourceName": "@xml/vyra_widget_steps_info"
-              },
-              {
-                "name": "VyraWaterWidgetProvider",
-                "resourceName": "@xml/vyra_widget_water_info"
-              },
-              {
-                "name": "VyraScoreWidgetProvider",
-                "resourceName": "@xml/vyra_widget_score_info"
-              },
-              {
-                "name": "VyraStreakWidgetProvider",
-                "resourceName": "@xml/vyra_widget_streak_info"
-              },
-              {
-                "name": "VyraWorkoutWidgetProvider",
-                "resourceName": "@xml/vyra_widget_workout_info"
-              },
-              {
-                "name": "VyraSleepWidgetProvider",
-                "resourceName": "@xml/vyra_widget_sleep_info"
-              },
-              {
-                "name": "VyraNutritionWidgetProvider",
-                "resourceName": "@xml/vyra_widget_nutrition_info"
-              },
-              {
-                "name": "VyraFastingWidgetProvider",
-                "resourceName": "@xml/vyra_widget_fasting_info"
-              },
-              {
-                "name": "VyraRecoveryWidgetProvider",
-                "resourceName": "@xml/vyra_widget_recovery_info"
-              },
-              {
-                "name": "VyraWeightWidgetProvider",
-                "resourceName": "@xml/vyra_widget_weight_info"
-              },
-              {
-                "name": "VyraFemaleWidgetProvider",
-                "resourceName": "@xml/vyra_widget_female_info"
               }
             ]
           }
@@ -164,11 +130,10 @@
         "privacyPolicy": "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/PRIVACY_POLICY.md",
         "termsOfService": "https://raw.githubusercontent.com/natanaelprogimo-afk/vyra-fitness/master/legal/TERMS_OF_SERVICE.md"
       },
-      "koraAssetsBaseUrl": "",
       "sleepSoundsBaseUrl": "",
-      "exerciseMediaBaseUrl": "https://fkwisfxwztlkrlcvuwdv.supabase.co/storage/v1/object/public/exercise-media",
+      "exerciseMediaBaseUrl": "https://kvnagjljrezvpuflrpqm.supabase.co/storage/v1/object/public/exercise-media",
       "apis": {
-        "supabase": "https://fkwisfxwztlkrlcvuwdv.supabase.co",
+        "supabase": "https://kvnagjljrezvpuflrpqm.supabase.co",
         "backend": "https://vyra-backend-5fd9.onrender.com"
       },
       "eas": {
@@ -177,3 +142,4 @@
     }
   }
 }
+

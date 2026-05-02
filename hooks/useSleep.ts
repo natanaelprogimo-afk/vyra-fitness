@@ -1,45 +1,56 @@
 // ============================================================
-// VYRA FITNESS — useSleep Hook
-// Log de sueño manual + calidad calculada, readiness score,
-// correlaciones con otros módulos, historial
+// VYRA FITNESS - useSleep Hook
+// Manual logging + Health Connect import + offline cache/sync.
 // ============================================================
 
-import { useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { captureError } from '@/lib/sentry';
 import { daysAgoISO } from '@/utils/dates';
 import { calculateSleepScore } from '@/utils/calculations';
+import { normalizeSleepRange } from '@/lib/sleep-module';
 import {
   syncSleepSessionsFromHealthConnect,
   type HealthConnectSleepSyncResult,
 } from '@/lib/health-connect-sleep';
+import {
+  cacheRemoteSleepEntries,
+  deleteOfflineSleepEntry,
+  flushOfflineSleepEntries,
+  getOfflineSleepHistory,
+  queueOfflineSleepEntry,
+} from '@/lib/sleep-offline';
 
 export interface SleepLogInput {
-  bedtime:       Date;   // hora de acostarse
-  wakeTime:      Date;   // hora de despertar
-  quality:       number; // 1-5 (subjetivo)
-  deepSleep:     number; // % (estimado)
-  remSleep:      number; // % (estimado)
-  notes?:        string;
+  bedtime: Date;
+  wakeTime: Date;
+  quality: number;
+  deepSleep: number;
+  remSleep: number;
+  notes?: string;
 }
 
 export interface SleepEntry {
-  id:            string;
-  start_time:    string;
-  end_time:      string;
-  duration_min:  number;
+  id: string;
+  start_time: string;
+  end_time: string;
+  duration_min: number;
   quality_score: number;
-  deep_min:      number;
-  rem_min:       number;
-  light_min:     number;
-  awake_min:     number;
-  source:        string;
-  notes:         string | null;
-  created_at:    string;
+  deep_min: number;
+  rem_min: number;
+  light_min: number;
+  awake_min: number;
+  source: string;
+  notes: string | null;
+  created_at: string;
 }
+
+type RemoteSleepEntryRow = SleepEntry & {
+  user_id: string;
+};
 
 interface SleepIrregularity {
   isIrregular: boolean;
@@ -55,7 +66,6 @@ interface PhysicalDayState {
   message: string;
 }
 
-// Rangos de calidad de sueño según duración + edad
 function getSleepQualityLabel(score: number): { label: string; color: string } {
   if (score >= 85) return { label: 'Muy reparador', color: '#7BC67E' };
   if (score >= 70) return { label: 'Bastante bien', color: '#82C91E' };
@@ -76,72 +86,81 @@ function stdDeviation(values: number[]): number {
   return Math.sqrt(variance);
 }
 
+function isRecoverableOfflineError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('offline') ||
+    message.includes('internet') ||
+    message.includes('timeout')
+  );
+}
+
 export function useSleep() {
   const queryClient = useQueryClient();
-  const profile     = useAuthStore((s) => s.profile);
-  const showToast   = useUIStore((s) => s.showToast);
-  const isOnline    = useUIStore((s) => s.isOnline);
-  const userId      = profile?.id ?? '';
-  const goalHours   = profile?.sleep_goal_hours ?? 8;
+  const profile = useAuthStore((state) => state.profile);
+  const showToast = useUIStore((state) => state.showToast);
+  const isOnline = useUIStore((state) => state.isOnline);
+  const userId = profile?.id ?? '';
+  const goalHours = profile?.sleep_goal_hours ?? 8;
 
-  // ─── Sueño de anoche (rango: 12h antes hasta 12h después del objetivo wake) ──
-  const { data: lastSleep, isLoading, refetch } = useQuery<SleepEntry | null>({
-    queryKey: ['sleep_last', userId],
-    queryFn:  async () => {
-      if (!userId) return null;
-      const yesterday = daysAgoISO(1);
-      const { data }  = await supabase
-        .from('sleep_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('end_time', `${yesterday}T12:00:00`)
-        .order('end_time', { ascending: false })
-        .limit(1)
-        .single();
-      return data;
+  const sleepHistoryQuery = useQuery<SleepEntry[]>({
+    queryKey: ['sleep_history', userId, isOnline],
+    queryFn: async () => {
+      if (!userId) return [];
+
+      if (isOnline) {
+        try {
+          const { data, error } = await supabase
+            .from('sleep_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .gte('end_time', `${daysAgoISO(13)}T00:00:00`)
+            .order('end_time', { ascending: true });
+
+          if (error) throw error;
+
+          await cacheRemoteSleepEntries(userId, (data ?? []) as RemoteSleepEntryRow[]);
+          return (data ?? []) as SleepEntry[];
+        } catch (error) {
+          captureError(error instanceof Error ? error : new Error(String(error)), {
+            action: 'useSleep.fetchHistoryRemote',
+          });
+        }
+      }
+
+      return await getOfflineSleepHistory(userId);
     },
-    enabled:   !!userId,
+    enabled: !!userId,
     staleTime: 5 * 60 * 1000,
   });
 
-  // ─── Historial 14 días ────────────────────────────────────
-  const { data: history = [] } = useQuery<SleepEntry[]>({
-    queryKey: ['sleep_history', userId],
-    queryFn:  async () => {
-      if (!userId || !isOnline) return [];
-      const { data } = await supabase
-        .from('sleep_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('end_time', `${daysAgoISO(13)}T00:00:00`)
-        .order('end_time', { ascending: true });
-      return data ?? [];
-    },
-    enabled:   !!userId && isOnline,
-    staleTime: 5 * 60 * 1000,
-  });
+  const history = sleepHistoryQuery.data ?? [];
+  const lastSleep = history.length ? history[history.length - 1] ?? null : null;
+  const isLoading = sleepHistoryQuery.isLoading;
+  const refetch = sleepHistoryQuery.refetch;
 
-  // ─── Métricas derivadas ──────────────────────────────────
   const lastDurationHours = lastSleep ? lastSleep.duration_min / 60 : 0;
-  const lastScore         = lastSleep?.quality_score ?? 0;
-  const qualityInfo       = getSleepQualityLabel(lastScore);
+  const lastScore = lastSleep?.quality_score ?? 0;
+  const qualityInfo = getSleepQualityLabel(lastScore);
 
   const avgHours = history.length
-    ? history.reduce((s, h) => s + h.duration_min / 60, 0) / history.length : 0;
+    ? history.reduce((sum, entry) => sum + entry.duration_min / 60, 0) / history.length
+    : 0;
   const avgScore = history.length
-    ? history.reduce((s, h) => s + h.quality_score, 0) / history.length : 0;
-  const daysWithGoal = history.filter(h => h.duration_min / 60 >= goalHours).length;
+    ? history.reduce((sum, entry) => sum + entry.quality_score, 0) / history.length
+    : 0;
+  const daysWithGoal = history.filter((entry) => entry.duration_min / 60 >= goalHours).length;
 
-  // Deuda de sueño acumulada (últimos 7 días)
   const last7 = history.slice(-7);
-  const sleepDebt = last7.reduce((debt, h) => {
-    return debt + Math.max(0, goalHours * 60 - h.duration_min);
+  const sleepDebt = last7.reduce((debt, entry) => {
+    return debt + Math.max(0, goalHours * 60 - entry.duration_min);
   }, 0) / 60;
 
   const bedtimeMinutes = history.slice(-28).map((entry) => {
     const start = new Date(entry.start_time);
     const minutes = start.getHours() * 60 + start.getMinutes();
-    // Normaliza horarios de madrugada para que no distorsionen la variabilidad.
     return minutes < 12 * 60 ? minutes + 1440 : minutes;
   });
   const bedtimeStdDev = Math.round(stdDeviation(bedtimeMinutes));
@@ -149,16 +168,14 @@ export function useSleep() {
     isIrregular: bedtimeStdDev > 90,
     stdDevMinutes: bedtimeStdDev,
     message: bedtimeStdDev > 90
-      ?  'Tu horario de sueño es irregular. Acostarte en una franja más estable puede mejorar la calidad.'
+      ? 'Tu horario de sueño es irregular. Acostarte en una franja más estable puede mejorar la calidad.'
       : null,
   };
 
   const last3 = history.slice(-3);
-  const avgLast3Hours = last3.length
-    ?  average(last3.map((item) => item.duration_min / 60))
-    : 0;
+  const avgLast3Hours = last3.length ? average(last3.map((item) => item.duration_min / 60)) : 0;
   const physicalDayState: PhysicalDayState = avgLast3Hours < 6
-    ?  {
+    ? {
         state: 'recovery',
         avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
         stepGoalAdjustmentPct: -20,
@@ -166,7 +183,7 @@ export function useSleep() {
         message: 'Vienes corto de sueño. Hoy conviene un día más liviano y recuperar margen.',
       }
     : avgLast3Hours > 8
-      ?  {
+      ? {
           state: 'high',
           avgLast3Hours: Math.round(avgLast3Hours * 10) / 10,
           stepGoalAdjustmentPct: 0,
@@ -181,16 +198,14 @@ export function useSleep() {
           message: 'Tu sueño viene bastante estable. Hoy encaja mejor una carga moderada y consistente.',
         };
 
-  // Backwards compatibility: expose a simple action plan for consumers expecting
-  // `{ title, focus }` (used by intelligence/why-vyra and similar views).
   const sleepActionPlan = physicalDayState
-    ?  {
+    ? {
         title: physicalDayState.message,
         focus:
           physicalDayState.workoutRecommendation === 'recovery'
-            ?  'Día más liviano'
+            ? 'Día más liviano'
             : physicalDayState.workoutRecommendation === 'moderate'
-              ?  'Carga moderada'
+              ? 'Carga moderada'
               : 'Entrenamiento intenso',
       }
     : null;
@@ -200,102 +215,221 @@ export function useSleep() {
     ? `Deuda acumulada: ${sleepDebt.toFixed(1)}h. Objetivo de compensación: una noche de ~${compensationHours.toFixed(1)}h.`
     : null;
 
-  // Consecutive nights meeting goal (streak) — computed from the most recent history entries
   const sleepStreakDays = (() => {
-    if (!history || !history.length) return 0;
+    if (!history.length) return 0;
+
     let streak = 0;
     let prevDay: string | null = null;
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      const entry = history[i];
-      const day = entry.end_time ? entry.end_time.split('T')[0] : null;
+
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const entry = history[index];
+      const day = entry?.end_time ? entry.end_time.split('T')[0] : null;
       if (!day) continue;
-      const meets = (entry.duration_min / 60) >= goalHours;
-      if (!meets) break;
+
+      const meetsGoal = entry.duration_min / 60 >= goalHours;
+      if (!meetsGoal) break;
+
       if (streak === 0) {
         streak = 1;
         prevDay = day;
-      } else {
-        const prevDate = new Date(`${prevDay}T00:00:00`);
-        prevDate.setDate(prevDate.getDate() - 1);
-        const expected = prevDate.toISOString().split('T')[0];
-        if (day === expected) {
-          streak += 1;
-          prevDay = day;
-        } else {
-          break;
-        }
+        continue;
       }
+
+      const prevDate = new Date(`${prevDay}T00:00:00`);
+      prevDate.setDate(prevDate.getDate() - 1);
+      const expected = prevDate.toISOString().split('T')[0];
+
+      if (day === expected) {
+        streak += 1;
+        prevDay = day;
+        continue;
+      }
+
+      break;
     }
+
     return streak;
   })();
 
-  // ─── Guardar sueño ───────────────────────────────────────
   const { mutate: logSleep, mutateAsync: logSleepAsync, isPending: isLogging } = useMutation({
     mutationFn: async (input: SleepLogInput) => {
       if (!userId) throw new Error('No user');
 
-      const durationMin = Math.round(
-        (input.wakeTime.getTime() - input.bedtime.getTime()) / 60000
-      );
-
-      if (durationMin < 60 || durationMin > 720) {
-        throw new Error('La duración del sueño parece incorrecta. Revisá los horarios.');
+      const normalizedRange = normalizeSleepRange(input.bedtime, input.wakeTime);
+      if (!normalizedRange) {
+        throw new Error('Faltan horarios para registrar el sueño.');
       }
 
-      // Calcular score compuesto
-      const score = calculateSleepScore(
-        durationMin,
-        input.quality
-      );
+      const { bedtime: normalizedBedtime, wakeTime: normalizedWakeTime } = normalizedRange;
+      const durationMin = Math.round((normalizedWakeTime.getTime() - normalizedBedtime.getTime()) / 60000);
+      if (durationMin < 60 || durationMin > 720) {
+        throw new Error('La duración del sueño parece incorrecta. Revisa los horarios.');
+      }
 
-      const deepMin  = Math.round(durationMin * (input.deepSleep / 100));
-      const remMin   = Math.round(durationMin * (input.remSleep  / 100));
-      const lightMin = Math.round(durationMin * 0.50);
+      const score = calculateSleepScore(durationMin, input.quality);
+      const deepMin = Math.round(durationMin * (input.deepSleep / 100));
+      const remMin = Math.round(durationMin * (input.remSleep / 100));
+      const lightMin = Math.round(durationMin * 0.5);
       const awakeMin = Math.max(0, durationMin - deepMin - remMin - lightMin);
 
-      const { data, error } = await supabase.from('sleep_logs').insert({
-        user_id:       userId,
-        start_time:    input.bedtime.toISOString(),
-        end_time:      input.wakeTime.toISOString(),
-        duration_min:  durationMin,
+      const payload = {
+        start_time: normalizedBedtime.toISOString(),
+        end_time: normalizedWakeTime.toISOString(),
+        duration_min: durationMin,
         quality_score: score,
-        deep_min:      deepMin,
-        rem_min:       remMin,
-        light_min:     lightMin,
-        awake_min:     awakeMin,
-        source:        'manual',
-        notes:         input.notes ?? null,
-      }).select('id').single();
+        deep_min: deepMin,
+        rem_min: remMin,
+        light_min: lightMin,
+        awake_min: awakeMin,
+        source: 'manual',
+        notes: input.notes ?? null,
+      };
 
-      if (error) throw error;
-      return { id: data.id, score, durationMin };
+      if (isOnline) {
+        const { data, error } = await supabase
+          .from('sleep_logs')
+          .insert({
+            user_id: userId,
+            ...payload,
+          })
+          .select('id')
+          .single();
+
+        if (!error) {
+          return { id: data.id, score, durationMin, isOffline: false };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
+      }
+
+      const id = await queueOfflineSleepEntry(userId, {
+        ...payload,
+        sync_payload: payload,
+      });
+
+      return { id, score, durationMin, isOffline: true };
     },
 
-    onSuccess: async ({ score, durationMin }) => {
-      queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
-      queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
-      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
-      queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+    onSuccess: async ({ score, durationMin, isOffline }) => {
+      await queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
+      await queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
+      await queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      await queryClient.invalidateQueries({ queryKey: ['daily_score'] });
 
-      showToast(`Sueño guardado. Score: ${score}/100 · ${(durationMin / 60).toFixed(1)}h.`, 'success');
+      showToast(
+        isOffline
+          ? `Sueño guardado sin internet. Score: ${score}/100 - ${(durationMin / 60).toFixed(1)}h.`
+          : `Sueño guardado. Score: ${score}/100 - ${(durationMin / 60).toFixed(1)}h.`,
+        'success',
+      );
 
-      if (isOnline) void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      if (!isOffline && isOnline) {
+        void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      }
     },
 
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : 'Error guardando sueño.';
-      showToast(msg, 'error');
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "'logSleep'" });
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Error guardando sueño.';
+      showToast(message, 'error');
+      captureError(error instanceof Error ? error : new Error(String(error)), { action: 'logSleep' });
     },
   });
 
-  // ─── Calcular ventana de alarma óptima ───────────────────
-  // El sueño tiene ciclos de ~90 min. La alarma debe sonar en fin de ciclo.
+  const deleteSleepEntry = useCallback(async (entryId: string) => {
+    if (!userId) return false;
+
+    try {
+      let deletedOffline = !isOnline;
+
+      if (isOnline) {
+        const { error } = await supabase
+          .from('sleep_logs')
+          .delete()
+          .eq('id', entryId)
+          .eq('user_id', userId);
+
+        if (error) {
+          if (!isRecoverableOfflineError(error)) {
+            throw error;
+          }
+
+          await deleteOfflineSleepEntry(userId, entryId);
+          deletedOffline = true;
+        }
+      } else {
+        await deleteOfflineSleepEntry(userId, entryId);
+      }
+
+      queryClient.setQueryData<SleepEntry[]>(
+        ['sleep_history', userId, isOnline],
+        (current) => current?.filter((entry) => entry.id !== entryId) ?? [],
+      );
+      await queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
+      await queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
+      await queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      await queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+
+      if (isOnline && !deletedOffline) {
+        void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      }
+
+      showToast(
+        deletedOffline
+          ? 'Registro de sueño quitado sin internet. Lo sincronizaremos cuando vuelvas.'
+          : 'Registro de sueño eliminado.',
+        'success',
+      );
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'No pudimos borrar ese registro de sueño.';
+      showToast(message, 'error');
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        action: 'useSleep.deleteSleepEntry',
+      });
+      return false;
+    }
+  }, [isOnline, queryClient, showToast, userId]);
+
+  useEffect(() => {
+    if (!userId || !isOnline) return;
+
+    let cancelled = false;
+
+    const syncPending = async () => {
+      const result = await flushOfflineSleepEntries(userId);
+      if (cancelled || result.synced === 0) return;
+
+      await queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
+      await queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
+      await queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      await queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+
+      showToast(
+        result.failed > 0
+          ? `Sincronizamos ${result.synced} cambios de sueño. ${result.failed} siguen pendientes.`
+          : `Sincronizamos ${result.synced} cambios de sueño.`,
+        'success',
+      );
+
+      void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+    };
+
+    void syncPending();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, queryClient, showToast, userId]);
+
   const getOptimalAlarmTimes = useCallback((bedtime: Date): Date[] => {
-    const cycles = [4, 5, 6]; // 6h, 7.5h, 9h
-    return cycles.map((n) => {
+    const cycles = [4, 5, 6];
+    return cycles.map((cycleCount) => {
       const alarm = new Date(bedtime);
-      alarm.setMinutes(alarm.getMinutes() + n * 90 + 14); // +14 min para conciliar el sueño
+      alarm.setMinutes(alarm.getMinutes() + cycleCount * 90 + 14);
       return alarm;
     });
   }, []);
@@ -361,15 +495,16 @@ export function useSleep() {
       };
     }
 
-    queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
-    queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
-    queryClient.invalidateQueries({ queryKey: ['today_summary'] });
-    queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+    await queryClient.invalidateQueries({ queryKey: ['sleep_last'] });
+    await queryClient.invalidateQueries({ queryKey: ['sleep_history'] });
+    await queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+    await queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+
     void (async () => {
       try {
         await supabase.rpc('calculate_daily_score', { p_user_id: userId });
       } catch {
-        // Best effort: the import is still useful even if score recalculation fails.
+        // Best effort only.
       }
     })();
 
@@ -406,5 +541,6 @@ export function useSleep() {
     sleepActionPlan,
     sleepStreakDays,
     importHealthConnectSessions,
+    deleteSleepEntry,
   };
 }

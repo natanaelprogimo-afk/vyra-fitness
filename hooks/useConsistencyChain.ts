@@ -10,6 +10,19 @@ export interface ConsistencyDay {
   habits: number;
 }
 
+interface ConsistencyResponse {
+  timeline?: ConsistencyDay[];
+}
+
+interface DailyScoreRow {
+  date: string;
+  hydration_pct?: number | null;
+  sleep_pct?: number | null;
+  nutrition_pct?: number | null;
+  activity_pct?: number | null;
+  mental_pct?: number | null;
+}
+
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
 export function useConsistencyChain(days: number = 14) {
@@ -38,7 +51,9 @@ export function useConsistencyChain(days: number = 14) {
       setLoading(false);
       return;
     }
+
     setLoading(true);
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/scores/consistency?days=${days}`, {
         headers: {
@@ -46,6 +61,7 @@ export function useConsistencyChain(days: number = 14) {
           Authorization: `Bearer ${session.access_token}`,
         },
       });
+
       if (res.status === 404) {
         if (userId) {
           const fallback = await buildFallbackTimeline(userId, days);
@@ -55,14 +71,17 @@ export function useConsistencyChain(days: number = 14) {
         }
         return;
       }
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const payload = await res.json();
-      const nextTimeline = Array.isArray(payload?.timeline) ? payload.timeline : [];
-      setTimeline(nextTimeline as ConsistencyDay[]);
+
+      const payload = (await res.json()) as ConsistencyResponse;
+      const nextTimeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+      setTimeline(nextTimeline);
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), {
         action: 'useConsistencyChain.fetch',
       });
+
       if (userId) {
         try {
           const fallback = await buildFallbackTimeline(userId, days);
@@ -113,25 +132,20 @@ async function buildFallbackTimeline(userId: string, days: number): Promise<Cons
 
   if (error) throw error;
 
-  const map = new Map<string, {
-    hydration_pct?: number | null;
-    sleep_pct?: number | null;
-    nutrition_pct?: number | null;
-    activity_pct?: number | null;
-    mental_pct?: number | null;
-  }>();
+  const map = new Map<string, DailyScoreRow>();
 
-  (data ?? []).forEach((row: any) => {
+  ((data ?? []) as DailyScoreRow[]).forEach((row) => {
     if (!row?.date) return;
     map.set(row.date, row);
   });
 
-  const timeline: ConsistencyDay[] = [];
+  const nextTimeline: ConsistencyDay[] = [];
+
   for (let i = days - 1; i >= 0; i -= 1) {
     const date = daysAgoISO(i);
-    const row = map.get(date) as any | undefined;
+    const row = map.get(date);
     const metrics = row
-      ?  [
+      ? [
           row.hydration_pct ?? 0,
           row.sleep_pct ?? 0,
           row.nutrition_pct ?? 0,
@@ -139,13 +153,14 @@ async function buildFallbackTimeline(userId: string, days: number): Promise<Cons
           row.mental_pct ?? 0,
         ]
       : [];
+
     const habits = metrics.filter((value) => Number(value) >= 70).length;
-    timeline.push({
+    nextTimeline.push({
       date,
       habits,
       completed: habits >= 3,
     });
   }
 
-  return timeline;
+  return nextTimeline;
 }

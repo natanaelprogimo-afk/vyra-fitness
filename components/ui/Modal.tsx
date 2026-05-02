@@ -1,43 +1,43 @@
 // ============================================================
-// VYRA FITNESS — Modal
-// Modal con backdrop animado, swipe-to-close, keyboard aware
+// VYRA FITNESS - Modal
+// Modal con backdrop animado y acciones opcionales
 // ============================================================
 
 import React, { useEffect } from 'react';
 import {
-  Modal as RNModal,
-  View,
-  Text,
-  Pressable,
   KeyboardAvoidingView,
+  Modal as RNModal,
   Platform,
+  Pressable,
   StyleSheet,
+  Text,
+  View,
   type ViewStyle,
 } from 'react-native';
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
-  withTiming,
+  useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import Button from './Button';
 
 interface ModalProps {
-  visible:      boolean;
-  onClose:      () => void;
-  title?:       string;
-  children:     React.ReactNode;
-  showClose?:   boolean;
-  ctaLabel?:    string;
-  onCta?:       () => void;
-  ctaVariant?:  'primary' | 'danger' | 'premium';
-  ctaLoading?:  boolean;
+  visible: boolean;
+  onClose: () => void;
+  title?: string;
+  children: React.ReactNode;
+  showClose?: boolean;
+  ctaLabel?: string;
+  onCta?: () => void;
+  ctaVariant?: 'primary' | 'danger' | 'premium';
+  ctaLoading?: boolean;
   secondaryLabel?: string;
-  onSecondary?:    () => void;
-  style?:       ViewStyle;
-  fullscreen?:  boolean;
+  onSecondary?: () => void;
+  style?: ViewStyle;
+  fullscreen?: boolean;
 }
 
 export default function Modal({
@@ -45,31 +45,32 @@ export default function Modal({
   onClose,
   title,
   children,
-  showClose    = true,
+  showClose = true,
   ctaLabel,
   onCta,
-  ctaVariant   = 'primary',
-  ctaLoading   = false,
+  ctaVariant = 'primary',
+  ctaLoading = false,
   secondaryLabel,
   onSecondary,
   style,
-  fullscreen   = false,
+  fullscreen = false,
 }: ModalProps) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(50);
 
   useEffect(() => {
     if (visible) {
-      opacity.value    = withTiming(1, { duration: 200 });
+      opacity.value = withTiming(1, { duration: 200 });
       translateY.value = withSpring(0, { damping: 18, stiffness: 200 });
-    } else {
-      opacity.value    = withTiming(0, { duration: 180 });
-      translateY.value = withTiming(40, { duration: 180 });
+      return;
     }
-  }, [visible]);
+
+    opacity.value = withTiming(0, { duration: 180 });
+    translateY.value = withTiming(40, { duration: 180 });
+  }, [opacity, translateY, visible]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  const contentStyle  = useAnimatedStyle(() => ({
+  const contentStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
     opacity: opacity.value,
   }));
@@ -86,39 +87,61 @@ export default function Modal({
         style={styles.wrapper}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Backdrop */}
-        <Animated.View style={[styles.backdrop, backdropStyle]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={showClose ? onClose : undefined} />
+        <Animated.View
+          style={[
+            styles.backdrop,
+            { backgroundColor: Colors.overlay },
+            backdropStyle,
+          ]}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={showClose ? onClose : undefined}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar modal"
+            accessibilityHint="Toca fuera del contenido para cerrar esta ventana."
+          />
         </Animated.View>
 
-        {/* Content */}
         <Animated.View
           style={[
             styles.container,
             fullscreen && styles.fullscreen,
+            {
+              backgroundColor: Colors.bgSurface,
+              borderColor: Colors.border,
+            },
             contentStyle,
             style,
           ]}
         >
-          {/* Header */}
-          {(title || showClose) && (
+          {title || showClose ? (
             <View style={styles.header}>
-              {title && <Text style={styles.title}>{title}</Text>}
-              {showClose && (
-                <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={12}>
-                  <Text style={styles.closeIcon}>✕</Text>
+              {title ? (
+                <Text style={[styles.title, { color: Colors.textPrimary }]}>{title}</Text>
+              ) : null}
+              {showClose ? (
+                <Pressable
+                  onPress={onClose}
+                  style={[
+                    styles.closeBtn,
+                    { backgroundColor: Colors.bgElevated },
+                  ]}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cerrar"
+                >
+                  <Text style={[styles.closeIcon, { color: Colors.textMuted }]}>x</Text>
                 </Pressable>
-              )}
+              ) : null}
             </View>
-          )}
+          ) : null}
 
-          {/* Body */}
           <View style={styles.body}>{children}</View>
 
-          {/* Footer */}
-          {(ctaLabel || secondaryLabel) && (
+          {ctaLabel || secondaryLabel ? (
             <View style={styles.footer}>
-              {ctaLabel && onCta && (
+              {ctaLabel && onCta ? (
                 <Button
                   onPress={onCta}
                   variant={ctaVariant}
@@ -128,8 +151,8 @@ export default function Modal({
                 >
                   {ctaLabel}
                 </Button>
-              )}
-              {secondaryLabel && (
+              ) : null}
+              {secondaryLabel ? (
                 <Button
                   onPress={onSecondary ?? onClose}
                   variant="ghost"
@@ -138,9 +161,9 @@ export default function Modal({
                 >
                   {secondaryLabel}
                 </Button>
-              )}
+              ) : null}
             </View>
-          )}
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
     </RNModal>
@@ -149,53 +172,47 @@ export default function Modal({
 
 const styles = StyleSheet.create({
   wrapper: {
-    flex:           1,
+    flex: 1,
     justifyContent: 'flex-end',
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: Colors.overlay,
   },
   container: {
-    backgroundColor: Colors.bgSurface,
-    borderTopLeftRadius:  Radius['3xl'],
+    borderTopLeftRadius: Radius['3xl'],
     borderTopRightRadius: Radius['3xl'],
-    paddingHorizontal:    Spacing[5],
-    paddingBottom:        Spacing[8],
-    borderTopWidth:       1,
-    borderColor:          Colors.border,
-    maxHeight:            '90%',
+    paddingHorizontal: Spacing[5],
+    paddingBottom: Spacing[8],
+    borderTopWidth: 1,
+    maxHeight: '90%',
   },
   fullscreen: {
-    maxHeight:        '95%',
-    borderRadius:     Radius['3xl'],
-    margin:           Spacing[4],
+    maxHeight: '95%',
+    borderRadius: Radius['3xl'],
+    margin: Spacing[4],
   },
   header: {
-    flexDirection:  'row',
-    alignItems:     'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop:     Spacing[5],
-    paddingBottom:  Spacing[4],
+    paddingTop: Spacing[5],
+    paddingBottom: Spacing[4],
   },
   title: {
     fontFamily: FontFamily.bold,
-    fontSize:   FontSize.xl,
-    color:      Colors.textPrimary,
-    flex:       1,
+    fontSize: FontSize.xl,
+    flex: 1,
   },
   closeBtn: {
-    width:          32,
-    height:         32,
-    borderRadius:   16,
-    backgroundColor:Colors.bgElevated,
-    alignItems:     'center',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   closeIcon: {
     fontFamily: FontFamily.bold,
-    fontSize:   FontSize.sm,
-    color:      Colors.textMuted,
+    fontSize: FontSize.sm,
   },
   body: {
     flexGrow: 1,

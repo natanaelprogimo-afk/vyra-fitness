@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import {
   averageScore,
+  applyLocalWorkoutToDailyScore,
   buildCrossModuleInsights,
   buildFocusActions,
   buildMorningNarrative,
@@ -10,9 +11,11 @@ import {
   buildSimilarDayComparison,
   normalizeDailyScorePayload,
   predictEndOfDayScore,
+  upsertScoreHistoryRow,
 } from '@/lib/readiness-score';
 import type { DailyScore, ScoreHistory } from '@/lib/readiness-score';
 import { captureError } from '@/lib/sentry';
+import { useWorkoutStore } from '@/stores/workoutStore';
 
 export type {
   DailyScore,
@@ -27,6 +30,7 @@ const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_B
 
 export function useReadiness() {
   const { session } = useAuthStore();
+  const workoutHistory = useWorkoutStore((state) => state.history);
   const [dailyScore, setDailyScore] = useState<DailyScore | null>(null);
   const [history, setHistory] = useState<ScoreHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,11 +68,11 @@ export function useReadiness() {
         setDailyScore(data);
         lastCalculatedDate.current = date;
         return data;
-      } catch (err: any) {
+      } catch (err: unknown) {
         captureError(err instanceof Error ? err : new Error(String(err)), {
           action: 'useReadiness.calculate',
         });
-        setError('Sin conexion por ahora. Mostramos tu ultimo estado disponible.');
+        setError('Sin conexión por ahora. Mostramos tu último estado disponible.');
         return null;
       } finally {
         if (!silent) setLoading(false);
@@ -78,7 +82,7 @@ export function useReadiness() {
   );
 
   const fetchHistory = useCallback(
-    async (days: number = 35) => {
+    async (days: number = 95) => {
       if (!session?.access_token) return;
       try {
         const res = await fetch(`${BACKEND_URL}/scores/history?days=${days}`, {
@@ -102,7 +106,7 @@ export function useReadiness() {
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([calculate(today, true), fetchHistory(35)]);
+    await Promise.all([calculate(today, true), fetchHistory(95)]);
     setRefreshing(false);
   }, [calculate, fetchHistory, today]);
 
@@ -121,12 +125,12 @@ export function useReadiness() {
     if (score >= 80) return 'Muy buen día';
     if (score >= 70) return 'Buen día';
     if (score >= 60) return 'Día regular';
-    if (score >= 40) return 'Podés mejorar';
+    if (score >= 40) return 'Podes mejorar';
     return 'Empieza por un paso pequeño';
   }
 
   useEffect(() => {
-    void Promise.all([calculate(today), fetchHistory(35)]);
+    void Promise.all([calculate(today), fetchHistory(95)]);
   }, [calculate, fetchHistory, today]);
 
   useEffect(() => {
@@ -136,20 +140,33 @@ export function useReadiness() {
     }
   }, [calculate]);
 
-  const momentum14 = [...history]
+  const hasLocalWorkoutToday = useMemo(
+    () => workoutHistory.some((entry) => entry.started_at.slice(0, 10) === today),
+    [today, workoutHistory],
+  );
+  const resolvedDailyScore = useMemo(
+    () => applyLocalWorkoutToDailyScore(dailyScore, hasLocalWorkoutToday),
+    [dailyScore, hasLocalWorkoutToday],
+  );
+  const resolvedHistory = useMemo(
+    () => upsertScoreHistoryRow(history, resolvedDailyScore),
+    [history, resolvedDailyScore],
+  );
+
+  const momentum14 = [...resolvedHistory]
     .slice(-14)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sortedHistory = [...resolvedHistory].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const weeklyAverage = averageScore(sortedHistory.slice(-7));
   const monthlyAverage = averageScore(sortedHistory.slice(-30));
-  const similarDayComparison = buildSimilarDayComparison(sortedHistory, dailyScore);
+  const similarDayComparison = buildSimilarDayComparison(sortedHistory, resolvedDailyScore);
   const qualityScoreStreak = buildQualityStreak(sortedHistory);
-  const focusActions = buildFocusActions(dailyScore);
+  const focusActions = buildFocusActions(resolvedDailyScore);
   const crossModuleInsights = buildCrossModuleInsights(sortedHistory);
 
   return {
-    dailyScore,
-    history,
+    dailyScore: resolvedDailyScore,
+    history: resolvedHistory,
     loading,
     refreshing,
     error,
@@ -158,10 +175,10 @@ export function useReadiness() {
     scoreColor,
     scoreLabel,
     calculate,
-    scoreReasons: buildScoreReasons(dailyScore),
-    predictedScore: predictEndOfDayScore(dailyScore),
+    scoreReasons: buildScoreReasons(resolvedDailyScore),
+    predictedScore: predictEndOfDayScore(resolvedDailyScore),
     momentum14,
-    morningNarrative: buildMorningNarrative(dailyScore),
+    morningNarrative: buildMorningNarrative(resolvedDailyScore),
     weeklyAverage,
     monthlyAverage,
     similarDayComparison,

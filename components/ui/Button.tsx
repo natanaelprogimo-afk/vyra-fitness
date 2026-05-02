@@ -13,14 +13,17 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { triggerImpactHaptic } from '@/lib/haptics';
+import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'premium' | 'coin';
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'small' | 'large' | 'utility' | 'primary';
 
-interface ButtonProps extends Omit<PressableProps, 'onPress' | 'style'> {
+type BaseButtonPressableProps = PressableProps;
+
+interface ButtonProps extends Omit<BaseButtonPressableProps, 'onPress' | 'style'> {
   onPress: () => void;
   children?: React.ReactNode;
   label?: string;
@@ -58,6 +61,7 @@ export default function Button({
 }: ButtonProps) {
   const scale = useSharedValue(1);
   const displayContent = children ?? label;
+  const { reduceMotionEnabled } = useAccessibilityPreferences();
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -65,29 +69,25 @@ export default function Button({
 
   const handlePressIn = () => {
     if (disabled || loading) return;
+    if (reduceMotionEnabled) return;
     scale.value = withTiming(0.97, { duration: 80 });
   };
 
   const handlePressOut = () => {
+    if (reduceMotionEnabled) return;
     scale.value = withTiming(1, { duration: 100 });
   };
 
   const handlePress = () => {
     if (disabled || loading) return;
     if (haptic !== 'none') {
-      const style =
-        haptic === 'heavy'
-          ? Haptics.ImpactFeedbackStyle.Heavy
-          : haptic === 'medium'
-            ? Haptics.ImpactFeedbackStyle.Medium
-            : Haptics.ImpactFeedbackStyle.Light;
-      Haptics.impactAsync(style).catch(() => {});
+      void triggerImpactHaptic(haptic);
     }
     onPress();
   };
 
   const variantStyles = getVariantStyles(variant, color);
-  const sizeStyles = SIZE_STYLES[size];
+  const sizeStyles = SIZE_STYLES[normalizeButtonSize(size)];
 
   return (
     <AnimatedPressable
@@ -95,6 +95,12 @@ export default function Button({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled || loading}
+      accessibilityRole={rest.accessibilityRole ?? 'button'}
+      accessibilityState={{
+        disabled: disabled || loading,
+        busy: loading,
+        ...(rest.accessibilityState ?? {}),
+      }}
       {...rest}
       style={[
         styles.base,
@@ -111,7 +117,12 @@ export default function Button({
       ) : (
         <>
           {icon && !iconRight ? <Animated.View style={styles.iconLeft}>{icon}</Animated.View> : null}
-          <Text style={[styles.text, sizeStyles.text, variantStyles.text, textStyle]}>{displayContent}</Text>
+          <Text
+            style={[styles.text, sizeStyles.text, variantStyles.text, textStyle]}
+            maxFontSizeMultiplier={1.35}
+          >
+            {displayContent}
+          </Text>
           {icon && iconRight ? <Animated.View style={styles.iconRight}>{icon}</Animated.View> : null}
         </>
       )}
@@ -148,33 +159,40 @@ const styles = StyleSheet.create({
 const SIZE_STYLES: Record<ButtonSize, { container: ViewStyle; text: TextStyle }> = {
   sm: {
     container: { minHeight: 48, paddingHorizontal: Spacing[4] },
-    text: { fontSize: 15 },
+    text: { fontSize: FontSize.md },
   },
   small: {
     container: { minHeight: 48, paddingHorizontal: Spacing[4] },
-    text: { fontSize: 15 },
+    text: { fontSize: FontSize.md },
   },
   md: {
     container: { minHeight: 56, paddingHorizontal: Spacing[5] },
-    text: { fontSize: 17 },
+    text: { fontSize: FontSize.lg },
   },
   lg: {
     container: { minHeight: 60, paddingHorizontal: Spacing[5] },
-    text: { fontSize: 17 },
+    text: { fontSize: FontSize.lg },
   },
   large: {
     container: { minHeight: 60, paddingHorizontal: Spacing[5] },
-    text: { fontSize: 17 },
+    text: { fontSize: FontSize.lg },
   },
   utility: {
     container: { minHeight: 48, paddingHorizontal: Spacing[4] },
-    text: { fontSize: 15 },
+    text: { fontSize: FontSize.md },
   },
   primary: {
     container: { minHeight: 56, paddingHorizontal: Spacing[5] },
-    text: { fontSize: 17 },
+    text: { fontSize: FontSize.lg },
   },
 };
+
+function normalizeButtonSize(size: ButtonSize): ButtonSize {
+  if (size === 'small') return 'sm';
+  if (size === 'large') return 'lg';
+  if (size === 'primary') return 'md';
+  return size;
+}
 
 function getVariantStyles(
   variant: ButtonVariant,

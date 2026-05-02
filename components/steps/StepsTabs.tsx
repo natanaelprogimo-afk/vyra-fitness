@@ -6,27 +6,39 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type StepsRouteKey = 'index' | 'history' | 'settings' | 'week';
+export type StepsRouteKey = 'index' | 'settings' | 'week';
 
 const TABS: Array<{ key: StepsRouteKey; label: string; route: string }> = [
   { key: 'index', label: 'Hoy', route: Routes.steps.index },
-  { key: 'history', label: 'Historial', route: Routes.steps.history },
   { key: 'settings', label: 'Ajustes', route: Routes.steps.settings },
   { key: 'week', label: 'Semana', route: Routes.steps.week },
 ];
 
 export default function StepsTabs({ active }: { active: StepsRouteKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de pasos"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de pasos.`
+              }
+              hitSlop={8}
               style={[styles.tab, isActive && styles.tabActive]}
               onPress={() => {
-                if (!isActive) router.push(tab.route as any);
+                if (!isActive) router.push(tab.route as never);
               }}
             >
               <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{tab.label}</Text>
@@ -47,6 +59,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
   },
   tab: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: Spacing[3],
     paddingVertical: 10,
     borderRadius: Radius.full,

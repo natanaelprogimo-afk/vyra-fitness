@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type { SupportedLanguage } from '@/lib/language';
+import type { TextScalePreference } from '@/lib/text-scale';
 
 function detectLocale(): string {
   try {
@@ -32,9 +34,14 @@ type NotifKey =
 
 interface SettingsState {
   colorScheme: 'dark' | 'light' | 'system';
-  language: 'system' | 'es' | 'en';
+  language: 'system' | SupportedLanguage;
   focusMode: boolean;
   highContrast: boolean;
+  reduceMotion: boolean;
+  screenReaderMode: boolean;
+  textScale: TextScalePreference;
+  hideVyraBalance: boolean;
+  biometricUnlockEnabled: boolean;
 
   weightUnit: 'kg' | 'lb';
   heightUnit: 'cm' | 'ft';
@@ -60,6 +67,9 @@ interface SettingsState {
   notifCoach: boolean;
   notifSummary: boolean;
   maxNotifsPerDay: number;
+  notificationQuietHoursEnabled: boolean;
+  notificationQuietHoursStart: number;
+  notificationQuietHoursEnd: number;
 
   hapticsEnabled: boolean;
   progressPhotoBackupEnabled: boolean;
@@ -70,9 +80,14 @@ interface SettingsState {
   moduleIntroSeen: Record<string, boolean>;
 
   setColorScheme: (scheme: 'dark' | 'light' | 'system') => void;
-  setLanguage: (language: 'system' | 'es' | 'en') => void;
+  setLanguage: (language: 'system' | SupportedLanguage) => void;
   setFocusMode: (enabled: boolean) => void;
   setHighContrast: (enabled: boolean) => void;
+  setReduceMotion: (enabled: boolean) => void;
+  setScreenReaderMode: (enabled: boolean) => void;
+  setTextScale: (value: TextScalePreference) => void;
+  setHideVyraBalance: (enabled: boolean) => void;
+  setBiometricUnlockEnabled: (enabled: boolean) => void;
 
   setWeightUnit: (unit: 'kg' | 'lb') => void;
   setHeightUnit: (unit: 'cm' | 'ft') => void;
@@ -90,6 +105,9 @@ interface SettingsState {
 
   setNotificationsEnabled: (enabled: boolean) => void;
   setMaxNotifsPerDay: (value: number) => void;
+  setNotificationQuietHoursEnabled: (enabled: boolean) => void;
+  setNotificationQuietHoursStart: (hour: number) => void;
+  setNotificationQuietHoursEnd: (hour: number) => void;
   setHapticsEnabled: (enabled: boolean) => void;
   toggleNotif: (key: NotifKey) => void;
 
@@ -105,10 +123,15 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      colorScheme: 'dark',
+      colorScheme: 'system',
       language: 'system',
       focusMode: false,
       highContrast: false,
+      reduceMotion: false,
+      screenReaderMode: false,
+      textScale: 'normal',
+      hideVyraBalance: false,
+      biometricUnlockEnabled: false,
 
       weightUnit: USE_IMPERIAL ? 'lb' : 'kg',
       heightUnit: USE_IMPERIAL ? 'ft' : 'cm',
@@ -134,6 +157,9 @@ export const useSettingsStore = create<SettingsState>()(
       notifCoach: true,
       notifSummary: true,
       maxNotifsPerDay: 2,
+      notificationQuietHoursEnabled: true,
+      notificationQuietHoursStart: 22,
+      notificationQuietHoursEnd: 7,
 
       hapticsEnabled: true,
       progressPhotoBackupEnabled: false,
@@ -147,6 +173,11 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguage: (language) => set({ language }),
       setFocusMode: (focusMode) => set({ focusMode }),
       setHighContrast: (highContrast) => set({ highContrast }),
+      setReduceMotion: (reduceMotion) => set({ reduceMotion }),
+      setScreenReaderMode: (screenReaderMode) => set({ screenReaderMode }),
+      setTextScale: (textScale) => set({ textScale }),
+      setHideVyraBalance: (hideVyraBalance) => set({ hideVyraBalance }),
+      setBiometricUnlockEnabled: (biometricUnlockEnabled) => set({ biometricUnlockEnabled }),
 
       setWeightUnit: (weightUnit) => set({ weightUnit }),
       setHeightUnit: (heightUnit) => set({ heightUnit }),
@@ -168,7 +199,17 @@ export const useSettingsStore = create<SettingsState>()(
 
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       setMaxNotifsPerDay: (maxNotifsPerDay) =>
-        set({ maxNotifsPerDay: Math.max(1, Math.min(3, Math.round(maxNotifsPerDay))) }),
+        set({ maxNotifsPerDay: Math.max(1, Math.min(2, Math.round(maxNotifsPerDay))) }),
+      setNotificationQuietHoursEnabled: (notificationQuietHoursEnabled) =>
+        set({ notificationQuietHoursEnabled }),
+      setNotificationQuietHoursStart: (notificationQuietHoursStart) =>
+        set({
+          notificationQuietHoursStart: Math.max(0, Math.min(23, Math.round(notificationQuietHoursStart))),
+        }),
+      setNotificationQuietHoursEnd: (notificationQuietHoursEnd) =>
+        set({
+          notificationQuietHoursEnd: Math.max(0, Math.min(23, Math.round(notificationQuietHoursEnd))),
+        }),
       setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       toggleNotif: (key) => set((state) => ({ [key]: !state[key] })),
 
@@ -209,6 +250,11 @@ export const useSettingsStore = create<SettingsState>()(
         language: state.language,
         focusMode: state.focusMode,
         highContrast: state.highContrast,
+        reduceMotion: state.reduceMotion,
+        screenReaderMode: state.screenReaderMode,
+        textScale: state.textScale,
+        hideVyraBalance: state.hideVyraBalance,
+        biometricUnlockEnabled: state.biometricUnlockEnabled,
         weightUnit: state.weightUnit,
         heightUnit: state.heightUnit,
         distUnit: state.distUnit,
@@ -231,6 +277,9 @@ export const useSettingsStore = create<SettingsState>()(
         notifCoach: state.notifCoach,
         notifSummary: state.notifSummary,
         maxNotifsPerDay: state.maxNotifsPerDay,
+        notificationQuietHoursEnabled: state.notificationQuietHoursEnabled,
+        notificationQuietHoursStart: state.notificationQuietHoursStart,
+        notificationQuietHoursEnd: state.notificationQuietHoursEnd,
         hapticsEnabled: state.hapticsEnabled,
         progressPhotoBackupEnabled: state.progressPhotoBackupEnabled,
         femaleDisclaimerAccepted: state.femaleDisclaimerAccepted,

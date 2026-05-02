@@ -1,6 +1,5 @@
+import * as Location from 'expo-location';
 import type { WaterClimate } from '@/lib/water-context';
-
-type ExpoLocationModule = typeof import('expo-location');
 
 export type WaterWeatherSnapshot = {
   climate: WaterClimate;
@@ -13,16 +12,6 @@ export type WaterWeatherSnapshot = {
   longitude: number;
 };
 
-let cachedLocationModule: ExpoLocationModule | null = null;
-
-function getLocationModule(): ExpoLocationModule {
-  if (!cachedLocationModule) {
-    cachedLocationModule = require('expo-location') as ExpoLocationModule;
-  }
-
-  return cachedLocationModule;
-}
-
 function resolveClimate(tempC: number, humidityPct: number, apparentC: number | null): WaterClimate {
   const felt = Number.isFinite(Number(apparentC ?? NaN)) ? (apparentC as number) : tempC;
   if (felt >= 34) return 'hot';
@@ -33,11 +22,16 @@ function resolveClimate(tempC: number, humidityPct: number, apparentC: number | 
 }
 
 async function getCoords(): Promise<{ latitude: number; longitude: number } | null> {
-  const Location = getLocationModule();
-  const permission = await Location.requestForegroundPermissionsAsync().catch(() => null);
+  const permission = await Location.requestForegroundPermissionsAsync().catch((e) => {
+    console.debug?.('[water-weather] requestForegroundPermissionsAsync failed', e);
+    return null;
+  });
   if (!permission?.granted) return null;
 
-  const lastKnown = await Location.getLastKnownPositionAsync().catch(() => null);
+  const lastKnown = await Location.getLastKnownPositionAsync().catch((e) => {
+    console.debug?.('[water-weather] getLastKnownPositionAsync failed', e);
+    return null;
+  });
   if (lastKnown?.coords?.latitude && lastKnown?.coords?.longitude) {
     return {
       latitude: lastKnown.coords.latitude,
@@ -47,7 +41,10 @@ async function getCoords(): Promise<{ latitude: number; longitude: number } | nu
 
   const current = await Location.getCurrentPositionAsync({
     accuracy: Location.Accuracy.Lowest,
-  }).catch(() => null);
+  }).catch((e) => {
+    console.debug?.('[water-weather] getCurrentPositionAsync failed', e);
+    return null;
+  });
 
   if (!current?.coords?.latitude || !current?.coords?.longitude) return null;
   return {
@@ -69,7 +66,10 @@ export async function fetchAutoWaterClimate(): Promise<WaterWeatherSnapshot | nu
         `&units=metric&appid=${openWeatherKey}`;
       const res = await fetch(url);
       if (res.ok) {
-        const payload = await res.json().catch(() => null);
+        const payload = await res.json().catch((e) => {
+          console.debug?.('[water-weather] openweather response parse failed', e);
+          return null;
+        });
         const tempC = Number(payload?.main?.temp);
         const humidityPct = Number(payload?.main?.humidity);
         const feelsLikeC = Number(payload?.main?.feels_like);
@@ -102,7 +102,10 @@ export async function fetchAutoWaterClimate(): Promise<WaterWeatherSnapshot | nu
 
     const res = await fetch(url);
     if (!res.ok) return null;
-    const payload = await res.json().catch(() => null);
+    const payload = await res.json().catch((e) => {
+      console.debug?.('[water-weather] open-meteo response parse failed', e);
+      return null;
+    });
     const current = payload?.current;
     if (!current) return null;
 

@@ -1,36 +1,108 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Modal from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { validateEmail, validateName, validatePassword } from '@/utils/validators';
+import { useLocalizedStrings } from '@/constants/strings';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { Routes } from '@/constants/routes';
+import { resolveSupportedLanguage } from '@/lib/language';
 
-type RegisterStep = 'form' | 'consents';
+const SCREEN_COPY = {
+  es: {
+    subtitle: 'Empieza con Google o email; el resto lo ajustas despues.',
+    google: 'Continuar con Google',
+    googleHint: 'Abre el flujo seguro de Google para crear o vincular tu cuenta.',
+    apple: 'Continuar con Apple',
+    appleHint: 'Abre el flujo seguro de Apple para crear o vincular tu cuenta.',
+    separator: 'o',
+    passwordHint: 'Minimo 8 caracteres',
+    terms: 'Terminos',
+    privacy: 'Privacidad',
+    termsA11yLabel: 'Abrir terminos',
+    termsA11yHint: 'Muestra los terminos del servicio antes de crear tu cuenta.',
+    privacyA11yLabel: 'Abrir privacidad',
+    privacyA11yHint: 'Muestra la politica de privacidad antes de crear tu cuenta.',
+    consentLabel: 'Acepto los terminos y entiendo el aviso medico de la app.',
+    consentA11yLabel: 'Aceptar terminos y aviso medico',
+    consentA11yHint: 'Marca esta casilla para continuar con la creacion de la cuenta.',
+    consentError: 'Necesitas aceptar este paso para crear tu cuenta.',
+    submitFallback: 'No pudimos crear tu cuenta.',
+    guest: 'Continuar sin cuenta',
+    guestHint: 'Puedes guardar tu progreso con Google o Apple despues.',
+    footerPrefix: 'Ya tienes cuenta? ',
+    footerLabel: 'Ya tengo cuenta',
+    footerHint: 'Abre la pantalla para iniciar sesion.',
+  },
+  en: {
+    subtitle: 'Start with Google or email; you can tune the rest later.',
+    google: 'Continue with Google',
+    googleHint: 'Open the secure Google flow to create or link your account.',
+    apple: 'Continue with Apple',
+    appleHint: 'Open the secure Apple flow to create or link your account.',
+    separator: 'or',
+    passwordHint: 'Minimum 8 characters',
+    terms: 'Terms',
+    privacy: 'Privacy',
+    termsA11yLabel: 'Open terms',
+    termsA11yHint: 'Show the terms of service before creating your account.',
+    privacyA11yLabel: 'Open privacy',
+    privacyA11yHint: 'Show the privacy policy before creating your account.',
+    consentLabel: 'I accept the terms and understand the app medical notice.',
+    consentA11yLabel: 'Accept terms and medical notice',
+    consentA11yHint: 'Check this box to continue creating your account.',
+    consentError: 'You need to accept this step to create your account.',
+    submitFallback: 'We could not create your account.',
+    guest: 'Continue without account',
+    guestHint: 'You can save your progress with Google or Apple later.',
+    footerPrefix: 'Already have an account? ',
+    footerLabel: 'I already have an account',
+    footerHint: 'Open the screen to sign in.',
+  },
+  pt: {
+    subtitle: 'Comece com Google ou email; o resto voce ajusta depois.',
+    google: 'Continuar com Google',
+    googleHint: 'Abre o fluxo seguro do Google para criar ou vincular sua conta.',
+    apple: 'Continuar com Apple',
+    appleHint: 'Abre o fluxo seguro da Apple para criar ou vincular sua conta.',
+    separator: 'ou',
+    passwordHint: 'Minimo de 8 caracteres',
+    terms: 'Termos',
+    privacy: 'Privacidade',
+    termsA11yLabel: 'Abrir termos',
+    termsA11yHint: 'Mostra os termos de servico antes de criar sua conta.',
+    privacyA11yLabel: 'Abrir privacidade',
+    privacyA11yHint: 'Mostra a politica de privacidade antes de criar sua conta.',
+    consentLabel: 'Aceito os termos e entendo o aviso medico do app.',
+    consentA11yLabel: 'Aceitar termos e aviso medico',
+    consentA11yHint: 'Marque esta caixa para continuar criando sua conta.',
+    consentError: 'Voce precisa aceitar esta etapa para criar sua conta.',
+    submitFallback: 'Nao conseguimos criar sua conta.',
+    guest: 'Continuar sem conta',
+    guestHint: 'Voce pode salvar seu progresso com Google ou Apple depois.',
+    footerPrefix: 'Ja tem conta? ',
+    footerLabel: 'Ja tenho conta',
+    footerHint: 'Abre a tela para entrar.',
+  },
+} as const;
 
 export default function RegisterScreen() {
-  const { register, isLoading } = useAuth();
-  const [step, setStep] = useState<RegisterStep>('form');
+  const { AuthStrings: authStrings } = useLocalizedStrings();
+  const { i18n } = useTranslation();
+  const { register, continueAsGuest, isLoading } = useAuth();
+  const copy = SCREEN_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [tosAccepted, setTosAccepted] = useState(false);
-  const [healthConsent, setHealthConsent] = useState(false);
-  const [medicalAccepted, setMedicalAccepted] = useState(false);
-  const [showMedical, setShowMedical] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const allConsentsGiven = tosAccepted && healthConsent && medicalAccepted;
-  const sensitiveDataLabel = useMemo(
-    () => (healthConsent ? 'Datos sensibles activados' : 'Datos sensibles desactivados'),
-    [healthConsent],
-  );
 
   const validateForm = () => {
     const nextErrors: Record<string, string> = {};
@@ -40,192 +112,175 @@ export default function RegisterScreen() {
     if (nameErr) nextErrors.name = nameErr;
     if (emailErr) nextErrors.email = emailErr;
     if (passwordErr) nextErrors.password = passwordErr;
+    if (!consentAccepted) nextErrors.consent = copy.consentError;
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
 
-  const validateConsents = () => {
-    if (allConsentsGiven) return true;
-    setErrors({ consents: 'Necesitas completar este paso para crear tu cuenta.' });
-    return false;
-  };
-
-  const handleContinue = () => {
+  const handleRegister = async () => {
     setSubmitError(null);
     if (!validateForm()) return;
-    setStep('consents');
-  };
 
-  const handleRegister = () => {
-    setSubmitError(null);
-    if (!validateConsents()) return;
-    setShowMedical(true);
-  };
-
-  const handleMedicalAccept = async () => {
-    setShowMedical(false);
     const result = await register(email.trim().toLowerCase(), password, name.trim());
     if (!result.ok) {
-      setSubmitError(result.error ?? 'No pudimos crear tu cuenta.');
+      setSubmitError(result.error ?? copy.submitFallback);
     }
   };
 
   return (
     <SafeScreen scrollable padBottom>
       <View style={styles.hero}>
-        <Text style={styles.title}>{step === 'form' ? 'Crea tu cuenta' : 'Último paso'}</Text>
-        <Text style={styles.subtitle}>
-          {step === 'form'
-            ? 'Empieza con lo mínimo. Lo legal y lo sensible vienen después, con más claridad.'
-            : 'Este último paso es un acuerdo claro, no una barrera.'}
-        </Text>
+        <Text style={styles.title}>{authStrings.register.title}</Text>
+        <Text style={styles.subtitle}>{copy.subtitle}</Text>
       </View>
 
-      <Pressable onPress={() => router.push(Routes.auth.google as never)} style={styles.googleButton}>
-        <Text style={styles.googleBadge}>G</Text>
-        <Text style={styles.googleText}>Continuar con Google</Text>
-      </Pressable>
+      <View style={styles.form}>
+        <Pressable
+          onPress={() => router.push(Routes.auth.google as never)}
+          style={styles.googleButton}
+          accessibilityRole="button"
+          accessibilityLabel={copy.google}
+          accessibilityHint={copy.googleHint}
+        >
+          <Text style={styles.googleBadge}>G</Text>
+          <Text style={styles.googleText}>{copy.google}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push(Routes.auth.apple as never)}
+          style={styles.googleButton}
+          accessibilityRole="button"
+          accessibilityLabel={copy.apple}
+          accessibilityHint={copy.appleHint}
+        >
+          <FontAwesome name="apple" size={20} color={Colors.textPrimary} />
+          <Text style={styles.googleText}>{copy.apple}</Text>
+        </Pressable>
 
-      {step === 'form' ? (
-        <View style={styles.step}>
-          <Input
-            label="Tu nombre"
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-            autoComplete="name"
-            error={errors.name}
-          />
-          <Input
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            error={errors.email}
-          />
-          <Input
-            label="Contraseña"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="new-password"
-            error={errors.password}
-            hint="Mínimo 8 caracteres"
-          />
-          <Button onPress={handleContinue} fullWidth size="lg">
-            Continuar
-          </Button>
+        <View style={styles.separatorRow}>
+          <View style={styles.separatorLine} />
+          <Text style={styles.separatorText}>{copy.separator}</Text>
+          <View style={styles.separatorLine} />
         </View>
-      ) : (
-        <View style={styles.step}>
-          <View style={styles.legalLinksRow}>
-            <Pressable onPress={() => router.push('/legal/terms' as never)} style={styles.legalPill}>
-              <Text style={styles.legalPillText}>Términos</Text>
-            </Pressable>
-            <Pressable onPress={() => router.push('/legal/privacy' as never)} style={styles.legalPill}>
-              <Text style={styles.legalPillText}>Privacidad</Text>
-            </Pressable>
-          </View>
 
-          <CheckRow checked={tosAccepted} onToggle={() => setTosAccepted((value) => !value)}>
-            Entiendo las reglas de uso y como se trata mi cuenta.
-          </CheckRow>
+        <Input
+          label={authStrings.register.name}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          autoComplete="name"
+          error={errors.name}
+        />
+        <Input
+          label={authStrings.register.email}
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          error={errors.email}
+        />
+        <Input
+          label={authStrings.register.password}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoComplete="new-password"
+          error={errors.password}
+          hint={copy.passwordHint}
+        />
 
-          <Pressable style={styles.sensitiveCard} onPress={() => setHealthConsent((value) => !value)}>
-            <View style={styles.sensitiveTop}>
-            <Text style={styles.sensitiveTitle}>Privacidad de salud</Text>
-              <View style={[styles.togglePill, healthConsent && styles.togglePillActive]}>
-                <Text style={[styles.togglePillText, healthConsent && styles.togglePillTextActive]}>
-                  {sensitiveDataLabel}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.sensitiveBody}>
-              Tus datos de salud se usan para personalizar mejor la experiencia y se tratan con el máximo nivel de privacidad.
-            </Text>
+        <View style={styles.linksRow}>
+          <Pressable
+            onPress={() => router.push(Routes.legal.terms as never)}
+            style={styles.legalPill}
+            accessibilityRole="button"
+            accessibilityLabel={copy.termsA11yLabel}
+            accessibilityHint={copy.termsA11yHint}
+          >
+            <Text style={styles.legalPillText}>{copy.terms}</Text>
           </Pressable>
-
-          <CheckRow checked={medicalAccepted} onToggle={() => setMedicalAccepted((value) => !value)}>
-            Entiendo que VYRA no reemplaza a un médico.
-          </CheckRow>
-
-          {errors.consents ? <Text style={styles.consentError}>{errors.consents}</Text> : null}
-          {submitError ? <Text style={styles.submitError}>{submitError}</Text> : null}
-
-          <Button onPress={handleRegister} fullWidth size="lg" loading={isLoading}>
-            Crear mi cuenta
-          </Button>
-          <Button onPress={() => setStep('form')} variant="ghost" fullWidth>
-            Volver
-          </Button>
+          <Pressable
+            onPress={() => router.push(Routes.legal.privacy as never)}
+            style={styles.legalPill}
+            accessibilityRole="button"
+            accessibilityLabel={copy.privacyA11yLabel}
+            accessibilityHint={copy.privacyA11yHint}
+          >
+            <Text style={styles.legalPillText}>{copy.privacy}</Text>
+          </Pressable>
         </View>
-      )}
+
+        <Pressable
+          style={styles.checkRow}
+          onPress={() => setConsentAccepted((value) => !value)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: consentAccepted }}
+          accessibilityLabel={copy.consentA11yLabel}
+          accessibilityHint={copy.consentA11yHint}
+        >
+          <View style={[styles.checkbox, consentAccepted && styles.checkboxChecked]}>
+            {consentAccepted ? <MaterialIcons name="check" size={14} color={Colors.black} /> : null}
+          </View>
+          <Text style={styles.checkText}>{copy.consentLabel}</Text>
+        </Pressable>
+
+        {errors.consent ? <Text style={styles.errorText}>{errors.consent}</Text> : null}
+        {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+
+        <Button onPress={handleRegister} fullWidth size="md" loading={isLoading}>
+          {authStrings.register.cta}
+        </Button>
+        <Button
+          onPress={() => {
+            void continueAsGuest();
+          }}
+          fullWidth
+          variant="secondary"
+          loading={isLoading}
+        >
+          {copy.guest}
+        </Button>
+        <Text style={styles.guestHint}>{copy.guestHint}</Text>
+      </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>¿Ya tienes cuenta? </Text>
-        <Pressable onPress={() => router.replace('/(auth)/login' as never)}>
-          <Text style={styles.footerLink}>Inicia sesión</Text>
+        <Text style={styles.footerText}>{copy.footerPrefix}</Text>
+        <Pressable
+          onPress={() => router.replace(Routes.auth.login as never)}
+          accessibilityRole="button"
+          accessibilityLabel={copy.footerLabel}
+          accessibilityHint={copy.footerHint}
+        >
+          <Text style={styles.footerLink}>{authStrings.register.login}</Text>
         </Pressable>
       </View>
-
-      <Modal
-        visible={showMedical}
-        onClose={() => setShowMedical(false)}
-        title="Antes de seguir"
-        showClose={false}
-        ctaLabel="Crear mi cuenta"
-        onCta={handleMedicalAccept}
-      >
-        <Text style={styles.modalBody}>
-          VYRA no reemplaza diagnóstico médico profesional. Si tienes una condición o una duda de salud
-          importante, consulta con un profesional antes de seguir.
-        </Text>
-      </Modal>
     </SafeScreen>
-  );
-}
-
-function CheckRow({
-  checked,
-  onToggle,
-  children,
-}: {
-  checked: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Pressable onPress={onToggle} style={styles.checkRow}>
-      <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-        {checked ? <Text style={styles.checkmark}>✓</Text> : null}
-      </View>
-      <Text style={styles.checkText}>{children}</Text>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   hero: {
     gap: Spacing[2],
-    marginTop: Spacing[3],
-    marginBottom: Spacing[5],
+    marginTop: Spacing[1],
+    marginBottom: Spacing[3],
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 40,
-    lineHeight: 40,
+    fontSize: 34,
+    lineHeight: 34,
     color: Colors.textPrimary,
   },
   subtitle: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
-    lineHeight: 24,
+    lineHeight: 20,
     color: Colors.textSecondary,
   },
+  form: {
+    gap: Spacing[1.5],
+  },
   googleButton: {
-    height: 56,
+    height: 52,
     borderRadius: Radius.xl,
     backgroundColor: Colors.surface2,
     borderWidth: 1,
@@ -234,7 +289,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: Spacing[3],
-    marginBottom: Spacing[5],
   },
   googleBadge: {
     fontFamily: FontFamily.bold,
@@ -252,12 +306,27 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
   },
-  step: {
-    gap: Spacing[3],
-  },
-  legalLinksRow: {
+  separatorRow: {
     flexDirection: 'row',
-    gap: Spacing[2],
+    alignItems: 'center',
+    gap: Spacing[3],
+    marginVertical: Spacing[0.5],
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: withOpacity(Colors.white, 0.08),
+  },
+  separatorText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  linksRow: {
+    flexDirection: 'row',
+    gap: Spacing[1],
   },
   legalPill: {
     borderRadius: Radius.full,
@@ -265,7 +334,7 @@ const styles = StyleSheet.create({
     borderColor: withOpacity(Colors.white, 0.08),
     backgroundColor: Colors.surface2,
     paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
+    paddingVertical: Spacing[1],
   },
   legalPillText: {
     fontFamily: FontFamily.medium,
@@ -292,77 +361,29 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.brand,
     borderColor: Colors.brand,
   },
-  checkmark: {
-    fontFamily: FontFamily.bold,
-    fontSize: 10,
-    color: Colors.black,
-  },
   checkText: {
     flex: 1,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: 18,
     color: Colors.textSecondary,
   },
-  sensitiveCard: {
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.06),
-    backgroundColor: Colors.surface2,
-    padding: Spacing[5],
-    gap: Spacing[2],
-  },
-  sensitiveTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing[2],
-  },
-  sensitiveTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  togglePill: {
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[1.5],
-    backgroundColor: withOpacity(Colors.white, 0.04),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-  },
-  togglePillActive: {
-    backgroundColor: withOpacity(Colors.brand, 0.12),
-    borderColor: withOpacity(Colors.brand, 0.22),
-  },
-  togglePillText: {
+  errorText: {
     fontFamily: FontFamily.medium,
-    fontSize: 11,
-    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    color: Colors.error,
   },
-  togglePillTextActive: {
-    color: Colors.brand,
-  },
-  sensitiveBody: {
+  guestHint: {
     fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
     color: Colors.textSecondary,
-  },
-  consentError: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.error,
-  },
-  submitError: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.error,
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingVertical: Spacing[6],
+    paddingVertical: Spacing[3],
   },
   footerText: {
     fontFamily: FontFamily.regular,
@@ -373,11 +394,5 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
     color: Colors.brand,
-  },
-  modalBody: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    lineHeight: 24,
-    color: Colors.textSecondary,
   },
 });

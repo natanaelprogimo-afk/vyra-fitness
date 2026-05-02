@@ -1,4 +1,4 @@
-import {
+﻿import {
   GENERATED_WORKOUT_EXERCISES,
   GENERATED_WORKOUT_FAVORITES,
   GENERATED_WORKOUT_PROGRAMS,
@@ -14,6 +14,46 @@ import {
   type WorkoutSessionDetail,
   type WorkoutSettings,
 } from '@/lib/workout-types';
+
+const ROUTINE_NAME_OVERRIDES: Record<string, string> = {
+  foundation_full_body_a: 'Cuerpo completo · Día 1',
+  foundation_full_body_b: 'Cuerpo completo · Día 2',
+  foundation_full_body_c: 'Cuerpo completo · Día 3',
+  upper_strength_a: 'Tren superior · Fuerza',
+  lower_strength_a: 'Tren inferior · Fuerza',
+  glutes_focus: 'Glúteos · Foco',
+  home_bodyweight: 'En casa · Sin equipo',
+  express_cardio_core: 'Cardio + core · Express',
+  mobility_reset: 'Movilidad · Reset',
+  template_home_reset: 'Template · Casa reset',
+  template_glutes_base: 'Template · Glúteos base',
+  template_mobility_day: 'Template · Movilidad',
+};
+
+const SESSION_NAME_OVERRIDES: Record<string, string> = {
+  'Base total A': 'Cuerpo completo · Día 1',
+  'Base total B': 'Cuerpo completo · Día 2',
+  'Base total C': 'Cuerpo completo · Día 3',
+  'Upper fuerza A': 'Tren superior · Fuerza',
+  'Lower fuerza A': 'Tren inferior · Fuerza',
+  'Glúteos foco': 'Glúteos · Foco',
+  ['Gl\u00C3\u00BAteos foco']: 'Glúteos · Foco',
+  'Casa sin equipo': 'En casa · Sin equipo',
+  'Express cardio + core': 'Cardio + core · Express',
+  'Reset de movilidad': 'Movilidad · Reset',
+};
+
+export function getWorkoutDisplayName(name: string | null | undefined) {
+  if (!name) return '';
+  return SESSION_NAME_OVERRIDES[name] ?? name;
+}
+
+function applyRoutineNameOverride(routine: Routine): Routine {
+  const key = routine.slug ?? routine.id;
+  const nextName = ROUTINE_NAME_OVERRIDES[key];
+  if (!nextName || nextName === routine.name) return routine;
+  return { ...routine, name: nextName };
+}
 
 function makeIso(daysAgo = 0, hours = 18, minutes = 0) {
   const date = new Date();
@@ -49,8 +89,8 @@ function buildBreakdown(sets: WorkoutSessionDetail['sets']) {
 }
 
 export const WORKOUT_SEED_EXERCISES: Exercise[] = GENERATED_WORKOUT_EXERCISES;
-export const WORKOUT_SEED_ROUTINES: Routine[] = GENERATED_WORKOUT_ROUTINES;
-export const WORKOUT_TEMPLATE_ROUTINES: Routine[] = GENERATED_WORKOUT_TEMPLATE_ROUTINES;
+export const WORKOUT_SEED_ROUTINES: Routine[] = GENERATED_WORKOUT_ROUTINES.map(applyRoutineNameOverride);
+export const WORKOUT_TEMPLATE_ROUTINES: Routine[] = GENERATED_WORKOUT_TEMPLATE_ROUTINES.map(applyRoutineNameOverride);
 export const WORKOUT_SEED_PROGRAMS: WorkoutProgram[] = GENERATED_WORKOUT_PROGRAMS;
 export const WORKOUT_SEED_FAVORITES: string[] = GENERATED_WORKOUT_FAVORITES;
 export const WORKOUT_SEED_VERSION = WORKOUT_CATALOG_VERSION;
@@ -70,7 +110,7 @@ const seedDetails: WorkoutSessionDetail[] = [
   {
     session: {
       id: 'session_seed_1',
-      name: 'Base total A',
+      name: getWorkoutDisplayName('Base total A'),
       started_at: makeIso(5, 18, 10),
       ended_at: makeIso(5, 19, 2),
       total_volume_kg: 3705,
@@ -97,7 +137,7 @@ const seedDetails: WorkoutSessionDetail[] = [
   {
     session: {
       id: 'session_seed_2',
-      name: 'Upper fuerza A',
+      name: getWorkoutDisplayName('Upper fuerza A'),
       started_at: makeIso(3, 19, 0),
       ended_at: makeIso(3, 19, 56),
       total_volume_kg: 2985,
@@ -123,7 +163,7 @@ const seedDetails: WorkoutSessionDetail[] = [
   {
     session: {
       id: 'session_seed_3',
-      name: 'Glúteos foco',
+      name: getWorkoutDisplayName('Glúteos foco'),
       started_at: makeIso(1, 7, 12),
       ended_at: makeIso(1, 7, 58),
       total_volume_kg: 4210,
@@ -156,3 +196,4 @@ export const WORKOUT_SEED_HISTORY: WorkoutHistory[] = seedDetails.map((entry) =>
 export const WORKOUT_SEED_DETAILS: Record<string, WorkoutSessionDetail> = Object.fromEntries(
   seedDetails.map((entry) => [entry.session!.id, entry]),
 );
+

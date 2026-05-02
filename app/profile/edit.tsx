@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
@@ -7,6 +7,7 @@ import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { GOAL_OPTIONS } from '@/lib/onboarding-v2';
@@ -63,7 +64,7 @@ export default function EditProfileScreen() {
       showToast('Perfil actualizado.', 'success');
       router.back();
     } catch {
-      Alert.alert('No se pudo guardar', 'Intenta de nuevo en unos segundos.');
+      showToast('No se pudo guardar el perfil.', 'error');
     } finally {
       setSaving(false);
     }
@@ -76,10 +77,10 @@ export default function EditProfileScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Card accentColor={Colors.action}>
           <Text style={styles.eyebrow}>Identidad</Text>
-          <Text style={styles.title}>Asi quieres que VYRA te lea.</Text>
+          <Text style={styles.title}>Así quieres que VYRA te lea.</Text>
           <Text style={styles.body}>
             Cambia solo lo necesario. Inicio, Progreso y el resto del sistema usan esto para ajustar
-            mejor el contexto del dia.
+            mejor el contexto del día.
           </Text>
         </Card>
 
@@ -114,6 +115,11 @@ export default function EditProfileScreen() {
                       backgroundColor: withOpacity(Colors.action, 0.12),
                     },
                   ]}
+                  accessibilityRole="radio"
+                  accessibilityLabel={option.label}
+                  accessibilityHint={option.subtitle}
+                  accessibilityState={{ selected: active }}
+                  hitSlop={8}
                 >
                   <View
                     style={[
@@ -145,6 +151,8 @@ export default function EditProfileScreen() {
         ) : (
           <Text style={styles.idleHint}>No hay cambios pendientes.</Text>
         )}
+
+        <ScreenFooterSpacer extra={Spacing[2]} />
       </ScrollView>
     </SafeScreen>
   );
@@ -154,7 +162,6 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[4],
-    paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
   eyebrow: {

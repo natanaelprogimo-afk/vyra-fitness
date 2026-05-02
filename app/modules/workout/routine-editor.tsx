@@ -26,7 +26,14 @@ function formatSetSummary(exercise: RoutineExercise) {
 
 function SelectPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.pill, active && styles.pillActive]}
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      hitSlop={8}
+    >
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
     </Pressable>
   );
@@ -181,13 +188,34 @@ export default function WorkoutRoutineEditorScreen() {
                   </View>
 
                   <View style={styles.exerciseActions}>
-                    <Pressable onPress={() => moveExercise(exercise.exercise_id, 'up')} style={styles.iconButton}>
+                    <Pressable
+                      onPress={() => moveExercise(exercise.exercise_id, 'up')}
+                      style={styles.iconButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Subir ${exercise.exercise_name}`}
+                      accessibilityHint="Mueve este ejercicio una posición hacia arriba."
+                      hitSlop={8}
+                    >
                       <Ionicons name="chevron-up" size={16} color={Colors.textSecondary} />
                     </Pressable>
-                    <Pressable onPress={() => moveExercise(exercise.exercise_id, 'down')} style={styles.iconButton}>
+                    <Pressable
+                      onPress={() => moveExercise(exercise.exercise_id, 'down')}
+                      style={styles.iconButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Bajar ${exercise.exercise_name}`}
+                      accessibilityHint="Mueve este ejercicio una posición hacia abajo."
+                      hitSlop={8}
+                    >
                       <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
                     </Pressable>
-                    <Pressable onPress={() => removeExercise(exercise.exercise_id)} style={styles.iconButton}>
+                    <Pressable
+                      onPress={() => removeExercise(exercise.exercise_id)}
+                      style={styles.iconButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${exercise.exercise_name}`}
+                      accessibilityHint="Elimina este ejercicio de la rutina."
+                      hitSlop={8}
+                    >
                       <Ionicons name="trash-outline" size={16} color={Colors.error} />
                     </Pressable>
                   </View>

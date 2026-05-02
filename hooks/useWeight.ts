@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getProfileContextMemory } from '@/lib/profile-context';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
 import { decryptSensitiveText, encryptSensitiveText } from '@/lib/sensitive-crypto';
+import {
+  cacheRemoteWeightLogs,
+  deleteOfflineWeightLog,
+  flushOfflineWeightLogs,
+  getOfflineWeightLogs,
+  queueOfflineWeightLog,
+  type OfflineWeightLogSyncPayload,
+} from '@/lib/weight-offline';
 
 export interface WeightLog {
   id: string;
@@ -13,6 +22,18 @@ export interface WeightLog {
   note: string | null;
   logged_at: string;
 }
+
+type RemoteWeightLogRow = {
+  id: string;
+  user_id: string;
+  weight_kg: number | null;
+  body_fat_pct: number | null;
+  weight_kg_encrypted: string | null;
+  body_fat_pct_encrypted: string | null;
+  photo_url: string | null;
+  note: string | null;
+  logged_at: string;
+};
 
 function parseEncryptedNumeric(value: string | null): number | null {
   if (!value) return null;
@@ -24,6 +45,43 @@ function parseEncryptedNumeric(value: string | null): number | null {
 function roundForAnalytics(value: number, step: number): number {
   if (!Number.isFinite(value) || step <= 0) return value;
   return Math.round(value / step) * step;
+}
+
+function isRecoverableOfflineError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('offline') ||
+    message.includes('internet') ||
+    message.includes('timeout')
+  );
+}
+
+async function normalizeWeightLogRow(entry: RemoteWeightLogRow): Promise<WeightLog & { user_id: string }> {
+  const [decryptedNote, decryptedWeightRaw, decryptedBodyFatRaw] = await Promise.all([
+    decryptSensitiveText(entry.note ?? null),
+    decryptSensitiveText(entry.weight_kg_encrypted ?? null),
+    decryptSensitiveText(entry.body_fat_pct_encrypted ?? null),
+  ]);
+
+  const decryptedWeight = parseEncryptedNumeric(decryptedWeightRaw);
+  const decryptedBodyFat = parseEncryptedNumeric(decryptedBodyFatRaw);
+
+  return {
+    id: entry.id,
+    user_id: entry.user_id,
+    photo_url: entry.photo_url,
+    logged_at: entry.logged_at,
+    note: decryptedNote,
+    weight_kg: decryptedWeight ?? Number(entry.weight_kg ?? 0),
+    body_fat_pct:
+      decryptedBodyFat !== null
+        ? decryptedBodyFat
+        : entry.body_fat_pct !== null && entry.body_fat_pct !== undefined
+          ? Number(entry.body_fat_pct)
+          : null,
+  };
 }
 
 export interface WeightStats {
@@ -47,7 +105,10 @@ export interface WeightStats {
 }
 
 export function useWeight() {
-  const { profile } = useAuthStore();
+  const profile = useAuthStore((state) => state.profile);
+  const updateStoredProfile = useAuthStore((state) => state.updateProfile);
+  const showToast = useUIStore((state) => state.showToast);
+  const isOnline = useUIStore((state) => state.isOnline);
   const userId = profile?.id;
   const coachMemory = getProfileContextMemory(profile);
   const strictSensitiveMode = Boolean(coachMemory.privacy_strict_sensitive_mode);
@@ -75,51 +136,7 @@ export function useWeight() {
     plateauMessage: null,
   });
 
-  const fetchLogs = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const { data, error } = await supabase
-        .from('weight_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .order('logged_at', { ascending: false })
-        .limit(365);
-
-      if (error) throw error;
-      const normalized = await Promise.all(
-        (data ?? []).map(async (entry: any) => {
-          const [decryptedNote, decryptedWeightRaw, decryptedBodyFatRaw] = await Promise.all([
-            decryptSensitiveText(entry.note ?? null),
-            decryptSensitiveText(entry.weight_kg_encrypted ?? null),
-            decryptSensitiveText(entry.body_fat_pct_encrypted ?? null),
-          ]);
-
-          const decryptedWeight = parseEncryptedNumeric(decryptedWeightRaw);
-          const decryptedBodyFat = parseEncryptedNumeric(decryptedBodyFatRaw);
-
-          return {
-            ...entry,
-            weight_kg: decryptedWeight ?? Number(entry.weight_kg ?? 0),
-            body_fat_pct:
-              decryptedBodyFat !== null
-                ?  decryptedBodyFat
-                : entry.body_fat_pct !== null && entry.body_fat_pct !== undefined
-                  ?  Number(entry.body_fat_pct)
-                  : null,
-            note: decryptedNote,
-          };
-        }),
-      );
-      setLogs(normalized as WeightLog[]);
-      computeStats(normalized as WeightLog[]);
-    } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: "useWeight.fetchLogs" });
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
-
-  function computeStats(data: WeightLog[]) {
+  const computeStats = useCallback((data: WeightLog[]) => {
     if (!profile) return;
 
     const heightM = (profile.height_cm ?? 170) / 100;
@@ -188,7 +205,7 @@ export function useWeight() {
       Math.max(...recent21) - Math.min(...recent21) <= 0.3 &&
       (profile.goal === 'lose_fat' || (toGoal !== null && toGoal > 0));
     const plateauMessage = plateauDetected
-      ?  'Tu peso viene estable hace ~3 semanas. Probemos ajustar calorias, pasos o carga de entrenamiento para destrabar.'
+      ?  'Tu peso viene estable hace ~3 semanas. Probemos ajustar calorías, pasos o carga de entrenamiento para destrabar.'
       : null;
 
     // Nuevo mínimo histórico
@@ -217,7 +234,55 @@ export function useWeight() {
       plateauDetected,
       plateauMessage,
     });
-  }
+  }, [profile]);
+
+  const fetchLogs = useCallback(async () => {
+    if (!userId) {
+      setLogs([]);
+      computeStats([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (isOnline) {
+        const { data, error } = await supabase
+          .from('weight_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .order('logged_at', { ascending: false })
+          .limit(365);
+
+        if (error) throw error;
+
+        const normalized = await Promise.all(
+          ((data ?? []) as RemoteWeightLogRow[]).map(normalizeWeightLogRow),
+        );
+
+        await cacheRemoteWeightLogs(userId, normalized);
+        setLogs(normalized);
+        computeStats(normalized);
+        return;
+      }
+
+      const offlineLogs = await getOfflineWeightLogs(userId);
+      setLogs(offlineLogs);
+      computeStats(offlineLogs);
+    } catch (err) {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useWeight.fetchLogs' });
+      if (userId) {
+        const offlineLogs = await getOfflineWeightLogs(userId).catch((e) => {
+          console.debug?.('[useWeight] getOfflineWeightLogs failed', e);
+          return [] as WeightLog[];
+        });
+        setLogs(offlineLogs);
+        computeStats(offlineLogs);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [computeStats, isOnline, userId]);
 
   const logWeight = useCallback(
     async (
@@ -230,6 +295,8 @@ export function useWeight() {
       try {
         const allWeights = logs.map((l) => l.weight_kg);
         const isNewMin = allWeights.length > 0 && weightKg < Math.min(...allWeights);
+        const loggedAtIso = new Date().toISOString();
+        let savedOffline = !isOnline;
 
         const encryptedNote = await encryptSensitiveText(note ?? null);
         const encryptedWeight = await encryptSensitiveText(String(weightKg));
@@ -244,41 +311,71 @@ export function useWeight() {
             ? roundForAnalytics(bodyFatPct, strictSensitiveMode ? 5 : 1)
             : null;
 
-        const securePayload = {
-          user_id: userId,
+        const securePayload: OfflineWeightLogSyncPayload = {
           weight_kg: strictSensitiveMode ? null : analyticsWeight,
           body_fat_pct: strictSensitiveMode ? null : analyticsBodyFat,
           weight_kg_encrypted: encryptedWeight,
           body_fat_pct_encrypted: encryptedBodyFat,
           note: encryptedNote,
-          logged_at: new Date().toISOString(),
+          logged_at: loggedAtIso,
+          profile_weight_current_kg: strictSensitiveMode ? null : analyticsWeight,
         };
 
-        let { error } = await supabase.from('weight_logs').insert(securePayload);
-        if (error) {
-          const message = String((error as any).message ?? '');
-          const missingSecureColumns =
-            message.includes('weight_kg_encrypted') || message.includes('body_fat_pct_encrypted');
+        if (isOnline) {
+          let { error } = await supabase.from('weight_logs').insert({
+            user_id: userId,
+            ...securePayload,
+          });
+          if (error) {
+            const message = String((error as { message?: unknown }).message ?? '');
+            const missingSecureColumns =
+              message.includes('weight_kg_encrypted') || message.includes('body_fat_pct_encrypted');
 
-          if (missingSecureColumns) {
-            if (strictSensitiveMode) {
-              throw new Error('El modo estricto requiere las columnas cifradas en weight_logs.');
+            if (missingSecureColumns) {
+              if (strictSensitiveMode) {
+                throw new Error('El modo estricto requiere las columnas cifradas en weight_logs.');
+              }
+              const fallback = await supabase.from('weight_logs').insert({
+                user_id: userId,
+                weight_kg: analyticsWeight,
+                body_fat_pct: analyticsBodyFat,
+                note: encryptedNote,
+                logged_at: loggedAtIso,
+              });
+              error = fallback.error;
             }
-            const fallback = await supabase.from('weight_logs').insert({
-              user_id: userId,
-              weight_kg: analyticsWeight,
-              body_fat_pct: analyticsBodyFat,
-              note: encryptedNote,
-              logged_at: new Date().toISOString(),
-            });
-            error = fallback.error;
           }
+
+          if (error) {
+            if (isRecoverableOfflineError(error)) {
+              await queueOfflineWeightLog(userId, {
+                weight_kg: weightKg,
+                body_fat_pct: bodyFatPct ?? null,
+                photo_url: null,
+                note: note ?? null,
+                logged_at: loggedAtIso,
+                sync_payload: securePayload,
+              });
+              savedOffline = true;
+            } else {
+              throw error;
+            }
+          }
+        } else {
+          await queueOfflineWeightLog(userId, {
+            weight_kg: weightKg,
+            body_fat_pct: bodyFatPct ?? null,
+            photo_url: null,
+            note: note ?? null,
+            logged_at: loggedAtIso,
+            sync_payload: securePayload,
+          });
+          savedOffline = true;
         }
 
-        if (error) throw error;
-
-        // Actualizar peso actual en perfil
         if (!strictSensitiveMode) {
+          updateStoredProfile({ weight_current_kg: analyticsWeight });
+
           await supabase
             .from('profiles')
             .update({ weight_current_kg: analyticsWeight })
@@ -286,33 +383,53 @@ export function useWeight() {
         }
 
         await fetchLogs();
+        showToast(
+          savedOffline
+            ? 'Peso guardado sin internet. Lo sincronizaremos cuando vuelvas.'
+            : 'Peso guardado.',
+          'success',
+        );
         return { isNewMin };
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useWeight.logWeight" });
+        const message = err instanceof Error ? err.message : 'No pudimos guardar el peso.';
+        showToast(message, 'error');
+        captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useWeight.logWeight' });
         return { isNewMin: false };
       } finally {
         setSaving(false);
       }
     },
-    [strictSensitiveMode, userId, logs, fetchLogs],
+    [fetchLogs, isOnline, logs, showToast, strictSensitiveMode, updateStoredProfile, userId],
   );
 
   const deleteLog = useCallback(
     async (logId: string) => {
       if (!userId) return;
       try {
-        const { error } = await supabase
-          .from('weight_logs')
-          .delete()
-          .eq('id', logId)
-          .eq('user_id', userId);
-        if (error) throw error;
+        if (isOnline) {
+          const { error } = await supabase
+            .from('weight_logs')
+            .delete()
+            .eq('id', logId)
+            .eq('user_id', userId);
+          if (error) throw error;
+        } else {
+          await deleteOfflineWeightLog(userId, logId);
+        }
+
         await fetchLogs();
+        showToast(
+          isOnline
+            ? 'Registro eliminado.'
+            : 'Registro eliminado del dispositivo. Se sincronizara cuando vuelvas.',
+          'success',
+        );
       } catch (err) {
-        captureError(err instanceof Error ? err : new Error(String(err)), { action: "useWeight.deleteLog" });
+        showToast('No pudimos eliminar ese registro.', 'error');
+        captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useWeight.deleteLog' });
       }
     },
-    [userId, fetchLogs],
+    [fetchLogs, isOnline, showToast, userId],
   );
 
   // Datos para gráfico de línea (últimos N días)
@@ -343,6 +460,30 @@ export function useWeight() {
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
+
+  useEffect(() => {
+    if (!userId || !isOnline) return;
+
+    let cancelled = false;
+
+    const syncPending = async () => {
+      const result = await flushOfflineWeightLogs(userId);
+      if (cancelled || result.synced === 0) return;
+
+      showToast(
+        result.failed > 0
+          ? `Sincronizamos ${result.synced} registros de peso. ${result.failed} siguen pendientes.`
+          : `Sincronizamos ${result.synced} registros de peso.`,
+        'success',
+      );
+      await fetchLogs();
+    };
+
+    void syncPending();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLogs, isOnline, showToast, userId]);
 
   const logStreakDays = useMemo(() => {
     const dates = new Set(logs.map((l) => new Date(l.logged_at).toISOString().split('T')[0]));

@@ -89,8 +89,9 @@ export function useBackendHealth() {
 
       const hadRecentHealthyCheck =
         lastHealthyAt.current !== null && Date.now() - lastHealthyAt.current < LAST_HEALTHY_GRACE_MS;
+      const transientFailure = isTransientHealthError(finalError);
 
-      if (hadRecentHealthyCheck || isTransientHealthError(finalError)) {
+      if (transientFailure && hadRecentHealthyCheck) {
         setStatus('ok');
         setError(finalError);
       } else {

@@ -1,10 +1,10 @@
 // ============================================================
-// VYRA FITNESS — useNutrition Hook
+// VYRA FITNESS - useNutrition Hook
 // Log de comidas por tipo (breakfast/lunch/dinner/snack),
-// totales diarios de macros, búsqueda de alimentos, historial
+// totales diarios de macros, busqueda de alimentos, historial
 // ============================================================
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -26,8 +26,19 @@ import {
   withNutritionMode,
   type NutritionMode,
 } from '@/lib/nutrition-mode';
+import {
+  cacheRemoteMealEntries,
+  deleteOfflineMealEntry,
+  flushOfflineMealEntries,
+  getOfflineMealEntries,
+  queueOfflineMealEntry,
+  updateOfflineMealEntry,
+  type OfflineMealLogSyncPayload,
+} from '@/lib/nutrition-offline';
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+const BARCODE_DAILY_LIMIT = 5;
 
 export const MEAL_TYPES: Record<MealType, { label: string; emoji: string; hour: number }> = {
   breakfast: { label: 'Desayuno', emoji: '🌅', hour: 8  },
@@ -79,6 +90,11 @@ export interface LogMealInput {
   source?:   MealSource;
 }
 
+export interface UpdateMealInput extends LogMealInput {
+  mealId: string;
+  logged_at?: string;
+}
+
 export interface FrequentMeal {
   key: string;
   meal_type: MealType;
@@ -93,6 +109,20 @@ export interface FrequentMeal {
   uses: number;
 }
 
+export interface RecentMeal {
+  key: string;
+  meal_type: MealType;
+  food_name: string;
+  food_id: string | null;
+  amount_g: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fiber_g: number;
+  logged_at: string;
+}
+
 export interface NutritionSleepEnergyCorrelation {
   insight: string | null;
   avgSleepHighNutrition: number | null;
@@ -103,9 +133,116 @@ export interface NutritionSleepEnergyCorrelation {
   sampleLow: number;
 }
 
+type RemoteMealEntryRow = MealEntry & {
+  user_id: string;
+};
+
+type MacroGoalType = 'lose_fat' | 'gain_muscle' | 'health' | 'performance' | 'mental';
+type WorkoutCaloriesRow = {
+  estimated_calories: number | null;
+  started_at: string;
+};
+
 function average(values: number[]): number | null {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function resolveMacroGoal(goal: string | null | undefined): MacroGoalType {
+  if (goal === 'lose_fat' || goal === 'gain_muscle' || goal === 'mental') return goal;
+  if (goal === 'sport_performance' || goal === 'performance') return 'performance';
+  return 'health';
+}
+
+function isRecoverableOfflineError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('offline') ||
+    message.includes('internet') ||
+    message.includes('timeout')
+  );
+}
+
+function buildOfflineFoodCandidates(meals: MealEntry[], query: string): FoodItem[] {
+  const trimmedQuery = query.trim().toLowerCase();
+  if (!trimmedQuery) return [];
+
+  const deduped = new Map<string, FoodItem>();
+
+  for (const meal of [...meals].sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())) {
+    if (!meal.food_name.toLowerCase().includes(trimmedQuery)) continue;
+
+    const key = `${meal.food_id ?? meal.food_name.trim().toLowerCase()}`;
+    if (deduped.has(key)) continue;
+
+    const amount = Math.max(1, Number(meal.amount_g ?? 100));
+    deduped.set(key, {
+      id: meal.food_id ?? `offline_${key}`,
+      name: meal.food_name,
+      brand: 'Guardado en tu dispositivo',
+      barcode: null,
+      calories_per_100g: Math.round((Number(meal.calories ?? 0) / amount) * 100),
+      protein_g: Math.round(((Number(meal.protein_g ?? 0) / amount) * 100) * 10) / 10,
+      carbs_g: Math.round(((Number(meal.carbs_g ?? 0) / amount) * 100) * 10) / 10,
+      fat_g: Math.round(((Number(meal.fat_g ?? 0) / amount) * 100) * 10) / 10,
+      fiber_g: Math.round(((Number(meal.fiber_g ?? 0) / amount) * 100) * 10) / 10,
+    });
+  }
+
+  return [...deduped.values()].slice(0, 20);
+}
+
+function normalizeMealEntry(
+  entry: {
+    id: string;
+    meal_type: string;
+    food_name: string;
+    food_id: string | null;
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g: number;
+    amount_g: number;
+    logged_at: string;
+    source?: string | null;
+  },
+): MealEntry {
+  return {
+    id: entry.id,
+    meal_type: entry.meal_type as MealType,
+    food_name: entry.food_name,
+    food_id: entry.food_id ?? null,
+    calories: Number(entry.calories ?? 0),
+    protein_g: Number(entry.protein_g ?? 0),
+    carbs_g: Number(entry.carbs_g ?? 0),
+    fat_g: Number(entry.fat_g ?? 0),
+    fiber_g: Number(entry.fiber_g ?? 0),
+    amount_g: Number(entry.amount_g ?? 0),
+    logged_at: entry.logged_at,
+    source: (entry.source as MealSource | undefined) ?? 'manual',
+  };
+}
+
+function buildMealSyncPayload(
+  input: LogMealInput | UpdateMealInput,
+  loggedAt: string,
+): OfflineMealLogSyncPayload {
+  return {
+    meal_type: input.meal_type,
+    food_name: input.food_name,
+    food_id: input.food_id ?? null,
+    calories: Math.round(input.calories),
+    protein_g: Math.round(input.protein_g * 10) / 10,
+    carbs_g: Math.round(input.carbs_g * 10) / 10,
+    fat_g: Math.round(input.fat_g * 10) / 10,
+    fiber_g: Math.round(input.fiber_g * 10) / 10,
+    amount_g: input.amount_g,
+    logged_at: loggedAt,
+    source: input.source ?? 'manual',
+  };
 }
 
 export function useNutrition() {
@@ -121,27 +258,58 @@ export function useNutrition() {
   const coachMemory = getProfileContextMemory(profile);
 
   const calorieGoal = profile?.calorie_goal ?? 2000;
-  const macroGoals  = calculateMacros(calorieGoal, (profile?.goal as any) ?? 'health');
+  const macroGoals  = calculateMacros(calorieGoal, resolveMacroGoal(profile?.goal));
 
-  // ─── Comidas de hoy ──────────────────────────────────────
-  const { data: todayMeals = [], isLoading, refetch } = useQuery<MealEntry[]>({
-    queryKey: ['meals_today', userId, todayISO()],
+  const mealWindowQuery = useQuery<MealEntry[]>({
+    queryKey: ['nutrition_meals_window', userId, isOnline],
     queryFn: async () => {
       if (!userId) return [];
-      const { data } = await supabase
-        .from('meals')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('logged_at', `${todayISO()}T00:00:00`)
-        .lte('logged_at', `${todayISO()}T23:59:59`)
-        .order('logged_at', { ascending: true });
-      return data ?? [];
+
+      if (isOnline) {
+        try {
+          const from = `${daysAgoISO(59)}T00:00:00`;
+          const { data, error } = await supabase
+            .from('meals')
+            .select('*')
+            .eq('user_id', userId)
+            .gte('logged_at', from)
+            .order('logged_at', { ascending: true });
+
+          if (error) throw error;
+
+          const normalized = ((data ?? []) as RemoteMealEntryRow[]).map(normalizeMealEntry);
+          await cacheRemoteMealEntries(
+            userId,
+            normalized.map((entry) => ({
+              ...entry,
+              user_id: userId,
+              source: entry.source ?? 'manual',
+            })),
+          );
+          return normalized;
+        } catch (error) {
+          captureError(error instanceof Error ? error : new Error(String(error)), {
+            action: 'useNutrition.fetchMealWindowRemote',
+          });
+        }
+      }
+
+      const offlineEntries = await getOfflineMealEntries(userId);
+      return offlineEntries.map(normalizeMealEntry);
     },
-    enabled:   !!userId,
+    enabled: !!userId,
     staleTime: 60 * 1000,
   });
+  const mealWindow = mealWindowQuery.data ?? [];
+  const isLoading = mealWindowQuery.isLoading;
+  const refetch = mealWindowQuery.refetch;
 
-  // ─── Totales del día ─────────────────────────────────────
+  const todayMeals = useMemo(
+    () => mealWindow.filter((meal) => meal.logged_at.startsWith(todayISO())),
+    [mealWindow],
+  );
+
+  // Totales del día
   const totals = todayMeals.reduce(
     (acc, m) => ({
       calories: acc.calories + m.calories,
@@ -158,47 +326,50 @@ export function useNutrition() {
   const remaining  = Math.max(0, calorieGoal - totals.calories);
 
   // Meals agrupadas por tipo
-  const mealsByType = (Object.keys(MEAL_TYPES) as MealType[]).reduce((acc, type) => {
-    acc[type] = todayMeals.filter(m => m.meal_type === type);
-    return acc;
-  }, {} as Record<MealType, MealEntry[]>);
+  const mealsByType = useMemo(
+    () =>
+      (Object.keys(MEAL_TYPES) as MealType[]).reduce((acc, type) => {
+        acc[type] = todayMeals.filter((meal) => meal.meal_type === type);
+        return acc;
+      }, {} as Record<MealType, MealEntry[]>),
+    [todayMeals],
+  );
 
   // Comida más reciente por tipo (para el check-icon del grid)
-  const hasEaten = (Object.keys(MEAL_TYPES) as MealType[]).reduce((acc, type) => {
-    acc[type] = mealsByType[type].length > 0;
-    return acc;
-  }, {} as Record<MealType, boolean>);
+  const hasEaten = useMemo(
+    () =>
+      (Object.keys(MEAL_TYPES) as MealType[]).reduce((acc, type) => {
+        acc[type] = mealsByType[type].length > 0;
+        return acc;
+      }, {} as Record<MealType, boolean>),
+    [mealsByType],
+  );
 
-  // ─── Historial 7 días ────────────────────────────────────
-  const { data: weeklyData = [] } = useQuery({
-    queryKey: ['nutrition_weekly', userId],
-    queryFn: async () => {
-      if (!userId || !isOnline) return [];
-      const from = `${daysAgoISO(6)}T00:00:00`;
-      const { data } = await supabase
-        .from('meals')
-        .select('logged_at, calories, protein_g, carbs_g, fat_g')
-        .eq('user_id', userId)
-        .gte('logged_at', from)
-        .order('logged_at');
+  const weeklyData = useMemo(() => {
+    const byDate: Record<string, { calories: number; protein: number; carbs: number; fat: number }> = {};
 
-      // Agrupar por fecha
-      const byDate: Record<string, { calories: number; protein: number; carbs: number; fat: number }> = {};
-      for (const m of data ?? []) {
-        const date = m.logged_at.split('T')[0];
-        if (!byDate[date]) byDate[date] = { calories: 0, protein: 0, carbs: 0, fat: 0 };
-        byDate[date].calories += m.calories;
-        byDate[date].protein  += m.protein_g;
-        byDate[date].carbs    += m.carbs_g;
-        byDate[date].fat      += m.fat_g;
+    for (const meal of mealWindow) {
+      const date = meal.logged_at.split('T')[0] ?? '';
+      if (!date) continue;
+      if (!byDate[date]) {
+        byDate[date] = { calories: 0, protein: 0, carbs: 0, fat: 0 };
       }
-      return Object.entries(byDate).map(([date, v]) => ({ date, ...v }));
-    },
-    enabled:   !!userId && isOnline,
-    staleTime: 5 * 60 * 1000,
-  });
+      byDate[date].calories += Number(meal.calories ?? 0);
+      byDate[date].protein += Number(meal.protein_g ?? 0);
+      byDate[date].carbs += Number(meal.carbs_g ?? 0);
+      byDate[date].fat += Number(meal.fat_g ?? 0);
+    }
 
-  // ─── Buscar alimentos ─────────────────────────────────────
+    return Array.from({ length: 7 }, (_, index) => daysAgoISO(6 - index)).map((date) => ({
+      date,
+      calories: byDate[date]?.calories ?? 0,
+      protein: byDate[date]?.protein ?? 0,
+      carbs: byDate[date]?.carbs ?? 0,
+      fat: byDate[date]?.fat ?? 0,
+    }));
+  }, [mealWindow]);
+
+  // Buscar alimentos
   const searchFoods = useCallback(async (query: string): Promise<FoodItem[]> => {
     if (!query.trim() || query.length < 2) return [];
 
@@ -208,61 +379,113 @@ export function useNutrition() {
       }
 
       searchDebounceRef.current = setTimeout(async () => {
-        const { data } = await supabase
-          .from('foods')
-          .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
-          .or(`is_global.eq.true,created_by.eq.${userId}`)
-          .ilike('name', `%${query.trim()}%`)
-          .limit(20);
+        try {
+          const trimmedQuery = query.trim();
+          const apiBase = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
-        resolve(data ?? []);
+          if (!isOnline) {
+            resolve(buildOfflineFoodCandidates(mealWindow, trimmedQuery));
+            return;
+          }
+
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData.session?.access_token ?? null;
+
+          if (apiBase && accessToken) {
+            const response = await fetch(
+              `${apiBase}/api/food/search?q=${encodeURIComponent(trimmedQuery)}&limit=20`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                },
+              },
+            );
+
+            const raw = await response.text();
+            const payload = raw.trim() ? JSON.parse(raw) : {};
+
+            if (response.ok && Array.isArray(payload?.foods)) {
+              resolve(payload.foods as FoodItem[]);
+              return;
+            }
+          }
+
+          const { data } = await supabase
+            .from('foods')
+            .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
+            .or(`is_global.eq.true,created_by.eq.${userId}`)
+            .ilike('name', `%${trimmedQuery}%`)
+            .limit(20);
+
+          resolve(data ?? []);
+        } catch (error) {
+          captureError(error instanceof Error ? error : new Error(String(error)), { action: 'useNutrition.searchFoods' });
+          resolve([]);
+        }
       }, 300);
     });
-  }, [userId]);
+  }, [isOnline, mealWindow, userId]);
 
-  const { data: frequentMeals = [] } = useQuery<FrequentMeal[]>({
-    queryKey: ['nutrition_frequent_meals', userId],
-    queryFn: async () => {
-      if (!userId || !isOnline) return [];
-      const from = `${daysAgoISO(59)}T00:00:00`;
-      const { data } = await supabase
-        .from('meals')
-        .select('meal_type, food_name, food_id, amount_g, calories, protein_g, carbs_g, fat_g, fiber_g, logged_at')
-        .eq('user_id', userId)
-        .gte('logged_at', from)
-        .order('logged_at', { ascending: false })
-        .limit(500);
+  const frequentMeals = useMemo<FrequentMeal[]>(() => {
+    const map = new Map<string, FrequentMeal>();
 
-      const map = new Map<string, FrequentMeal>();
-      for (const row of data ?? []) {
-        const key = `${row.meal_type}::${row.food_name.trim().toLowerCase()}`;
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, {
-            key,
-            meal_type: row.meal_type as MealType,
-            food_name: row.food_name,
-            food_id: row.food_id ?? null,
-            amount_g: row.amount_g,
-            calories: row.calories,
-            protein_g: row.protein_g,
-            carbs_g: row.carbs_g,
-            fat_g: row.fat_g,
-            fiber_g: row.fiber_g,
-            uses: 1,
-          });
-          continue;
-        }
-        existing.uses += 1;
+    for (const meal of [...mealWindow].sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())) {
+      const key = `${meal.meal_type}::${meal.food_name.trim().toLowerCase()}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          meal_type: meal.meal_type,
+          food_name: meal.food_name,
+          food_id: meal.food_id ?? null,
+          amount_g: meal.amount_g,
+          calories: meal.calories,
+          protein_g: meal.protein_g,
+          carbs_g: meal.carbs_g,
+          fat_g: meal.fat_g,
+          fiber_g: meal.fiber_g,
+          uses: 1,
+        });
+        continue;
       }
 
-      return [...map.values()]
-        .sort((a, b) => b.uses - a.uses)
-        .slice(0, 10);
-    },
-    enabled: !!userId && isOnline,
-    staleTime: 10 * 60 * 1000,
-  });
+      existing.uses += 1;
+    }
+
+    return [...map.values()]
+      .sort((a, b) => b.uses - a.uses)
+      .slice(0, 10);
+  }, [mealWindow]);
+
+  const recentMeals = useMemo<RecentMeal[]>(() => {
+    const seen = new Set<string>();
+    const items: RecentMeal[] = [];
+    const cutoff = `${daysAgoISO(20)}T00:00:00`;
+
+    for (const meal of [...mealWindow]
+      .filter((item) => item.logged_at >= cutoff)
+      .sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())) {
+      const key = `${meal.meal_type}::${meal.food_name.trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        key,
+        meal_type: meal.meal_type,
+        food_name: meal.food_name,
+        food_id: meal.food_id ?? null,
+        amount_g: meal.amount_g,
+        calories: meal.calories,
+        protein_g: meal.protein_g,
+        carbs_g: meal.carbs_g,
+        fat_g: meal.fat_g,
+        fiber_g: meal.fiber_g,
+        logged_at: meal.logged_at,
+      });
+      if (items.length >= 12) break;
+    }
+
+    return items;
+  }, [mealWindow]);
 
   const { data: nutritionSleepEnergyCorrelation = {
     insight: null,
@@ -348,18 +571,18 @@ export function useNutrition() {
         if (hasSleepSignal && hasEnergySignal) {
           insight =
             sleepDiff >= 0 && energyDiff >= 0
-              ?  `Con nutricion alta, tu sueno sube ~${Math.round(sleepDiff)} pts y tu energia ~${energyDiff.toFixed(1)} pts.`
-              : `En dias de nutricion baja, sueno y energia tienden a caer (sueno ${Math.round(Math.abs(sleepDiff))} pts, energia ${Math.abs(energyDiff).toFixed(1)} pts).`;
+              ?  `Con nutrición alta, tu sueño sube ~${Math.round(sleepDiff)} pts y tu energía ~${energyDiff.toFixed(1)} pts.`
+              : `En días de nutrición baja, sueño y energía tienden a caer (sueño ${Math.round(Math.abs(sleepDiff))} pts, energía ${Math.abs(energyDiff).toFixed(1)} pts).`;
         } else if (hasSleepSignal) {
           insight =
             sleepDiff >= 0
-              ?  `Cuando comes mejor, tu sueno mejora ~${Math.round(sleepDiff)} puntos.`
-              : `Cuando baja tu calidad nutricional, tu sueno cae ~${Math.round(Math.abs(sleepDiff))} puntos.`;
+              ?  `Cuando comes mejor, tu sueño mejora ~${Math.round(sleepDiff)} puntos.`
+              : `Cuando baja tu calidad nutricional, tu sueño cae ~${Math.round(Math.abs(sleepDiff))} puntos.`;
         } else if (hasEnergySignal) {
           insight =
             energyDiff >= 0
-              ?  `Con mejor nutricion, tu energia reportada sube ~${energyDiff.toFixed(1)} puntos.`
-              : `Con nutricion baja, tu energia reportada cae ~${Math.abs(energyDiff).toFixed(1)} puntos.`;
+              ?  `Con mejor nutrición, tu energía reportada sube ~${energyDiff.toFixed(1)} puntos.`
+              : `Con nutrición baja, tu energía reportada cae ~${Math.abs(energyDiff).toFixed(1)} puntos.`;
         }
       }
 
@@ -404,13 +627,13 @@ export function useNutrition() {
       return 'Fase menstrual: prioriza hierro y omega-3 (espinaca, legumbres, pescado azul).';
     }
     if (femaleCyclePhase === 'follicular') {
-      return 'Fase folicular: buena ventana para subir proteina y zinc y apoyar recuperacion.';
+      return 'Fase folicular: buena ventana para subir proteína y zinc y apoyar recuperación.';
     }
     if (femaleCyclePhase === 'ovulation') {
       return 'Fase ovulatoria: reforza antioxidantes y carbos de calidad para sostener rendimiento.';
     }
     if (femaleCyclePhase === 'luteal') {
-      return 'Fase lutea: suma magnesio y carbos complejos para energia estable y menos ansiedad.';
+      return 'Fase lútea: suma magnesio y carbos complejos para energía estable y menos ansiedad.';
     }
     return null;
   })();
@@ -435,8 +658,8 @@ export function useNutrition() {
       ]);
 
       const stepCalories = (stepsRes.data ?? []).reduce((sum, row) => sum + Number(row.calories ?? 0), 0);
-      const workoutCalories = (workoutRes.data ?? []).reduce(
-        (sum, row) => sum + Number((row as any).estimated_calories ?? 0),
+      const workoutCalories = ((workoutRes.data ?? []) as WorkoutCaloriesRow[]).reduce(
+        (sum, row) => sum + Number(row.estimated_calories ?? 0),
         0,
       );
 
@@ -528,7 +751,7 @@ export function useNutrition() {
         : `Ayuno configurado: ${protocolLabel}. Ajusta la primera comida según hambre y horario real.`,
       steps: blocked
         ?  [
-            'Prioriza agua, cafe o infusiones sin calorías.',
+            'Prioriza agua, café o infusiones sin calorías.',
             'Rompe el ayuno solo si el contexto del día lo justifica.',
             'Cuando abras la ventana, empieza con proteína y comida simple.',
           ]
@@ -546,7 +769,7 @@ export function useNutrition() {
             ?  'VYRA está simplificando el día para que comer bien sea sostenible y rápido.'
             : 'VYRA usa tu actividad y la consistencia reciente para que el plan no se quede estático.',
     recommendedCalories: calorieBudget,
-    trackedMealDays: weeklyData.length,
+    trackedMealDays: weeklyData.filter((row) => Number(row.calories ?? 0) > 0).length,
     trackedWeightLogs,
   };
 
@@ -640,7 +863,7 @@ export function useNutrition() {
     },
   ];
 
-  // ─── Buscar por código de barras (Open Food Facts API) ────
+  // Buscar por código de barras (Open Food Facts API)
   const searchByBarcode = useCallback(async (barcode: string): Promise<FoodItem | null> => {
     const trimmedBarcode = barcode.trim();
     if (!trimmedBarcode) return null;
@@ -710,39 +933,54 @@ export function useNutrition() {
     }
   }, []);
 
-  // ─── Log comida ──────────────────────────────────────────
-  const { mutate: logMeal, mutateAsync: logMealAsync, isPending: isLogging } = useMutation({
+  // Log comida
+  const { mutate: logMeal, mutateAsync: logMealAsync, isPending: isLoggingMeal } = useMutation({
     mutationFn: async (input: LogMealInput) => {
       if (!userId) throw new Error('No user');
-      const { data, error } = await supabase.from('meals').insert({
-        user_id:   userId,
-        meal_type: input.meal_type,
-        food_name: input.food_name,
-        food_id:   input.food_id ?? null,
-        calories:  Math.round(input.calories),
-        protein_g: Math.round(input.protein_g * 10) / 10,
-        carbs_g:   Math.round(input.carbs_g   * 10) / 10,
-        fat_g:     Math.round(input.fat_g     * 10) / 10,
-        fiber_g:   Math.round(input.fiber_g   * 10) / 10,
-        amount_g:  input.amount_g,
-        logged_at: new Date().toISOString(),
-        source:    input.source ?? 'manual',
-      }).select('id').single();
-      if (error) throw error;
-      return data.id;
+      const payload = buildMealSyncPayload(input, new Date().toISOString());
+
+      if (isOnline) {
+        const { data, error } = await supabase
+          .from('meals')
+          .insert({
+            user_id: userId,
+            ...payload,
+          })
+          .select('id')
+          .single();
+
+        if (!error) {
+          return { id: data.id, isOffline: false };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
+      }
+
+      const id = await queueOfflineMealEntry(userId, {
+        ...payload,
+        sync_payload: payload,
+      });
+
+      return { id, isOffline: true };
     },
-    onSuccess: async (_, input) => {
-      // Coins por primer log de cada tipo de comida del día
-      queryClient.invalidateQueries({ queryKey: ['meals_today'] });
-      queryClient.invalidateQueries({ queryKey: ['nutrition_weekly'] });
-      queryClient.invalidateQueries({ queryKey: ['nutrition_frequent_meals'] });
+    onSuccess: async (result, input) => {
+      queryClient.invalidateQueries({ queryKey: ['nutrition_meals_window'] });
       queryClient.invalidateQueries({ queryKey: ['nutrition_sleep_energy_corr'] });
       queryClient.invalidateQueries({ queryKey: ['today_summary'] });
 
-      showToast(`+${Math.round(input.calories)} kcal — ${input.food_name}`, 'success');
+      showToast(
+        result.isOffline
+          ? `${input.food_name} guardado sin internet. Lo sincronizaremos cuando vuelvas.`
+          : `+${Math.round(input.calories)} kcal - ${input.food_name}`,
+        'success',
+      );
       trackLogCreated('nutrition', 'manual', Date.now());
 
-      if (isOnline) void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      if (!result.isOffline && isOnline) {
+        void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      }
     },
     onError: (err) => {
       captureError(err instanceof Error ? err : new Error(String(err)), { action: "'logMeal'" });
@@ -750,21 +988,123 @@ export function useNutrition() {
     },
   });
 
-  // ─── Borrar comida ───────────────────────────────────────
-  const { mutate: deleteMeal } = useMutation({
-    mutationFn: async (mealId: string) => {
-      const { error } = await supabase.from('meals').delete().eq('id', mealId).eq('user_id', userId);
-      if (error) throw error;
+  const { mutate: updateMeal, mutateAsync: updateMealAsync, isPending: isUpdatingMeal } = useMutation({
+    mutationFn: async (input: UpdateMealInput) => {
+      if (!userId) throw new Error('No user');
+      const payload = buildMealSyncPayload(input, input.logged_at ?? new Date().toISOString());
+
+      if (isOnline) {
+        const { error } = await supabase
+          .from('meals')
+          .update(payload)
+          .eq('id', input.mealId)
+          .eq('user_id', userId);
+
+        if (!error) {
+          return { isOffline: false };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
+      }
+
+      const updated = await updateOfflineMealEntry(userId, input.mealId, payload);
+      if (!updated) {
+        throw new Error('Meal not found offline');
+      }
+
+      return { isOffline: true };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meals_today'] });
-      showToast('Comida eliminada', 'info');
+    onSuccess: (result, input) => {
+      queryClient.invalidateQueries({ queryKey: ['nutrition_meals_window'] });
+      queryClient.invalidateQueries({ queryKey: ['nutrition_sleep_energy_corr'] });
+      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+
+      showToast(
+        result.isOffline
+          ? `${input.food_name} actualizado sin internet. Lo sincronizaremos cuando vuelvas.`
+          : 'Comida actualizada',
+        'success',
+      );
+
+      if (!result.isOffline && isOnline) {
+        void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+      }
+    },
+    onError: (err) => {
+      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'updateMeal' });
+      showToast('No se pudo actualizar la comida.', 'error');
     },
   });
 
+  // Borrar comida
+  const { mutate: deleteMeal } = useMutation({
+    mutationFn: async (mealId: string) => {
+      if (!userId) throw new Error('No user');
+
+      if (isOnline) {
+        const { error } = await supabase
+          .from('meals')
+          .delete()
+          .eq('id', mealId)
+          .eq('user_id', userId);
+
+        if (!error) {
+          return { isOffline: false };
+        }
+
+        if (!isRecoverableOfflineError(error)) {
+          throw error;
+        }
+      }
+
+      await deleteOfflineMealEntry(userId, mealId);
+      return { isOffline: true };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['nutrition_meals_window'] });
+      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      showToast(
+        result.isOffline
+          ? 'Comida quitada sin internet. La sincronizaremos cuando vuelvas.'
+          : 'Comida eliminada',
+        'info',
+      );
+    },
+  });
+
+  useEffect(() => {
+    if (!userId || !isOnline) return;
+
+    let cancelled = false;
+
+    const syncPending = async () => {
+      const result = await flushOfflineMealEntries(userId);
+      if (cancelled || result.synced === 0) return;
+
+      queryClient.invalidateQueries({ queryKey: ['nutrition_meals_window'] });
+      queryClient.invalidateQueries({ queryKey: ['nutrition_sleep_energy_corr'] });
+      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+
+      showToast(
+        result.failed > 0
+          ? `Sincronizamos ${result.synced} cambios de nutrición. ${result.failed} siguen pendientes.`
+          : `Sincronizamos ${result.synced} cambios de nutrición.`,
+        'success',
+      );
+
+      void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+    };
+
+    void syncPending();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, queryClient, showToast, userId]);
+
   const checkBarcodeLimit = useCallback(async () => {
-    if (!userId) return { allowed: false, remaining: 0, limit: 5 };
-    if (profile?.is_premium) return { allowed: true, remaining: Infinity, limit: Infinity };
+    if (!userId) return { allowed: false, remaining: 0, limit: BARCODE_DAILY_LIMIT };
 
     const { count } = await supabase
       .from('meals')
@@ -775,13 +1115,13 @@ export function useNutrition() {
       .lte('logged_at', `${todayISO()}T23:59:59`);
 
     const used = count ?? 0;
-    const remaining = Math.max(0, 5 - used);
+    const remaining = Math.max(0, BARCODE_DAILY_LIMIT - used);
     return {
       allowed: remaining > 0,
       remaining,
-      limit: 5,
+      limit: BARCODE_DAILY_LIMIT,
     };
-  }, [profile?.is_premium, userId]);
+  }, [userId]);
 
   const logRecipeTemplateAsync = useCallback(async (recipe: {
     meal_type: MealType;
@@ -807,6 +1147,8 @@ export function useNutrition() {
       source: 'recipe',
     });
   }, [isMealLoggingBlocked, logMealAsync, mealLoggingBlockReason]);
+
+  const isLogging = isLoggingMeal || isUpdatingMeal;
 
   const setNutritionMode = useCallback(async (mode: NutritionMode): Promise<boolean> => {
     if (!userId || mode === nutritionMode) return true;
@@ -876,6 +1218,7 @@ export function useNutrition() {
     proteinBoost,
     weeklyData,
     frequentMeals,
+    recentMeals,
     nutritionSleepEnergyCorrelation,
     cycleNutritionGuidance,
     nutritionMode,
@@ -910,7 +1253,9 @@ export function useNutrition() {
       }),
     getDailyMacros: () => ({ ...totals }),
     checkBarcodeLimit,
-    logMeal, deleteMeal,
+    logMeal, logMealAsync, updateMeal, updateMealAsync, deleteMeal,
     searchFoods, searchByBarcode, refetch,
   };
 }
+
+

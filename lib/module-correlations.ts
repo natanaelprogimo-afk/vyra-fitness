@@ -18,7 +18,7 @@ export function buildFastingWorkoutWeightInsight(input: {
     return {
       title: 'Cruce ayuno + entreno',
       body:
-        'Tu carga de entreno viene alta. Si mantienes ayuno hoy, conviene bajar intensidad y usar la sesión para técnica, movilidad o caminata.',
+        'Tu carga de entreno viene alta. Si mantienes ayuno hoy, conviene bajar intensidad y usar la sesion para tecnica, movilidad o caminata.',
       tone: 'warning',
     };
   }
@@ -34,9 +34,9 @@ export function buildFastingWorkoutWeightInsight(input: {
   }
 
   return {
-    title: 'Ayuno util cuando acompana recuperación',
+    title: 'Ayuno util cuando acompana recuperacion',
     body:
-      `Con ${input.sessionsThisWeek} sesiónes esta semana, usa ${input.currentProtocol ?? 'tu protocolo actual'} para sumar adherencia sin comprometer el rendimiento del bloque.`,
+      `Con ${input.sessionsThisWeek} sesiones esta semana, usa ${input.currentProtocol ?? 'tu protocolo actual'} para sumar adherencia sin comprometer el rendimiento del bloque.`,
     tone: 'neutral',
   };
 }
@@ -57,7 +57,7 @@ export function buildFemaleReadinessInsight(input: {
   if ((input.readinessScore ?? 0) < 60 || input.fatigueLevel === 'high') {
     return {
       title: `Fase ${input.phaseName} con calma primero`,
-      body: `${input.trainingGuidance} Hoy conviene simplificar el esfuerzo y dejar que nutrición haga soporte: ${input.nutritionGuidance}`,
+      body: `${input.trainingGuidance} Hoy conviene simplificar el esfuerzo y dejar que nutricion haga soporte: ${input.nutritionGuidance}`,
       tone: 'warning',
     };
   }
@@ -65,14 +65,14 @@ export function buildFemaleReadinessInsight(input: {
   if ((input.readinessScore ?? 0) >= 80) {
     return {
       title: `Ventana fuerte en fase ${input.phaseName}`,
-      body: `${input.trainingGuidance} Si la técnica está limpia, hoy es buen día para una sesión con intención y una comida de soporte clara después.`,
+      body: `${input.trainingGuidance} Si la tecnica esta limpia, hoy es buen dia para una sesion con intencion y una comida de soporte clara despues.`,
       tone: 'positive',
     };
   }
 
   return {
     title: `Fase ${input.phaseName} en modo consistencia`,
-    body: `${input.trainingGuidance} La prioridad es sostener ritmo y acompañar con ${input.nutritionGuidance.toLowerCase()}`,
+    body: `${input.trainingGuidance} La prioridad es sostener ritmo y acompanar con ${input.nutritionGuidance.toLowerCase()}`,
     tone: 'neutral',
   };
 }
@@ -97,25 +97,30 @@ export function buildSupplementNutritionInsight(input: {
     return {
       title: 'Timing a revisar',
       body:
-        'Hay una posible interacción en tu stack. Mejor separa tomas sensibles y aprovecha comidas completas para reducir fricción digestiva.',
+        'Hay una posible interaccion en tu stack. Mejor separa tomas sensibles y aprovecha comidas completas para reducir friccion digestiva.',
       tone: 'warning',
     };
   }
 
-  if (input.supplementCount > 0 && input.takenToday < input.supplementCount && !input.hasBreakfast && !input.hasLunch) {
+  if (
+    input.supplementCount > 0 &&
+    input.takenToday < input.supplementCount &&
+    !input.hasBreakfast &&
+    !input.hasLunch
+  ) {
     return {
-      title: 'Stack aún sin ventana clara',
+      title: 'Stack aun sin ventana clara',
       body:
-        'Todavía no hay una comida principal registrada. Si algunos suplementos van con comida, usa nutrición para fijar esa primera ventana y tomar menos decisiones después.',
+        'Todavia no hay una comida principal registrada. Si algunos suplementos van con comida, usa nutricion para fijar esa primera ventana y tomar menos decisiones despues.',
       tone: 'neutral',
     };
   }
 
   if (input.proteinGrams >= 90 || input.calories >= 1200) {
     return {
-      title: 'Nutrición y adherencia bien acopladas',
+      title: 'Nutricion y adherencia bien acopladas',
       body:
-        'Ya hay base alimentaria suficiente para sostener el stack del día. Prioriza completar lo pendiente alrededor de tus comidas principales.',
+        'Ya hay base alimentaria suficiente para sostener el stack del dia. Prioriza completar lo pendiente alrededor de tus comidas principales.',
       tone: 'positive',
     };
   }
@@ -149,29 +154,26 @@ export function buildSleepReadinessInsight(input: {
     input.workoutRecommendation === 'recovery'
   ) {
     return {
-      title: 'Sueño primero, carga después',
+      title: 'Sueno primero, carga despues',
       body:
-        `Con ${input.sleepDebtHours.toFixed(1)}h de deuda y una recomendación de ${input.workoutRecommendation}, hoy conviene proteger energía antes de exigir más al entrenamiento.`,
+        `Con ${input.sleepDebtHours.toFixed(1)}h de deuda y una recomendacion de ${input.workoutRecommendation}, hoy conviene proteger energia antes de exigir mas al entrenamiento.`,
       tone: 'warning',
     };
   }
 
-  if (
-    input.avgLast3Hours >= 7.5 &&
-    (input.readinessScore ?? 0) >= 78
-  ) {
+  if (input.avgLast3Hours >= 7.5 && (input.readinessScore ?? 0) >= 78) {
     return {
       title: 'Descanso alineado con rendimiento',
       body:
-        `Promedias ${input.avgLast3Hours.toFixed(1)}h en las últimas noches y tu estado acompaña. Si la técnica está limpia, hoy es una buena ventana para apretar un poco más.`,
+        `Promedias ${input.avgLast3Hours.toFixed(1)}h en las ultimas noches y tu estado acompana. Si la tecnica esta limpia, hoy es una buena ventana para apretar un poco mas.`,
       tone: 'positive',
     };
   }
 
   return {
-    title: 'Consistencia de sueño para sostener el bloque',
+    title: 'Consistencia de sueno para sostener el bloque',
     body:
-      `Tu mejor palanca hoy es repetir una noche sólida. ${input.sleepStreakDays ?? 0} noches cumpliendo meta ya empiezan a construir inercia real para el estado del día y la recuperación.`,
+      `Tu mejor palanca hoy es repetir una noche solida. ${input.sleepStreakDays ?? 0} noches cumpliendo meta ya empiezan a construir inercia real para el estado del dia y la recuperacion.`,
     tone: 'neutral',
   };
 }
@@ -204,40 +206,41 @@ export function buildDailyContextBrief(input: {
     (sleepHours !== null && sleepHours < 6)
   ) {
     return {
-      title: 'Día para simplificar',
-      summary:
-        'Hoy conviene bajar ruido: entreno mas liviano, comida facil y decisiones cortas.',
+      title: 'Dia para simplificar',
+      summary: 'Hoy conviene bajar ruido: entreno mas liviano, comida facil y decisiones cortas.',
       bullets: [
         `Estado ${readiness ?? '--'} y fatiga ${input.fatigueLevel ?? 'sin dato'}.`,
-        `Sueño reciente: ${sleepHours != null ? `${sleepHours.toFixed(1)}h` : 'sin registro'}.`,
+        `Sueno reciente: ${sleepHours != null ? `${sleepHours.toFixed(1)}h` : 'sin registro'}.`,
         input.activeFast
-          ?  'Hay ayuno activo, asi que la estrategia necesita menos improvisacion todavía.'
+          ? 'Hay ayuno activo, asi que la estrategia necesita menos improvisacion todavia.'
           : 'Conviene asegurar una comida simple antes de perseguir volumen o intensidad.',
       ],
-      prompt: 'Ajústame el día con foco en recuperación.',
+      prompt: 'Ajustame el dia con foco en recuperacion.',
     };
   }
 
   if (
-    (readiness !== null && readiness >= 78) &&
-    (sleepHours !== null && sleepHours >= 7) &&
+    readiness !== null &&
+    readiness >= 78 &&
+    sleepHours !== null &&
+    sleepHours >= 7 &&
     protein >= 80
   ) {
     return {
       title: 'Buen contexto para rendir',
       summary:
-        'Ya hay suficiente señal para proponerte un día con intención, no solo mantenimiento.',
+        'Ya hay suficiente senal para proponerte un dia con intencion, no solo mantenimiento.',
       bullets: [
-        `Estado ${readiness} con sueño de ${sleepHours.toFixed(1)}h.`,
+        `Estado ${readiness} con sueno de ${sleepHours.toFixed(1)}h.`,
         `Proteina registrada: ${protein}g.`,
-        calories > 0 ? `Calorias del día: ${calories}.` : 'Todavía falta cerrar la ingesta del día.',
+        calories > 0 ? `Calorias del dia: ${calories}.` : 'Todavia falta cerrar la ingesta del dia.',
       ],
-      prompt: 'Dame el mejor plan para aprovechar este día.',
+      prompt: 'Dame el mejor plan para aprovechar este dia.',
     };
   }
 
   return {
-    title: 'Día de consistencia',
+    title: 'Dia de consistencia',
     summary:
       'La lectura actual aporta mas valor si convierte tu contexto en una accion clara para las proximas horas.',
     bullets: [
@@ -249,8 +252,8 @@ export function buildDailyContextBrief(input: {
     ],
     prompt:
       protein < 70
-        ?  'Ayudame a cerrar nutrición sin complicarme.'
-        : 'Resume mi día y dime que priorizar ahora.',
+        ? 'Ayudame a cerrar nutricion sin complicarme.'
+        : 'Resume mi dia y dime que priorizar ahora.',
   };
 }
 
@@ -262,47 +265,48 @@ export interface PaywallContextCopy {
 }
 
 const DEFAULT_PAYWALL_CONTEXT: PaywallContextCopy = {
-  eyebrow: 'Premium con cobro inmedíato',
-  title: 'Activa Premium desde PayPal',
-  body: 'Confirmas en PayPal y VYRA habilita menos friccion, historial profundo y lecturas avanzadas en tu cuenta.',
-  highlights: ['Historial avanzado', 'Correlaciones premium', 'Barcode ilimitado'],
+  eyebrow: 'Todo incluido',
+  title: 'Las lecturas avanzadas ya vienen abiertas',
+  body:
+    'Vyra ahora funciona sin planes de pago. Si llegas desde un flujo viejo, solo hace falta volver al modulo y seguir usando la app.',
+  highlights: ['Historial avanzado', 'Correlaciones activas', 'Scanner con uso justo'],
 };
 
 export function getPaywallContextCopy(trigger?: PaywallTrigger | string | null): PaywallContextCopy {
   switch (trigger) {
     case 'progress_trends':
       return {
-        eyebrow: 'Correlaciones premium',
-        title: 'Desbloquea la lectura completa de tu progreso',
-        body: 'Cruza peso, sueño, estado diario y entrenamiento para entender qué te está moviendo de verdad, no solo ver curvas sueltas.',
-        highlights: ['Correlaciones peso + estado', 'Lectura premium del progreso', 'Menos ruido al decidir'],
+        eyebrow: 'Progreso cruzado',
+        title: 'La lectura completa ya esta incluida',
+        body:
+          'Cruza peso, sueno, estado diario y entrenamiento para entender que te esta moviendo de verdad, no solo ver curvas sueltas.',
+        highlights: ['Correlaciones peso + estado', 'Lectura profunda del progreso', 'Menos ruido al decidir'],
       };
     case 'barcode_limit':
       return {
-        eyebrow: 'Nutrición sin friccion',
-        title: 'Escanea y registra sin limite',
-        body: 'Premium quita el tope díario del scanner y acelera el log cuando mas lo necesitas.',
-        highlights: ['Barcode ilimitado', 'Log mas rapido', 'Menos pasos por comida'],
+        eyebrow: 'Nutricion sin friccion',
+        title: 'El scanner sigue abierto con uso justo',
+        body:
+          'Ya no existe una version paga para destrabar este flujo. Si alcanzas el tope diario, la alternativa es esperar al siguiente dia o cargar manualmente.',
+        highlights: ['Scanner incluido', 'Limite diario claro', 'Carga manual disponible'],
       };
     case 'context_limit':
       return {
-        eyebrow: 'Analisis extendido',
-        title: 'Mantiene el contexto sin cortes',
-        body: 'Cuando VYRA ya tiene suficiente señal de tus módulos, Premium evita topes innecesarios y sostiene mejor la lectura del día.',
-        highlights: ['Mas contexto cruzado', 'Seguimiento continuo', 'Lecturas mas profundas'],
+        eyebrow: 'Uso justo de contexto',
+        title: 'El contexto sigue abierto con limite diario',
+        body:
+          'La capa de contexto ya no depende de un plan. Lo unico que se conserva es un limite diario razonable para evitar abuso y mantener la experiencia estable.',
+        highlights: ['Mas contexto cruzado', 'Seguimiento continuo', 'Limite diario honesto'],
       };
     case 'sleep_insights':
       return {
-        eyebrow: 'Sueño con mas contexto',
+        eyebrow: 'Sueno con mas contexto',
         title: 'Lee como tu descanso impacta el resto del sistema',
-        body: 'Premium abre una lectura más profunda entre sueño, estado diario y rendimiento para tomar mejores decisiones diarias.',
-        highlights: ['Impacto en el estado diario', 'Cruces con rendimiento', 'Insights más profundos'],
+        body:
+          'La lectura profunda entre sueno, estado diario y rendimiento ya esta incluida en la app.',
+        highlights: ['Impacto en el estado diario', 'Cruces con rendimiento', 'Insights mas profundos'],
       };
     default:
       return DEFAULT_PAYWALL_CONTEXT;
   }
 }
-
-
-
-

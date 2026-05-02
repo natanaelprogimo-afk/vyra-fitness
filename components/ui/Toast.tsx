@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -8,9 +8,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, withOpacity } from '@/constants/colors';
+import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useUIStore, type ToastType } from '@/stores/uiStore';
+import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
 
 const TOAST_BORDER: Record<ToastType, string> = {
   success: Colors.success,
@@ -29,14 +30,16 @@ function ToastItem({
   type: ToastType;
 }) {
   const dismissToast = useUIStore((state) => state.dismissToast);
-  const translateY = useSharedValue(-24);
+  const { reduceMotionEnabled } = useAccessibilityPreferences();
+  const translateY = useSharedValue(reduceMotionEnabled ? 0 : -24);
   const translateX = useSharedValue(0);
-  const opacity = useSharedValue(0);
+  const opacity = useSharedValue(reduceMotionEnabled ? 1 : 0);
 
   React.useEffect(() => {
+    if (reduceMotionEnabled) return;
     translateY.value = withTiming(0, { duration: 220 });
     opacity.value = withTiming(1, { duration: 180 });
-  }, [opacity, translateY]);
+  }, [opacity, reduceMotionEnabled, translateY]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }, { translateX: translateX.value }],
@@ -44,11 +47,15 @@ function ToastItem({
   }));
 
   const dismiss = React.useCallback(() => {
+    if (reduceMotionEnabled) {
+      dismissToast(id);
+      return;
+    }
     opacity.value = withTiming(0, { duration: 140 });
     translateY.value = withTiming(-18, { duration: 140 });
     translateX.value = withTiming(0, { duration: 140 });
     dismissToast(id);
-  }, [dismissToast, id, opacity, translateX, translateY]);
+  }, [dismissToast, id, opacity, reduceMotionEnabled, translateX, translateY]);
 
   const gesture = Gesture.Pan()
     .activeOffsetX([-10, 10])
@@ -68,8 +75,20 @@ function ToastItem({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={animStyle}>
-        <Pressable onPress={dismiss} style={[styles.toast, { borderLeftColor: TOAST_BORDER[type] }]}>
-          <Text style={styles.message} numberOfLines={2}>
+        <Pressable
+          onPress={dismiss}
+          style={[
+            styles.toast,
+            {
+              borderLeftColor: TOAST_BORDER[type],
+              backgroundColor: Colors.surface2,
+              borderColor: Colors.border,
+            },
+          ]}
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={[styles.message, { color: Colors.textPrimary }]} numberOfLines={2}>
             {message}
           </Text>
         </Pressable>
@@ -86,9 +105,9 @@ export default function ToastContainer() {
   if (!firstToast) return null;
 
   return (
-    <Animated.View style={[styles.container, { top: insets.top + Spacing[4] }]}>
+    <View style={[styles.container, { top: insets.top + Spacing[4] }]} pointerEvents="box-none">
       <ToastItem id={firstToast.id} message={firstToast.message} type={firstToast.type} />
-    </Animated.View>
+    </View>
   );
 }
 
@@ -103,15 +122,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.sm,
     paddingVertical: 14,
     paddingHorizontal: Spacing[5],
-    backgroundColor: Colors.surface2,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.06),
     borderLeftWidth: 4,
   },
   message: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.sm,
     lineHeight: 20,
-    color: Colors.textPrimary,
   },
 });

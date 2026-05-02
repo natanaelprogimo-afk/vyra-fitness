@@ -1,10 +1,11 @@
-import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import type { SleepEntry } from '@/hooks/useSleep';
 
 export const SLEEP_PAGE_BG = '#0D0D14';
 export const SLEEP_CARD_BG = '#161422';
 export const SLEEP_INPUT_BG = '#1E1B2E';
+const SLEEP_ACCENT = '#8B5CF6';
+const TEXT_MUTED = '#6F7285';
 
 export type SleepTabKey = 'home' | 'history' | 'log' | 'settings';
 
@@ -18,7 +19,7 @@ export const SLEEP_TABS: Array<{ key: SleepTabKey; label: string; route: string 
 export const SLEEP_QUALITY_OPTIONS = [
   { value: 1, emoji: ':-/', label: 'Descanse poco', short: 'Poco', accent: '#FF8E8E' },
   { value: 2, emoji: ':-|', label: 'Fue cortado', short: 'Cortado', accent: '#FFB36B' },
-  { value: 3, emoji: ':-)', label: 'Mas o menos', short: 'Normal', accent: '#9AA0B8' },
+  { value: 3, emoji: ':-)', label: 'Más o menos', short: 'Normal', accent: '#9AA0B8' },
   { value: 4, emoji: ':)', label: 'Bastante bien', short: 'Bien', accent: '#8AA0FF' },
   { value: 5, emoji: ':D', label: 'Descanse muy bien', short: 'Muy bien', accent: '#A79BFF' },
 ] as const;
@@ -31,7 +32,7 @@ export function getSleepQualityMeta(value?: number | null) {
     emoji: '*',
     label: 'Sin elegir',
     short: 'Sin elegir',
-    accent: Colors.textMuted,
+    accent: TEXT_MUTED,
   };
 }
 
@@ -41,13 +42,26 @@ export function formatSleepClock(value?: Date | string | null) {
   return date.toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function getSleepDurationHours(bedtime: Date | null, wakeTime: Date | null) {
+export function normalizeSleepRange(bedtime: Date | null, wakeTime: Date | null) {
   if (!bedtime || !wakeTime) return null;
+
+  const normalizedBedtime = new Date(bedtime);
   const normalizedWake = new Date(wakeTime);
-  if (normalizedWake <= bedtime) {
+  if (normalizedWake <= normalizedBedtime) {
     normalizedWake.setDate(normalizedWake.getDate() + 1);
   }
-  const hours = (normalizedWake.getTime() - bedtime.getTime()) / 3600000;
+
+  return {
+    bedtime: normalizedBedtime,
+    wakeTime: normalizedWake,
+  };
+}
+
+export function getSleepDurationHours(bedtime: Date | null, wakeTime: Date | null) {
+  const range = normalizeSleepRange(bedtime, wakeTime);
+  if (!range) return null;
+
+  const hours = (range.wakeTime.getTime() - range.bedtime.getTime()) / 3600000;
   if (hours <= 0) return null;
   return Math.round(hours * 10) / 10;
 }
@@ -117,7 +131,7 @@ export function buildSleepHistoryBars(history: SleepEntry[], goalHours: number, 
     const color = !entry
       ? '#2A2A3A'
       : score >= 80
-        ? Colors.sleep
+        ? SLEEP_ACCENT
         : score >= 65
           ? '#8FA3FF'
           : '#6B7085';

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Header from '@/components/layout/Header';
 import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
+import CycleDisc from '@/components/female/CycleDisc';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
@@ -19,56 +20,76 @@ import { useFemaleHealth } from '@/hooks/useFemaleHealth';
 import { useWorkout } from '@/hooks/useWorkout';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-const SYMPTOMS = ['colicos', 'hinchazon', 'fatiga', 'migrana', 'cambios de humor', 'energia alta'] as const;
-const MOODS = ['1', '2', '3', '4', '5'] as const;
+const SYMPTOMS = [
+  { id: 'colicos', label: 'Cólicos', icon: 'Calor' },
+  { id: 'hinchazon', label: 'Hinchazón', icon: 'Agua' },
+  { id: 'fatiga', label: 'Fatiga', icon: 'Bateria' },
+  { id: 'migrana', label: 'Migrana', icon: 'Cabeza' },
+  { id: 'cambios de humor', label: 'Humor', icon: 'Ánimo' },
+  { id: 'energía alta', label: 'Energía alta', icon: 'Rayo' },
+] as const;
 
-type PhaseTone = {
-  title: string;
-  description: string;
-  color: string;
-};
-
-function getPhaseTone(phase: string): PhaseTone {
-  switch (phase) {
-    case 'menstrual':
-      return {
-        title: 'Fase menstrual',
-        description: 'Buen momento para bajar exigencia, sumar recuperacion y escuchar energia real.',
-        color: '#F87171',
-      };
-    case 'ovulation':
-      return {
-        title: 'Fase ovulatoria',
-        description: 'Energia alta. Buen momento para entrenar fuerte o subir intensidad.',
-        color: Colors.female,
-      };
-    case 'luteal':
-      return {
-        title: 'Fase lutea',
-        description: 'Conviene consistencia, carga moderada y margen extra de recuperacion.',
-        color: '#A855F7',
-      };
-    default:
-      return {
-        title: 'Fase folicular',
-        description: 'Suele haber buena tolerancia al progreso y a sesiones con mas empuje.',
-        color: '#D8B4FE',
-      };
-  }
-}
-
-function getPhaseForDay(dayIndex: number, cycleLength: number) {
-  const normalized = cycleLength > 0 ? dayIndex % cycleLength : dayIndex;
-  if (normalized < 5) return '#F87171';
-  if (normalized < 13) return '#D8B4FE';
-  if (normalized < 16) return Colors.female;
-  return '#A855F7';
-}
+const MOODS = [
+  { id: '1', emoji: ':(' },
+  { id: '2', emoji: ':|' },
+  { id: '3', emoji: ':)' },
+  { id: '4', emoji: 'B)' },
+  { id: '5', emoji: '<3' },
+] as const;
 
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
   return next;
+}
+
+function phaseMeta(phase: string) {
+  switch (phase) {
+    case 'menstrual':
+      return {
+        title: 'Fase menstrual',
+        description: 'Momento para bajar exigencia, sumar recuperación y escuchar energía real.',
+        energy: 38,
+        bestFor: 'Recuperación y carga suave',
+        compatibility: 2,
+        color: '#F87171',
+      };
+    case 'ovulation':
+      return {
+        title: 'Fase ovulatoria',
+        description: 'Ventana de energía alta. Buen momento para entrenar fuerte o subir intensidad.',
+        energy: 86,
+        bestFor: 'Entrenar fuerte',
+        compatibility: 5,
+        color: Colors.female,
+      };
+    case 'luteal':
+      return {
+        title: 'Fase lutea',
+        description: 'Conviene consistencia, carga moderada y margen extra de recuperación.',
+        energy: 56,
+        bestFor: 'Consistencia y control de carga',
+        compatibility: 3,
+        color: '#A855F7',
+      };
+    default:
+      return {
+        title: 'Fase folicular',
+        description: 'Suele haber buena tolerancia al progreso y al trabajo con más empuje.',
+        energy: 78,
+        bestFor: 'Progresar carga y volumen',
+        compatibility: 4,
+        color: '#D8B4FE',
+      };
+  }
+}
+
+function phaseForFutureDay(dayIndex: number, cycleLength: number) {
+  const normalized = cycleLength > 0 ? dayIndex % cycleLength : dayIndex;
+  if (normalized < 5) return 'menstrual';
+  if (normalized < 13) return 'follicular';
+  if (normalized < 16) return 'ovulation';
+  return 'luteal';
 }
 
 export default function FemaleHealthScreen() {
@@ -81,6 +102,7 @@ export default function FemaleHealthScreen() {
     nextPeriodDate,
     phaseGuidance,
     imminentPhaseNotice,
+    cycleIrregularity,
     isInCycle,
     strictSensitiveMode,
     saveCycleSetup,
@@ -93,17 +115,36 @@ export default function FemaleHealthScreen() {
   const [showSensitive, setShowSensitive] = useState(!strictSensitiveMode);
   const [setupCycle, setSetupCycle] = useState(cycleLength || 28);
   const [logOpen, setLogOpen] = useState(false);
+  const [predictionOpen, setPredictionOpen] = useState(false);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [symptomSeverity, setSymptomSeverity] = useState<Record<string, number>>({});
   const [selectedMood, setSelectedMood] = useState<string>('3');
   const [notes, setNotes] = useState('');
+  const sensitiveHidden = !showSensitive;
 
-  const phaseTone = getPhaseTone(currentPhase);
+  const phaseTone = phaseMeta(currentPhase);
   const todayIndex = Math.max(0, Math.min(cycleLength - 1, daysInPhase));
-  const cycleDays = Array.from({ length: Math.max(28, Math.min(32, cycleLength || 28)) }, (_, index) => index);
   const ovulationDate = useMemo(() => {
     const diff = daysInPhase <= 14 ? 14 - daysInPhase : cycleLength - daysInPhase + 14;
     return addDays(new Date(), diff);
   }, [cycleLength, daysInPhase]);
+
+  const predictionRows = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, offset) => {
+        const phase = phaseForFutureDay(todayIndex + offset, cycleLength || 28);
+        const meta = phaseMeta(phase);
+        return {
+          offset,
+          phase,
+          date: addDays(new Date(), offset),
+          energy: meta.energy,
+          title: meta.title,
+          bestFor: meta.bestFor,
+        };
+      }),
+    [cycleLength, todayIndex],
+  );
 
   if (!hasSeenIntro) {
     return (
@@ -111,10 +152,10 @@ export default function FemaleHealthScreen() {
         <Header title="Ciclo" showBack />
         <ModuleIntroScreen
           accentColor={Colors.female}
-          icon="🌸"
+          icon="Ciclo"
           title="Seguimiento femenino"
-          body="Registra la fase, como te sientes y deja que VYRA conecte ciclo, entreno y energia."
-          ctaLabel="Entrar al modulo"
+          body="Registra la fase, cómo te sientes y deja que VYRA conecte ciclo, entreno y energía."
+          ctaLabel="Entrar al módulo"
           onContinue={() => markModuleIntroSeen('female')}
         />
       </SafeScreen>
@@ -125,6 +166,15 @@ export default function FemaleHealthScreen() {
     setSelectedSymptoms((current) =>
       current.includes(symptom) ? current.filter((item) => item !== symptom) : [...current, symptom],
     );
+
+    setSymptomSeverity((current) =>
+      current[symptom]
+        ? current
+        : {
+            ...current,
+            [symptom]: 3,
+          },
+    );
   };
 
   return (
@@ -133,18 +183,25 @@ export default function FemaleHealthScreen() {
         title="Ciclo"
         showBack
         rightAction={
-          <Pressable onPress={() => setShowSensitive((value) => !value)}>
+          <Pressable
+            onPress={() => setShowSensitive((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={showSensitive ? 'Ocultar datos sensibles' : 'Mostrar datos sensibles'}
+            accessibilityHint="Activa o tapa la información privada del ciclo."
+            accessibilityState={{ expanded: showSensitive }}
+            hitSlop={8}
+          >
             <Text style={styles.headerLink}>{showSensitive ? 'Ocultar' : 'Ver'}</Text>
           </Pressable>
         }
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {strictSensitiveMode && !showSensitive ? (
+        {sensitiveHidden ? (
           <Card style={styles.lockCard} shadow={false}>
-            <Text style={styles.lockTitle}>Toca para ver tu informacion del ciclo</Text>
+            <Text style={styles.lockTitle}>Toca para ver tu información del ciclo</Text>
             <Text style={styles.lockBody}>
-              El modo privado tapa fase, predicciones y sintomas hasta que tu decidas abrirlos.
+              El modo privado tapa fase, predicciones y síntomas hasta que tú decidas abrirlos.
             </Text>
             <Button onPress={() => setShowSensitive(true)} fullWidth>
               Mostrar ahora
@@ -152,7 +209,7 @@ export default function FemaleHealthScreen() {
           </Card>
         ) : null}
 
-        {!isInCycle ? (
+        {showSensitive && !isInCycle ? (
           <Card style={styles.setupCard} shadow={false}>
             <Text style={styles.sectionTitle}>Inicializa tu ciclo</Text>
             <Text style={styles.sectionBody}>
@@ -164,9 +221,13 @@ export default function FemaleHealthScreen() {
                   key={value}
                   style={[styles.setupChip, setupCycle === value && styles.setupChipActive]}
                   onPress={() => setSetupCycle(value)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${value} días`}
+                  accessibilityState={{ selected: setupCycle === value }}
+                  hitSlop={8}
                 >
                   <Text style={[styles.setupChipText, setupCycle === value && styles.setupChipTextActive]}>
-                    {value} dias
+                    {value} días
                   </Text>
                 </Pressable>
               ))}
@@ -181,51 +242,60 @@ export default function FemaleHealthScreen() {
           </Card>
         ) : null}
 
-        {(!strictSensitiveMode || showSensitive) && isInCycle ? (
+        {showSensitive && isInCycle ? (
           <>
-            <Card style={styles.cycleCard} shadow={false}>
-              <View style={styles.cycleHeader}>
-                <View>
+            <Card style={styles.discCard} shadow={false}>
+              <Pressable
+                style={styles.discRow}
+                onPress={() => setPredictionOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir predicciones de ${phaseTone.title}`}
+                accessibilityHint="Muestra los próximos siete días del ciclo."
+              >
+                <CycleDisc cycleLength={cycleLength} currentDay={todayIndex} phaseLabel={currentPhase} />
+                <View style={styles.discCopy}>
                   <Text style={[styles.phaseTitle, { color: phaseTone.color }]}>{phaseTone.title}</Text>
-                  <Text style={styles.phaseSubtitle}>Dia {daysInPhase + 1} de tu ciclo</Text>
+                  <Text style={styles.phaseSubtitle}>Día {daysInPhase + 1} de tu ciclo</Text>
+                  <Text style={styles.phaseDescription}>{phaseTone.description}</Text>
+                  <Text style={styles.phaseLink}>Toca el disco para ver los próximos 7 días</Text>
                 </View>
-              </View>
+              </Pressable>
+            </Card>
 
-              <View style={styles.cycleScale}>
-                {cycleDays.map((day) => {
-                  const isToday = day === todayIndex;
-                  return (
-                    <View key={day} style={styles.cycleScaleItem}>
-                      <View
-                        style={[
-                          styles.cycleBar,
-                          {
-                            backgroundColor: getPhaseForDay(day, cycleLength),
-                            opacity: isToday ? 1 : 0.4,
-                            borderWidth: isToday ? 1.5 : 0,
-                            borderColor: isToday ? Colors.textPrimary : 'transparent',
-                          },
-                        ]}
-                      />
-                      {isToday ? <Text style={styles.todayMarker}>HOY</Text> : null}
-                    </View>
-                  );
-                })}
+            <Card style={styles.energyCard} shadow={false}>
+              <View style={styles.energyHeader}>
+                <Text style={styles.sectionTitle}>Energía esperada</Text>
+                <Text style={styles.energyValue}>{phaseTone.energy}%</Text>
               </View>
+              <View style={styles.energyTrack}>
+                <View style={[styles.energyFill, { width: `${phaseTone.energy}%`, backgroundColor: phaseTone.color }]} />
+              </View>
+              <Text style={styles.sectionBody}>Mejor para: {phaseTone.bestFor}</Text>
+              <Text style={styles.sectionBody}>
+                Compatibilidad workout: {'o'.repeat(phaseTone.compatibility)}{' '}
+                {'o'.repeat(Math.max(0, 5 - phaseTone.compatibility))}
+              </Text>
+              {activeSession ? (
+                <Text style={styles.compatibilityText}>La sesión activa de hoy es compatible con esta fase.</Text>
+              ) : null}
             </Card>
 
             <Card style={[styles.contextCard, { borderColor: withOpacity(phaseTone.color, 0.28) }]} shadow={false}>
-              <Text style={styles.sectionTitle}>{phaseTone.description}</Text>
+              <Text style={styles.sectionTitle}>Contexto del día</Text>
               <Text style={styles.sectionBody}>{phaseGuidance.training}</Text>
               <Text style={styles.sectionBody}>{phaseGuidance.nutrition}</Text>
-              {activeSession ? (
-                <Text style={styles.compatibilityText}>La sesion activa de hoy es compatible con esta fase.</Text>
-              ) : null}
+              <Text style={styles.sectionBody}>{phaseGuidance.fasting}</Text>
             </Card>
 
             {imminentPhaseNotice ? (
               <Card style={styles.noticeCard} shadow={false}>
                 <Text style={styles.sectionBody}>{imminentPhaseNotice}</Text>
+              </Card>
+            ) : null}
+
+            {cycleIrregularity.message ? (
+              <Card style={styles.noticeCard} shadow={false}>
+                <Text style={styles.sectionBody}>{cycleIrregularity.message}</Text>
               </Card>
             ) : null}
 
@@ -256,8 +326,8 @@ export default function FemaleHealthScreen() {
                 </Text>
               </View>
               <View style={styles.predictionRow}>
-                <Text style={styles.predictionLabel}>Duracion promedio</Text>
-                <Text style={styles.predictionValue}>{cycleLength} dias</Text>
+                <Text style={styles.predictionLabel}>Duración promedio</Text>
+                <Text style={styles.predictionValue}>{cycleLength} días</Text>
               </View>
             </Card>
           </>
@@ -270,30 +340,72 @@ export default function FemaleHealthScreen() {
             <Text style={styles.sectionTitle}>Registrar hoy</Text>
             <View style={styles.symptomWrap}>
               {SYMPTOMS.map((symptom) => {
-                const active = selectedSymptoms.includes(symptom);
+                const active = selectedSymptoms.includes(symptom.id);
                 return (
                   <Pressable
-                    key={symptom}
+                    key={symptom.id}
                     style={[styles.symptomChip, active && styles.symptomChipActive]}
-                    onPress={() => toggleSymptom(symptom)}
+                    onPress={() => toggleSymptom(symptom.id)}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={symptom.label}
+                    accessibilityState={{ checked: active }}
+                    hitSlop={8}
                   >
-                    <Text style={[styles.symptomChipText, active && styles.symptomChipTextActive]}>{symptom}</Text>
+                    <Text style={styles.symptomIcon}>{symptom.icon}</Text>
+                    <Text style={[styles.symptomChipText, active && styles.symptomChipTextActive]}>
+                      {symptom.label}
+                    </Text>
                   </Pressable>
                 );
               })}
             </View>
 
+            {selectedSymptoms.map((symptom) => (
+              <View key={`severity-${symptom}`} style={styles.severityBlock}>
+                <Text style={styles.label}>{SYMPTOMS.find((item) => item.id === symptom)?.label ?? symptom}</Text>
+                <View style={styles.severityRow}>
+                  {[1, 2, 3, 4, 5].map((value) => {
+                    const active = (symptomSeverity[symptom] ?? 3) === value;
+                    return (
+                        <Pressable
+                          key={`${symptom}-${value}`}
+                          style={[styles.severityChip, active && styles.severityChipActive]}
+                          onPress={() =>
+                            setSymptomSeverity((current) => ({
+                              ...current,
+                              [symptom]: value,
+                            }))
+                          }
+                          accessibilityRole="radio"
+                          accessibilityLabel={`${SYMPTOMS.find((item) => item.id === symptom)?.label ?? symptom}, intensidad ${value}`}
+                          accessibilityState={{ selected: active }}
+                          hitSlop={8}
+                        >
+                        <Text style={[styles.severityChipText, active && styles.severityChipTextActive]}>
+                          {value}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+
             <Text style={styles.label}>Estado emocional</Text>
             <View style={styles.moodRow}>
               {MOODS.map((mood) => {
-                const active = selectedMood === mood;
+                const active = selectedMood === mood.id;
                 return (
                   <Pressable
-                    key={mood}
+                    key={mood.id}
                     style={[styles.moodChip, active && styles.moodChipActive]}
-                    onPress={() => setSelectedMood(mood)}
+                    onPress={() => setSelectedMood(mood.id)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`Estado emocional ${mood.emoji}`}
+                    accessibilityState={{ selected: active }}
+                    hitSlop={8}
                   >
-                    <Text style={[styles.moodChipText, active && styles.moodChipTextActive]}>{mood}</Text>
+                    <Text style={styles.moodEmoji}>{mood.emoji}</Text>
                   </Pressable>
                 );
               })}
@@ -311,9 +423,10 @@ export default function FemaleHealthScreen() {
 
             <Button
               onPress={() => {
-                log(currentPhase, [...selectedSymptoms, `estado:${selectedMood}`], notes.trim() || undefined);
+                log(currentPhase, [...selectedSymptoms, `estado:${selectedMood}`], notes.trim() || undefined, symptomSeverity);
                 setLogOpen(false);
                 setSelectedSymptoms([]);
+                setSymptomSeverity({});
                 setSelectedMood('3');
                 setNotes('');
               }}
@@ -323,6 +436,34 @@ export default function FemaleHealthScreen() {
               Guardar
             </Button>
             <Button onPress={() => setLogOpen(false)} variant="ghost" fullWidth>
+              Cerrar
+            </Button>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={predictionOpen} transparent animationType="fade" onRequestClose={() => setPredictionOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.sectionTitle}>Próximos 7 días</Text>
+            {predictionRows.map((row) => (
+              <View key={`prediction-${row.offset}`} style={styles.predictionListRow}>
+                <View style={styles.predictionListCopy}>
+                  <Text style={styles.predictionListDate}>
+                    {row.date.toLocaleDateString('es-UY', {
+                      weekday: 'short',
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </Text>
+                  <Text style={styles.predictionListMeta}>{row.title}</Text>
+                </View>
+                <View style={styles.predictionBadge}>
+                  <Text style={styles.predictionBadgeText}>{row.energy}%</Text>
+                </View>
+              </View>
+            ))}
+            <Button onPress={() => setPredictionOpen(false)} fullWidth>
               Cerrar
             </Button>
           </View>
@@ -397,13 +538,17 @@ const styles = StyleSheet.create({
   setupChipTextActive: {
     color: Colors.action,
   },
-  cycleCard: {
+  discCard: {
     gap: Spacing[4],
   },
-  cycleHeader: {
+  discRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing[4],
+  },
+  discCopy: {
+    flex: 1,
+    gap: 4,
   },
   phaseTitle: {
     fontFamily: FontFamily.bold,
@@ -414,34 +559,52 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.textSecondary,
   },
-  cycleScale: {
-    flexDirection: 'row',
-    gap: 2,
-    alignItems: 'flex-end',
+  phaseDescription: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 20,
   },
-  cycleScaleItem: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
+  phaseLink: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.female,
   },
-  cycleBar: {
-    width: '100%',
-    height: 28,
-    borderRadius: 4,
-  },
-  todayMarker: {
-    fontFamily: FontFamily.bold,
-    fontSize: 9,
-    color: Colors.textMuted,
-  },
-  contextCard: {
-    gap: Spacing[2],
+  energyCard: {
+    gap: Spacing[3],
     backgroundColor: withOpacity(Colors.female, 0.08),
+    borderColor: withOpacity(Colors.female, 0.18),
+  },
+  energyHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  energyValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
+    color: Colors.textPrimary,
+  },
+  energyTrack: {
+    width: '100%',
+    height: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgElevated,
+    overflow: 'hidden',
+  },
+  energyFill: {
+    height: '100%',
+    borderRadius: Radius.full,
   },
   compatibilityText: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
     color: Colors.textPrimary,
+  },
+  contextCard: {
+    gap: Spacing[2],
+    backgroundColor: withOpacity(Colors.female, 0.08),
   },
   noticeCard: {
     gap: Spacing[2],
@@ -484,7 +647,7 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
   },
   symptomChip: {
-    minHeight: 38,
+    minHeight: 42,
     borderRadius: Radius.full,
     backgroundColor: Colors.bgElevated,
     borderWidth: 1,
@@ -492,10 +655,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[3],
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    flexDirection: 'row',
   },
   symptomChipActive: {
     backgroundColor: withOpacity(Colors.female, 0.12),
     borderColor: withOpacity(Colors.female, 0.3),
+  },
+  symptomIcon: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
   },
   symptomChipText: {
     fontFamily: FontFamily.medium,
@@ -505,6 +675,9 @@ const styles = StyleSheet.create({
   symptomChipTextActive: {
     color: Colors.textPrimary,
   },
+  severityBlock: {
+    gap: Spacing[2],
+  },
   label: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
@@ -512,13 +685,39 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     textTransform: 'uppercase',
   },
+  severityRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  severityChip: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  severityChipActive: {
+    backgroundColor: withOpacity(Colors.female, 0.12),
+    borderColor: withOpacity(Colors.female, 0.3),
+  },
+  severityChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+  },
+  severityChipTextActive: {
+    color: Colors.textPrimary,
+  },
   moodRow: {
     flexDirection: 'row',
     gap: Spacing[2],
   },
   moodChip: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 52,
     borderRadius: Radius.md,
     backgroundColor: Colors.bgElevated,
     borderWidth: 1,
@@ -530,12 +729,9 @@ const styles = StyleSheet.create({
     backgroundColor: withOpacity(Colors.female, 0.12),
     borderColor: withOpacity(Colors.female, 0.3),
   },
-  moodChipText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
-    color: Colors.textSecondary,
-  },
-  moodChipTextActive: {
+  moodEmoji: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 20,
     color: Colors.textPrimary,
   },
   notesInput: {
@@ -550,5 +746,38 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.textPrimary,
     textAlignVertical: 'top',
+  },
+  predictionListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  predictionListCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  predictionListDate: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  predictionListMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  predictionBadge: {
+    minWidth: 54,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.female, 0.12),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.5],
+    alignItems: 'center',
+  },
+  predictionBadgeText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.female,
   },
 });

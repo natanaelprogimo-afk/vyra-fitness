@@ -41,28 +41,43 @@ async function ensureAnalytics(): Promise<PostHogClient | null> {
         client = instance;
         return instance;
       })
-      .catch(() => {
+      .catch((e) => {
+        console.debug?.('[analytics] PostHog.initAsync failed', e);
         client = null;
         return null;
       });
 
     return clientPromise;
-  } catch {
+  } catch (e) {
+    console.debug?.('[analytics] ensureAnalytics failed', e);
     client = null;
     clientPromise = Promise.resolve(null);
     return clientPromise;
   }
 }
 
+function runAnalyticsAction(
+  analytics: PostHogClient,
+  action: (client: PostHogClient) => void,
+) {
+  try {
+    action(analytics);
+  } catch {
+    // Analytics nunca debe romper un flujo principal de producto.
+  }
+}
+
 function dispatch(action: (analytics: PostHogClient) => void) {
   const ready = client;
   if (ready) {
-    action(ready);
+    runAnalyticsAction(ready, action);
     return;
   }
 
   void ensureAnalytics().then((analytics) => {
-    if (analytics) action(analytics);
+    if (analytics) {
+      runAnalyticsAction(analytics, action);
+    }
   });
 }
 
@@ -132,7 +147,7 @@ export function trackOnboardingStep(step: OnboardingStepInput, dropped = false) 
   );
 }
 
-export function trackOnboardingCompleted(plan: 'free' | 'premium' | 'trial') {
+export function trackOnboardingCompleted(plan: 'included') {
   dispatch((analytics) => analytics.capture('onboarding_completed', { plan_selected: plan }));
 }
 
@@ -225,40 +240,6 @@ export function trackHabitLogged(module: string, source: string, ms?: number) {
   dispatch((analytics) => analytics.capture('habit_logged', { module, source, ms }));
 }
 
-export function trackPaywallViewed(trigger: string) {
-  dispatch((analytics) => analytics.capture('premium_paywall_viewed', { trigger }));
-}
-
-export function trackPaywallConverted(plan: string) {
-  dispatch((analytics) => analytics.capture('paywall_converted', { plan }));
-}
-
-export function trackPaypalCheckoutStarted(plan: string) {
-  dispatch((analytics) => analytics.capture('paypal_checkout_started', { plan_selected: plan }));
-}
-
-export function trackPaypalCheckoutCompleted(plan: string) {
-  dispatch((analytics) => analytics.capture('paypal_checkout_completed', { plan }));
-}
-
-export function trackSubscriptionCancelled(plan: string, tenureDays: number) {
-  dispatch((analytics) =>
-    analytics.capture('premium_subscription_cancelled', {
-      plan,
-      tenure_days: tenureDays,
-    }),
-  );
-}
-
-export function trackContextMessage(isPremium: boolean, countToday: number) {
-  dispatch((analytics) =>
-    analytics.capture('context_message_sent', {
-      is_premium: isPremium,
-      message_count_today: countToday,
-    }),
-  );
-}
-
 export function trackStreakMilestone(days: number) {
   dispatch((analytics) => analytics.capture('streak_milestone_reached', { streak_days: days }));
 }
@@ -269,6 +250,15 @@ export function trackStreakBroken(days: number) {
 
 export function trackStepsGoalReached(goal: number, steps: number) {
   dispatch((analytics) => analytics.capture('steps_goal_reached', { goal, steps }));
+}
+
+export function trackAdEvent(action: string, props?: Record<string, unknown>) {
+  dispatch((analytics) =>
+    analytics.capture('ad_event', {
+      action,
+      ...(props ?? {}),
+    }),
+  );
 }
 
 export function flushAnalytics() {

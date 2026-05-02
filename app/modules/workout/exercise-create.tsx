@@ -15,7 +15,14 @@ const TYPE_OPTIONS = ['strength', 'cardio', 'core', 'mobility'];
 
 function SelectPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.pill, active && styles.pillActive]}
+      accessibilityRole="radio"
+      accessibilityLabel={`Tipo ${label}`}
+      accessibilityState={{ selected: active }}
+      hitSlop={8}
+    >
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
     </Pressable>
   );
@@ -69,7 +76,11 @@ export default function WorkoutExerciseCreateScreen() {
           <Input label="Equipo" value={equipment} onChangeText={setEquipment} placeholder="Mancuerna, polea o peso corporal" />
 
           <Text style={styles.blockLabel}>Tipo</Text>
-          <View style={styles.pillRow}>
+          <View
+            style={styles.pillRow}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Tipo de ejercicio"
+          >
             {TYPE_OPTIONS.map((option) => (
               <SelectPill key={option} label={option} active={type === option} onPress={() => setType(option)} />
             ))}

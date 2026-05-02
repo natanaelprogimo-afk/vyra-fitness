@@ -16,7 +16,7 @@ export default function NotFound() {
             <Ionicons name="compass-outline" size={42} color={Colors.textMuted} />
           </View>
           <Text style={styles.title}>Esto no existe.</Text>
-          <Text style={styles.subtitle}>La ruta que buscabas no esta aqui, pero puedes volver al inicio.</Text>
+          <Text style={styles.subtitle}>La ruta que buscabas no está aquí, pero puedes volver al inicio.</Text>
           <Button onPress={() => router.replace('/(tabs)/' as never)} variant="ghost" fullWidth>
             Volver al inicio
           </Button>

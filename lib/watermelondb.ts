@@ -1,39 +1,26 @@
 // ============================================================
-// VYRA FITNESS - WatermelonDB facade
-// Exposes the local DB instance and validates required tables.
+// VYRA FITNESS - WatermelonDB placeholder
+// La capa offline fue retirada temporalmente.
 // ============================================================
 
 import { database, adapter } from '@/database/watermelon';
-import schema from '@/database/schema';
 
-export const REQUIRED_OFFLINE_TABLES = [
-  'water_logs',
-  'step_logs',
-  'meals',
-  'sleep_logs',
-  'weight_logs',
-  'workout_sessions',
-  'mental_checkins',
-  'fasting_logs',
-] as const;
+export const REQUIRED_OFFLINE_TABLES = [] as const;
 
-export type RequiredOfflineTable = (typeof REQUIRED_OFFLINE_TABLES)[number];
+export type RequiredOfflineTable = never;
 
 export function assertRequiredTables(): { ok: boolean; missing: string[] } {
-  const rawTables = (schema as any).tables ?? [];
-  const schemaTables = new Set(
-    Array.isArray(rawTables)
-      ? rawTables.map((table: any) => table?.name).filter(Boolean)
-      : Object.keys(rawTables),
-  );
-  const missing = REQUIRED_OFFLINE_TABLES.filter((table) => !schemaTables.has(table));
-
   return {
-    ok: missing.length === 0,
-    missing,
+    ok: true,
+    missing: [],
   };
 }
 
-export { database, adapter, schema };
+export const schema = {
+  versión: 0,
+  tables: [],
+} as const;
+
+export { database, adapter };
 
 export default database;

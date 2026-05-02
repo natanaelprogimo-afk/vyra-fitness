@@ -1,6 +1,7 @@
 const {
   buildSleepWeeklySummary,
   getSleepDurationHours,
+  normalizeSleepRange,
 } = require('../lib/sleep-module');
 
 describe('sleep module helpers', () => {
@@ -9,6 +10,18 @@ describe('sleep module helpers', () => {
     const wakeTime = new Date('2026-04-12T06:45:00');
 
     expect(getSleepDurationHours(bedtime, wakeTime)).toBe(7.5);
+  });
+
+  test('normalizes overnight ranges before persistence', () => {
+    const bedtime = new Date('2026-04-12T23:15:00');
+    const wakeTime = new Date('2026-04-12T06:45:00');
+
+    const range = normalizeSleepRange(bedtime, wakeTime);
+
+    expect(range).not.toBeNull();
+    expect(range.wakeTime.getDate()).toBe(new Date('2026-04-13T06:45:00').getDate());
+    expect(range.wakeTime.getHours()).toBe(6);
+    expect(range.wakeTime.getMinutes()).toBe(45);
   });
 
   test('builds a weekly summary from sleep history', () => {

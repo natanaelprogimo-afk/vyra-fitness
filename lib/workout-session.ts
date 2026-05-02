@@ -74,7 +74,7 @@ export function getWorkoutLoadSuggestion({
     return {
       recommendedWeightKg: 0,
       progressionWeightKg: null,
-      helperText: 'Este ejercicio se apoya en ritmo, tecnica o peso corporal.',
+      helperText: 'Este ejercicio se apoya en ritmo, técnica o peso corporal.',
       strategy: 'bodyweight',
     };
   }
@@ -122,7 +122,7 @@ export function getWorkoutLoadSuggestion({
   return {
     recommendedWeightKg: null,
     progressionWeightKg: null,
-    helperText: 'Arranca conservador, cuida la tecnica y ajusta despues del primer set.',
+    helperText: 'Arranca conservador, cuida la técnica y ajusta después del primer set.',
     strategy: 'baseline',
   };
 }
@@ -156,7 +156,7 @@ function inferWarmupBucket(exerciseNames: string[]) {
   if (/(sentadilla|prensa|zancada|peso muerto|glute|hip thrust|curl femoral|cuadr)/.test(haystack)) {
     return 'lower';
   }
-  if (/(press|banca|hombro|dominada|remo|jalon|tricep|bicep|pecho|espalda)/.test(haystack)) {
+  if (/(press|banca|hombro|dominada|remo|jalón|tricep|bicep|pecho|espalda)/.test(haystack)) {
     return 'upper';
   }
   return 'full';
@@ -214,7 +214,7 @@ export function getWorkoutExerciseMainGroup(muscleGroup?: string | null) {
 export function getWorkoutExerciseSubtype(name?: string | null) {
   const value = (name ?? '').toLowerCase();
   if (/(press|empuje)/.test(value)) return 'Press';
-  if (/(remo|jalon|dominada|pull)/.test(value)) return 'Traccion';
+  if (/(remo|jalón|dominada|pull)/.test(value)) return 'Traccion';
   if (/(apertura|fly)/.test(value)) return 'Apertura';
   if (/(fondo)/.test(value)) return 'Fondos';
   if (/(curl)/.test(value)) return 'Curl';

@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
-import { useAuthStore } from '@/stores/authStore';
+import { useRef, useState } from 'react';
 import { Audio } from 'expo-av';
+import { useAuthStore } from '@/stores/authStore';
 import { captureError } from '@/lib/sentry';
 
 export interface VoiceLogResult {
@@ -15,9 +15,11 @@ export function useVoiceLog() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<string[]>([]);
+  const [recordingUri, setRecordingUri] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
-  const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
+  const backendUrl =
+    process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
   const startRecording = async () => {
     try {
@@ -26,17 +28,26 @@ export function useVoiceLog() {
         setError('Permiso de micrófono denegado');
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
       const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
       );
+
       recordingRef.current = recording;
-      setIsRecording(true);
-      setError(null);
+      setRecordingUri(null);
       setResults([]);
-    } catch (err: any) {
-      setError(err.message ?? 'Error al iniciar grabación');
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useVoiceLog.start' });
+      setError(null);
+      setIsRecording(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al iniciar grabación');
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useVoiceLog.start',
+      });
     }
   };
 
@@ -44,45 +55,99 @@ export function useVoiceLog() {
     try {
       setIsRecording(false);
       setIsProcessing(true);
+
       if (!recordingRef.current) return;
+
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
-      if (uri) setResults([uri]);
-    } catch (err: any) {
-      setError(err.message ?? 'Error al detener grabación');
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useVoiceLog.stop' });
+
+      setRecordingUri(uri ?? null);
+      setResults([]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al detener grabación');
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useVoiceLog.stop',
+      });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const transcribeLog = async (type: 'meal' | 'workout' | 'thought'): Promise<boolean> => {
-    if (!results.length || !session?.access_token) return false;
+  const transcribeLog = async (
+    type: 'meal' | 'workout' | 'thought',
+  ): Promise<boolean> => {
+    if (!recordingUri || !session?.access_token) return false;
+
+    if (type !== 'meal') {
+      setError('El registro por voz disponible ahora solo procesa comidas.');
+      return false;
+    }
+
     try {
-      const response = await fetch(`${BACKEND_URL}/api/voiceLog`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+      setIsProcessing(true);
+      setError(null);
+
+      const formData = new FormData();
+      formData.append(
+        'audio',
+        {
+          uri: recordingUri,
+          name: 'voice-log.m4a',
+          type: 'audio/m4a',
+        } as unknown as Blob,
+      );
+
+      const response = await fetch(
+        `${backendUrl}/api/ai/nutrition/transcribe-audio`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: formData,
         },
-        body: JSON.stringify({
-          transcription: results[0],
-          type,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-      if (!response.ok) throw new Error('Error processing voice log');
+      );
+
+      const payload = (await response.json().catch((e) => {
+        console.debug?.('[useVoiceLog] transcription response.json failed', e);
+        return {};
+      })) as {
+        error?: string;
+        transcription?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'Error procesando audio');
+      }
+
+      const transcription =
+        typeof payload.transcription === 'string'
+          ? payload.transcription.trim()
+          : '';
+
+      if (!transcription) {
+        throw new Error('No se obtuvo una transcripción útil.');
+      }
+
+      setResults([transcription]);
       return true;
     } catch (err) {
-      captureError(err instanceof Error ? err : new Error(String(err)), { action: 'useVoiceLog.transcribe' });
-      setError('Error procesando audio');
+      captureError(err instanceof Error ? err : new Error(String(err)), {
+        action: 'useVoiceLog.transcribe',
+      });
+      setError(
+        err instanceof Error ? err.message : 'Error procesando audio',
+      );
       return false;
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const clearResults = () => {
     setResults([]);
+    setRecordingUri(null);
     setError(null);
   };
 

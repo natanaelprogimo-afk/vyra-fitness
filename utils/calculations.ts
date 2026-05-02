@@ -101,11 +101,14 @@ export function getBMICategory(bmi: number): BMICategoryInfo {
 
 export const HYDRATION_FACTORS: Record<string, number> = {
   water: 1.0,
+  electrolyte_water: 1.05,
+  sports_drink: 1.0,
   electrolyte: 1.05,
   sports: 1.0,
   tea: 0.85,
   coffee: 0.75,
   juice: 0.9,
+  soda: 0.7,
   milk: 0.9,
   alcohol: 0.0,
 };

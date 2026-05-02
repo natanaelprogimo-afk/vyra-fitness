@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import type { UserProfile } from '@/types/user';
 
 export interface UseAIOptions {
   onError?: (error: Error) => void;
@@ -12,7 +13,23 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export function buildSystemPrompt(profile: any) {
+interface AiConversationRow {
+  messages_json?: unknown;
+}
+
+interface ContextChatResponse {
+  reply?: string;
+  messagesLeft?: number;
+  error?: string;
+}
+
+const DAILY_CONTEXT_LIMIT = 5;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+export function buildSystemPrompt(profile: UserProfile | null | undefined) {
   const name = profile?.name ?? 'Usuario';
   const goal = profile?.primary_goal ?? profile?.goal ?? 'general_health';
   const waterGoal = profile?.water_goal_ml ?? 2000;
@@ -40,19 +57,20 @@ export const useAI = (options?: UseAIOptions) => {
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
-  const countUserMessages = useCallback((messages: unknown): number => {
-    if (!Array.isArray(messages)) return 0;
-    return messages.filter((entry) => {
-      if (!entry || typeof entry !== 'object') return false;
-      const role = (entry as any).role;
-      const content = (entry as any).content;
+  const countUserMessages = useCallback((conversation: unknown): number => {
+    if (!Array.isArray(conversation)) return 0;
+    return conversation.filter((entry) => {
+      const record = asRecord(entry);
+      if (!record) return false;
+      const role = record.role;
+      const content = record.content;
       return role === 'user' && typeof content === 'string' && content.trim().length > 0;
     }).length;
   }, []);
 
   const refreshDailyLimit = useCallback(async () => {
-    if (!profile?.id || profile?.is_premium) {
-      setDailyMessagesLeft(999);
+    if (!profile?.id) {
+      setDailyMessagesLeft(DAILY_CONTEXT_LIMIT);
       return;
     }
 
@@ -64,9 +82,9 @@ export const useAI = (options?: UseAIOptions) => {
       .eq('session_date', today)
       .maybeSingle();
 
-    const used = countUserMessages((data as any)?.messages_json);
-    setDailyMessagesLeft(Math.max(0, 5 - used));
-  }, [countUserMessages, profile?.id, profile?.is_premium]);
+    const used = countUserMessages((data as AiConversationRow | null)?.messages_json);
+    setDailyMessagesLeft(Math.max(0, DAILY_CONTEXT_LIMIT - used));
+  }, [countUserMessages, profile?.id]);
 
   useEffect(() => {
     void refreshDailyLimit();
@@ -83,13 +101,13 @@ export const useAI = (options?: UseAIOptions) => {
     setError(null);
 
     try {
-      if (!profile?.is_premium && dailyMessagesLeft <= 0) {
-        const limitError = new Error('Límite diario alcanzado');
+      if (dailyMessagesLeft <= 0) {
+        const limitError = new Error('Limite diario alcanzado');
         setError(limitError);
         throw limitError;
       }
 
-      const historyPayload = messages.map((m) => ({ role: m.role, content: m.content }));
+      const historyPayload = messages.map((entry) => ({ role: entry.role, content: entry.content }));
 
       const response = await fetch(`${apiUrl}/api/ai/context-chat`, {
         method: 'POST',
@@ -104,16 +122,19 @@ export const useAI = (options?: UseAIOptions) => {
         }),
       });
 
-      const payload = await response.json().catch(() => ({} as any));
+      const payload = (await response.json().catch((e) => {
+        console.debug?.('[useAI] context-chat response.json failed', e);
+        return {};
+      })) as ContextChatResponse;
 
       if (!response.ok) {
         if (response.status === 429) {
           setDailyMessagesLeft(0);
         }
-        throw new Error(payload?.error ?? `Vyra AI responded with ${response.status}`);
+        throw new Error(payload.error ?? `Vyra AI responded with ${response.status}`);
       }
 
-      const reply = payload.reply ?? 'Mi cerebro IA está tomando un descanso 😅';
+      const reply = payload.reply ?? 'Mi cerebro IA está tomando un descanso.';
 
       setMessages((prev) => [
         ...prev,
@@ -127,7 +148,7 @@ export const useAI = (options?: UseAIOptions) => {
         await refreshDailyLimit();
       }
 
-      return reply as string;
+      return reply;
     } catch (err) {
       const castError = err instanceof Error ? err : new Error('Unknown error');
       setError(castError);
@@ -142,12 +163,10 @@ export const useAI = (options?: UseAIOptions) => {
     setError(null);
   }, []);
 
-  const isLoading = loading;
-
   return {
     sendMessage,
     loading,
-    isLoading,
+    isLoading: loading,
     error,
     clearError,
     messages,

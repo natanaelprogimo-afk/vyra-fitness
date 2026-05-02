@@ -6,25 +6,37 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type NutritionTabKey = 'home' | 'log' | 'history' | 'recipes' | 'settings';
+export type NutritionTabKey = 'home' | 'log' | 'history' | 'settings';
 
 const TABS: Array<{ key: NutritionTabKey; label: string; route: string }> = [
   { key: 'home', label: 'Hoy', route: Routes.nutrition.index },
   { key: 'log', label: 'Registro', route: Routes.nutrition.log },
   { key: 'history', label: 'Historial', route: Routes.nutrition.history },
-  { key: 'recipes', label: 'Recetas', route: Routes.nutrition.recipes },
   { key: 'settings', label: 'Ajustes', route: Routes.nutrition.settings },
 ];
 
 export default function NutritionModuleTabs({ active }: { active: NutritionTabKey }) {
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole="tablist"
+      accessibilityLabel="Secciones del modulo de nutricion"
+    >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
             <Pressable
               key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityHint={
+                isActive
+                  ? `Ya estas en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del modulo de nutricion.`
+              }
+              hitSlop={8}
               onPress={() => {
                 if (!isActive) router.push(tab.route as never);
               }}
@@ -49,6 +61,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
   },
   pill: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),

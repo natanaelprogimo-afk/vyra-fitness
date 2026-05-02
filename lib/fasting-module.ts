@@ -2,11 +2,10 @@ import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FASTING_PHASES, PROTOCOLS } from '@/hooks/useFasting';
 
-export type FastingTabKey = 'home' | 'history' | 'protocols' | 'settings' | 'analysis';
+export type FastingTabKey = 'home' | 'protocols' | 'settings' | 'analysis';
 
 export const FASTING_TABS: Array<{ key: FastingTabKey; label: string; route: string }> = [
   { key: 'home', label: 'Hoy', route: Routes.fasting.index },
-  { key: 'history', label: 'Historial', route: Routes.fasting.history },
   { key: 'protocols', label: 'Protocolos', route: Routes.fasting.protocols },
   { key: 'settings', label: 'Ajustes', route: Routes.fasting.settings },
   { key: 'analysis', label: 'Análisis', route: Routes.fasting.analysis },
@@ -18,8 +17,10 @@ export type FastingHistoryItem = {
   start_time?: string | null;
   end_time?: string | null;
   total_hours?: number | null;
+  status?: string | null; // 'completed' | 'interrupted' | 'planned' | 'missed' | 'active' | 'normal'
   completed?: boolean;
-  abandoned?: boolean;
+  abandoned?: boolean; // legacy
+  interrupted?: boolean; // legacy alias
   max_phase_reached?: string | null;
 };
 
@@ -143,7 +144,7 @@ export function buildRecentFastingBars(items: FastingHistoryItem[], days = 7) {
       key: iso,
       label: date.toLocaleDateString('es-UY', { weekday: 'short' }).replace('.', ''),
       hours: Number(winner?.total_hours ?? 0),
-      completed: Boolean(winner?.completed),
+      completed: Boolean((winner as unknown as { status?: string | null })?.status === 'completed' || winner?.completed),
     });
   }
 

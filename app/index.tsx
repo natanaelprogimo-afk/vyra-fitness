@@ -1,18 +1,21 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import GlowRing from '@/components/ui/GlowRing';
 import { Routes } from '@/constants/routes';
-import { Colors, withOpacity } from '@/constants/colors';
+import { Colors } from '@/constants/colors';
+import { FontFamily, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useNavigationStore } from '@/stores/navigationStore';
 
-const TRACK_WIDTH = 132;
+const SPLASH_RING_SIZE = 132;
 
 export default function AppEntryScreen() {
   const isInitialized = useAuthStore((state) => state.isInitialized);
@@ -22,7 +25,8 @@ export default function AppEntryScreen() {
   const profile = useAuthStore((state) => state.profile);
   const postAuthRoute = useNavigationStore((state) => state.postAuthRoute);
   const clearPostAuthRoute = useNavigationStore((state) => state.clearPostAuthRoute);
-  const progress = useSharedValue(0);
+  const [ringValue, setRingValue] = useState(0);
+  const spin = useSharedValue(0);
   const veilOpacity = useSharedValue(0);
 
   const destination = useMemo(() => {
@@ -40,29 +44,34 @@ export default function AppEntryScreen() {
   }, [postAuthRoute, profile?.onboarding_completed, session, user]);
 
   useEffect(() => {
-    progress.value = withTiming(1, {
-      duration: 1100,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [progress]);
+    setRingValue(100);
+    spin.value = withRepeat(
+      withTiming(360, {
+        duration: 1400,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    );
+  }, [spin]);
 
   useEffect(() => {
     if (!isInitialized) return;
     if (session && !hasResolvedProfile) return;
 
-    veilOpacity.value = withTiming(1, { duration: 180 });
+    veilOpacity.value = withTiming(1, { duration: 220 });
     const timer = setTimeout(() => {
       router.replace(destination as never);
-      if (postAuthRoute) {
+      if (postAuthRoute && destination === postAuthRoute) {
         clearPostAuthRoute();
       }
-    }, 180);
+    }, 220);
 
     return () => clearTimeout(timer);
   }, [clearPostAuthRoute, destination, hasResolvedProfile, isInitialized, postAuthRoute, session, veilOpacity]);
 
-  const progressStyle = useAnimatedStyle(() => ({
-    width: TRACK_WIDTH * progress.value,
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spin.value}deg` }],
   }));
 
   const veilStyle = useAnimatedStyle(() => ({
@@ -72,9 +81,15 @@ export default function AppEntryScreen() {
   return (
     <View style={styles.screen}>
       <Text style={styles.logoWord}>VYRA</Text>
-      <View style={styles.progressTrack}>
-        <Animated.View style={[styles.progressFill, progressStyle]} />
-      </View>
+      <Animated.View style={ringStyle}>
+        <GlowRing
+          value={ringValue}
+          size={SPLASH_RING_SIZE}
+          strokeWidth={4}
+          color={Colors.action}
+          trackColor="rgba(255,255,255,0.08)"
+        />
+      </Animated.View>
       <Animated.View pointerEvents="none" style={[styles.veil, veilStyle]} />
     </View>
   );
@@ -85,26 +100,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
+    gap: Spacing[6],
     backgroundColor: Colors.bgBase,
   },
   logoWord: {
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: FontFamily.black,
     fontSize: 28,
-    letterSpacing: -1,
+    letterSpacing: -1.1,
     color: Colors.textPrimary,
-  },
-  progressTrack: {
-    width: TRACK_WIDTH,
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: withOpacity(Colors.white, 0.08),
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: Colors.action,
   },
   veil: {
     ...StyleSheet.absoluteFillObject,

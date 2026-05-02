@@ -1,17 +1,72 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { FontAwesome } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { useAuth } from '@/hooks/useAuth';
 import { validateEmail, validatePassword } from '@/utils/validators';
+import { useLocalizedStrings } from '@/constants/strings';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { Routes } from '@/constants/routes';
-import { useState } from 'react';
+import { resolveSupportedLanguage } from '@/lib/language';
+
+const SCREEN_COPY = {
+  es: {
+    google: 'Continuar con Google',
+    googleHint: 'Abre el flujo seguro de Google para entrar o guardar esta cuenta.',
+    apple: 'Continuar con Apple',
+    appleHint: 'Abre el flujo seguro de Apple para entrar o guardar esta cuenta.',
+    separator: 'o',
+    forgotA11yLabel: 'Olvide mi contrasena',
+    forgotA11yHint: 'Abre el flujo para recuperar el acceso por email.',
+    guest: 'Continuar sin cuenta',
+    guestHint: 'Si luego vinculas Google o Apple, conservas lo que registres hoy.',
+    footerPrefix: 'No tienes cuenta? ',
+    createAccountLabel: 'Crear cuenta',
+    createAccountHint: 'Abre la pantalla para registrarte con email o proveedor.',
+    invalidCredentials: 'Email o contrasena incorrectos.',
+  },
+  en: {
+    google: 'Continue with Google',
+    googleHint: 'Open the secure Google flow to sign in or save this account.',
+    apple: 'Continue with Apple',
+    appleHint: 'Open the secure Apple flow to sign in or save this account.',
+    separator: 'or',
+    forgotA11yLabel: 'I forgot my password',
+    forgotA11yHint: 'Open the flow to recover access by email.',
+    guest: 'Continue without account',
+    guestHint: 'If you link Google or Apple later, you keep what you log today.',
+    footerPrefix: 'Do not have an account? ',
+    createAccountLabel: 'Create account',
+    createAccountHint: 'Open the screen to register with email or a provider.',
+    invalidCredentials: 'Incorrect email or password.',
+  },
+  pt: {
+    google: 'Continuar com Google',
+    googleHint: 'Abre o fluxo seguro do Google para entrar ou salvar esta conta.',
+    apple: 'Continuar com Apple',
+    appleHint: 'Abre o fluxo seguro da Apple para entrar ou salvar esta conta.',
+    separator: 'ou',
+    forgotA11yLabel: 'Esqueci minha senha',
+    forgotA11yHint: 'Abre o fluxo para recuperar o acesso por email.',
+    guest: 'Continuar sem conta',
+    guestHint: 'Se depois voce vincular Google ou Apple, mantem o que registrar hoje.',
+    footerPrefix: 'Ainda nao tem conta? ',
+    createAccountLabel: 'Criar conta',
+    createAccountHint: 'Abre a tela para se registrar com email ou provedor.',
+    invalidCredentials: 'Email ou senha incorretos.',
+  },
+} as const;
 
 export default function LoginScreen() {
-  const { login, isLoading } = useAuth();
+  const { AuthStrings: authStrings } = useLocalizedStrings();
+  const { i18n } = useTranslation();
+  const { login, continueAsGuest, isLoading } = useAuth();
+  const copy = SCREEN_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -32,7 +87,7 @@ export default function LoginScreen() {
     if (!validate()) return;
     const result = await login(email.trim().toLowerCase(), password);
     if (!result.ok) {
-      setSubmitError('Email o contraseña incorrectos.');
+      setSubmitError(result.error ?? copy.invalidCredentials);
     }
   };
 
@@ -43,17 +98,39 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.hero}>
-        <Text style={styles.title}>Bienvenido de nuevo</Text>
+        <Text style={styles.title}>{authStrings.login.title}</Text>
       </View>
 
       <View style={styles.form}>
-        <Pressable onPress={() => router.push(Routes.auth.google as never)} style={styles.googleButton}>
+        <Pressable
+          onPress={() => router.push(Routes.auth.google as never)}
+          style={styles.googleButton}
+          accessibilityRole="button"
+          accessibilityLabel={copy.google}
+          accessibilityHint={copy.googleHint}
+        >
           <Text style={styles.googleBadge}>G</Text>
-          <Text style={styles.googleText}>Continuar con Google</Text>
+          <Text style={styles.googleText}>{copy.google}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push(Routes.auth.apple as never)}
+          style={styles.googleButton}
+          accessibilityRole="button"
+          accessibilityLabel={copy.apple}
+          accessibilityHint={copy.appleHint}
+        >
+          <FontAwesome name="apple" size={20} color={Colors.textPrimary} />
+          <Text style={styles.googleText}>{copy.apple}</Text>
         </Pressable>
 
+        <View style={styles.separatorRow}>
+          <View style={styles.separatorLine} />
+          <Text style={styles.separatorText}>{copy.separator}</Text>
+          <View style={styles.separatorLine} />
+        </View>
+
         <Input
-          label="Email"
+          label={authStrings.login.email}
           value={email}
           onChangeText={(value) => {
             setEmail(value);
@@ -67,7 +144,7 @@ export default function LoginScreen() {
         />
 
         <Input
-          label="Contraseña"
+          label={authStrings.login.password}
           value={password}
           onChangeText={(value) => {
             setPassword(value);
@@ -80,8 +157,14 @@ export default function LoginScreen() {
           onSubmitEditing={handleLogin}
         />
 
-        <Pressable onPress={() => router.push('/(auth)/forgot-password' as never)} style={styles.forgot}>
-          <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+        <Pressable
+          onPress={() => router.push('/(auth)/forgot-password' as never)}
+          style={styles.forgot}
+          accessibilityRole="button"
+          accessibilityLabel={copy.forgotA11yLabel}
+          accessibilityHint={copy.forgotA11yHint}
+        >
+          <Text style={styles.forgotText}>{authStrings.login.forgot}</Text>
         </Pressable>
 
         {submitError ? (
@@ -91,14 +174,31 @@ export default function LoginScreen() {
         ) : null}
 
         <Button onPress={handleLogin} fullWidth size="lg" loading={isLoading}>
-          Entrar
+          {authStrings.login.cta}
         </Button>
+
+        <Button
+          onPress={() => {
+            void continueAsGuest();
+          }}
+          fullWidth
+          variant="secondary"
+          loading={isLoading}
+        >
+          {copy.guest}
+        </Button>
+        <Text style={styles.guestHint}>{copy.guestHint}</Text>
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>¿No tienes cuenta? </Text>
-        <Pressable onPress={() => router.replace('/(auth)/register' as never)}>
-          <Text style={styles.footerLink}>Regístrate</Text>
+        <Text style={styles.footerText}>{copy.footerPrefix}</Text>
+        <Pressable
+          onPress={() => router.replace('/(auth)/register' as never)}
+          accessibilityRole="button"
+          accessibilityLabel={copy.createAccountLabel}
+          accessibilityHint={copy.createAccountHint}
+        >
+          <Text style={styles.footerLink}>{authStrings.login.register}</Text>
         </Pressable>
       </View>
     </SafeScreen>
@@ -167,15 +267,33 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
   },
+  separatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+    marginBottom: Spacing[3],
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: withOpacity(Colors.white, 0.08),
+  },
+  separatorText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
   forgot: {
     alignSelf: 'flex-end',
-    marginTop: -Spacing[1],
+    marginTop: Spacing[1],
     marginBottom: Spacing[4],
   },
   forgotText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
-    color: Colors.textMuted,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   errorPill: {
     borderRadius: Radius.full,
@@ -190,6 +308,13 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
     color: Colors.error,
+  },
+  guestHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',

@@ -1,16 +1,21 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Card from '@/components/ui/Card';
+import ConfirmationSheet from '@/components/ui/ConfirmationSheet';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
+import { MODULES } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useWeight } from '@/hooks/useWeight';
 import { useWorkout } from '@/hooks/useWorkout';
 import { getActiveModules } from '@/lib/active-modules';
+import { triggerImpactHaptic } from '@/lib/haptics';
 
 type ProfileRowItem = {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -36,12 +41,28 @@ function goalLabel(goal?: string | null) {
   }
 }
 
-function QuickStat({ label, value }: { label: string; value: string }) {
+function QuickStat({
+  label,
+  value,
+  onPress,
+  compact = false,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  compact?: boolean;
+}) {
   return (
-    <View style={styles.quickStat}>
+    <Pressable
+      style={[styles.quickStat, compact && styles.quickStatCompact]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+      accessibilityHint="Abre el detalle relacionado."
+    >
       <Text style={styles.quickStatValue}>{value}</Text>
       <Text style={styles.quickStatLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -60,6 +81,9 @@ function ProfileRow({
       disabled={!onPress}
       style={styles.row}
       android_ripple={{ color: withOpacity(Colors.white, 0.05) }}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={label}
+      accessibilityHint={value}
     >
       <View style={styles.rowIcon}>
         <Ionicons name={icon} size={18} color={resolvedIconColor} />
@@ -90,12 +114,17 @@ function Section({ title, items }: { title: string; items: ProfileRowItem[] }) {
 }
 
 export default function ProfileSheetScreen() {
+  const { width } = useWindowDimensions();
   const { profile, signOut } = useAuthStore();
+  const showToast = useUIStore((state) => state.showToast);
   const { stats } = useWeight();
   const { history, getConsistencyStats } = useWorkout();
   const activeModules = getActiveModules(profile);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const consistency = getConsistencyStats();
+  const isCompactWidth = width <= 390;
   const name = profile?.name?.trim() || 'Usuario';
   const initials = name
     .split(' ')
@@ -107,105 +136,102 @@ export default function ProfileSheetScreen() {
   const currentWeight = stats.current != null ? `${stats.current.toFixed(1)} kg` : '--';
   const lastSession = history[0];
   const lastSessionLabel = lastSession?.started_at
-    ? `Hace ${Math.max(0, Math.round((Date.now() - new Date(lastSession.started_at).getTime()) / 86400000))} dias`
+    ? `Hace ${Math.max(0, Math.round((Date.now() - new Date(lastSession.started_at).getTime()) / 86400000))} días`
     : 'Sin sesiones';
 
-  const trainingItems: ProfileRowItem[] = [
+  const activityItems: ProfileRowItem[] = [
     {
       icon: 'barbell-outline',
-      label: 'Plan actual',
-      value: 'Ver bloque y programas',
-      route: Routes.workout.programs,
+      label: 'Entrenamiento y bloque activo',
+      value: 'Rutina de hoy, programas y sesiones',
+      route: Routes.workout.index,
     },
     {
-      icon: 'albums-outline',
-      label: 'Rutinas guardadas',
-      value: 'Abrir biblioteca',
-      route: Routes.workout.routines,
-    },
-    {
-      icon: 'time-outline',
-      label: 'Historial completo',
-      value: 'Sesiones y detalle',
-      route: Routes.progress.history,
+      icon: 'analytics-outline',
+      label: 'Progreso completo',
+      value: 'Rachas, peso y sesiones recientes',
+      route: Routes.tabs.progress,
     },
   ];
 
-  const moduleItems: ProfileRowItem[] = [
-    {
-      icon: 'grid-outline',
-      label: 'Modulos adicionales',
-      value: 'Activar o desactivar modulos',
-      route: Routes.settings.modules,
-    },
-    {
-      icon: 'restaurant-outline',
-      label: 'Nutricion',
-      value: 'Registro y comidas del dia',
-      route: Routes.nutrition.index,
-      iconColor: Colors.nutrition,
-    },
-    {
-      icon: 'water-outline',
-      label: 'Agua',
-      value: 'Registro rapido',
-      route: Routes.water.index,
-      iconColor: Colors.water,
-    },
-    {
-      icon: 'moon-outline',
-      label: 'Sueno',
-      value: 'Ultimo descanso y log',
-      route: Routes.sleep.index,
-      iconColor: Colors.sleep,
-    },
-  ];
+  const moduleFallbackIcons: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+    workout: 'barbell-outline',
+    nutrition: 'restaurant-outline',
+    water: 'water-outline',
+    sleep: 'moon-outline',
+    steps: 'footsteps-outline',
+    fasting: 'timer-outline',
+    female: 'flower-outline',
+    supplements: 'medical-outline',
+  };
 
-  if (profile?.female_health_enabled) {
-    moduleItems.push({
-      icon: 'flower-outline',
-      label: 'Salud femenina',
-      value: 'Ciclo y sintomas',
-      route: Routes.female.index,
-      iconColor: Colors.female,
-    });
-  }
+  const moduleDescriptions: Record<string, string> = {
+    workout: 'Plan y sesiones',
+    nutrition: 'Comidas y macros',
+    water: 'Hidratación y meta',
+    sleep: 'Última noche y registro',
+    steps: 'Pasos y caminatas',
+    fasting: 'Timer y protocolo',
+    female: 'Ciclo y síntomas',
+    supplements: 'Stack y adherencia',
+  };
 
-  if (activeModules.includes('fasting')) {
-    moduleItems.push({
-      icon: 'timer-outline',
-      label: 'Ayuno',
-      value: 'Timer, protocolo e historial',
-      route: Routes.fasting.index,
-      iconColor: Colors.fasting,
-    });
-  }
+  const moduleItems = activeModules.reduce<Array<{ tier: 'core' | 'contextual'; item: ProfileRowItem }>>((items, moduleId) => {
+      const meta = MODULES.find((item) => item.id === moduleId);
+      if (!meta) return items;
+      items.push({
+        tier: meta.tier,
+        item: {
+          icon: moduleFallbackIcons[moduleId] ?? 'grid-outline',
+          label: meta.name,
+          value: moduleDescriptions[moduleId] ?? meta.description,
+          route: meta.route,
+          iconColor: meta.color,
+        },
+      });
+      return items;
+    }, []);
+  const coreModuleItems = moduleItems
+    .filter((entry) => entry.tier === 'core')
+    .map((entry) => entry.item);
+  const contextualModuleItems = moduleItems
+    .filter((entry) => entry.tier === 'contextual')
+    .map((entry) => entry.item);
 
   const accountItems: ProfileRowItem[] = [
+    {
+      icon: 'sparkles-outline',
+      label: 'Todo incluido',
+      value: 'Las funciones siguen abiertas y parte del soporte del producto ahora vive en anuncios discretos fuera de los flujos sensibles.',
+      route: Routes.premium.manage,
+      iconColor: Colors.action,
+    },
+    {
+      icon: 'settings-outline',
+      label: 'Ajustes',
+      value: 'Apariencia, widgets, notificaciones y privacidad',
+      route: Routes.settings.index,
+    },
     {
       icon: 'create-outline',
       label: 'Editar perfil',
       route: Routes.profile.edit,
     },
     {
-      icon: 'notifications-outline',
-      label: 'Notificaciones',
-      route: Routes.settings.notificationsSettings,
-    },
-    {
       icon: 'shield-checkmark-outline',
-      label: 'Privacidad',
-      route: Routes.settings.privacy,
-    },
-    {
-      icon: 'star-outline',
-      label: 'Premium',
-      route: Routes.premium.paywall,
+      label: 'Cuenta y seguridad',
+      route: Routes.settings.account,
     },
     {
       icon: 'download-outline',
       label: 'Exportar datos',
       route: Routes.profile.exportData,
+    },
+    {
+      icon: 'gift-outline',
+      label: 'Invitar a alguien',
+      value: 'Comparte tu codigo y suma gente a tu red',
+      route: Routes.profile.referral,
     },
     {
       icon: 'help-circle-outline',
@@ -221,18 +247,21 @@ export default function ProfileSheetScreen() {
   ];
 
   const handleLogout = () => {
-    Alert.alert('Cerrar sesion', 'Se cerrara tu sesion en este dispositivo.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Cerrar sesion',
-        style: 'destructive',
-        onPress: async () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          await signOut();
-          router.replace(Routes.auth.welcome as never);
-        },
-      },
-    ]);
+    setSignOutOpen(true);
+  };
+
+  const confirmLogout = async () => {
+    setSigningOut(true);
+    try {
+      void triggerImpactHaptic('light');
+      await signOut();
+      router.replace(Routes.auth.welcome as never);
+    } catch {
+      showToast('No pudimos cerrar la sesion en este momento.', 'error');
+    } finally {
+      setSigningOut(false);
+      setSignOutOpen(false);
+    }
   };
 
   return (
@@ -255,57 +284,113 @@ export default function ProfileSheetScreen() {
             </View>
 
             <View style={styles.identityCopy}>
-              <Text style={styles.name}>{name}</Text>
+              <View style={styles.nameRow}>
+                <Text style={styles.name}>{name}</Text>
+              </View>
               <Text style={styles.goal}>{goalLabel(profile?.goal)}</Text>
-              {profile?.is_premium ? (
-                <View style={styles.premiumChip}>
-                  <Text style={styles.premiumChipText}>Premium</Text>
-                </View>
-              ) : null}
             </View>
           </View>
 
-          <Pressable style={styles.closeButton} onPress={() => router.back()}>
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar perfil"
+            accessibilityHint="Vuelve a la pantalla anterior."
+          >
             <Ionicons name="close" size={18} color={Colors.textPrimary} />
           </Pressable>
         </View>
 
-        <View style={styles.quickStatsRow}>
-          <QuickStat label="Peso actual" value={currentWeight} />
-          <QuickStat label="Ultima sesion" value={lastSessionLabel} />
-          <QuickStat label="Racha" value={`🔥 ${consistency.currentStreak}`} />
+        <View style={[styles.quickStatsRow, isCompactWidth && styles.quickStatsRowCompact]}>
+          <QuickStat
+            label="Peso actual"
+            value={currentWeight}
+            compact={isCompactWidth}
+            onPress={() => router.push(Routes.tabs.progress as never)}
+          />
+          <QuickStat
+            label="Racha"
+            value={`${consistency.currentStreak} días`}
+            compact={isCompactWidth}
+            onPress={() => router.push(Routes.tabs.progress as never)}
+          />
+          <QuickStat
+            label="Última sesión"
+            value={lastSessionLabel}
+            compact={isCompactWidth}
+            onPress={() => {
+              if (!lastSession) {
+                router.push(Routes.tabs.progress as never);
+                return;
+              }
+              router.push({
+                pathname: Routes.workout.sessionDetail,
+                params: { sessionId: lastSession.id },
+              } as never);
+            }}
+          />
         </View>
 
         <Section
-          title="Mi entrenamiento"
-          items={trainingItems.map((item) => ({
+          title="Actividad"
+          items={activityItems.map((item) => ({
             ...item,
             onPress: item.route ? () => router.push(item.route as never) : item.onPress,
           }))}
         />
 
         <Section
-          title="Modulos adicionales"
-          items={moduleItems.map((item) => ({
+          title="Modulos core"
+          items={coreModuleItems.map((item) => ({
             ...item,
             onPress: item.route ? () => router.push(item.route as never) : item.onPress,
           }))}
         />
 
+        {contextualModuleItems.length ? (
+          <Section
+            title="Modulos contextuales"
+            items={contextualModuleItems.map((item) => ({
+              ...item,
+              onPress: item.route ? () => router.push(item.route as never) : item.onPress,
+            }))}
+          />
+        ) : null}
+
         <Section
-          title="Cuenta"
+          title="Cuenta y ajustes"
           items={accountItems.map((item) => ({
             ...item,
             onPress: item.route ? () => router.push(item.route as never) : item.onPress,
           }))}
         />
 
-        <Pressable style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Cerrar sesion</Text>
+        <Pressable
+          style={styles.logoutButton}
+          onPress={handleLogout}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar sesión"
+          accessibilityHint="Cierra tu sesión en este dispositivo."
+        >
+          <Text style={styles.logoutText}>Cerrar sesión</Text>
         </Pressable>
 
-        <View style={styles.bottomPad} />
+        <ScreenFooterSpacer />
       </ScrollView>
+
+      <ConfirmationSheet
+        visible={signOutOpen}
+        onClose={() => setSignOutOpen(false)}
+        title="Cerrar sesion"
+        body="Se cerrara tu sesion en este dispositivo. Tu cuenta y tu historial seguiran disponibles cuando vuelvas a entrar."
+        confirmLabel={signingOut ? 'Cerrando sesion...' : 'Cerrar sesion'}
+        onConfirm={() => {
+          void confirmLogout();
+        }}
+        confirmVariant="danger"
+        loading={signingOut}
+      />
     </SafeScreen>
   );
 }
@@ -314,7 +399,6 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[3],
-    paddingBottom: 56,
     gap: Spacing[4],
   },
   handle: {
@@ -355,6 +439,12 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: 'center',
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    flexWrap: 'wrap',
+  },
   name: {
     fontFamily: FontFamily.bold,
     fontSize: 20,
@@ -370,12 +460,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     paddingHorizontal: Spacing[2.5],
     paddingVertical: Spacing[1],
-    backgroundColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: withOpacity(Colors.action, 0.14),
   },
   premiumChipText: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: Colors.textPrimary,
+    color: Colors.action,
   },
   closeButton: {
     width: 40,
@@ -392,19 +482,33 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing[3],
   },
+  quickStatsRowCompact: {
+    flexDirection: 'column',
+  },
   quickStat: {
     flex: 1,
     gap: 4,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+    backgroundColor: Colors.bgSurface,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+  },
+  quickStatCompact: {
+    flex: 0,
   },
   quickStatValue: {
     fontFamily: FontFamily.bold,
-    fontSize: 22,
+    fontSize: 20,
     color: Colors.textPrimary,
+    flexShrink: 1,
   },
   quickStatLabel: {
     fontFamily: FontFamily.regular,
     fontSize: 12,
     color: Colors.textMuted,
+    flexShrink: 1,
   },
   section: {
     gap: Spacing[2],
@@ -453,6 +557,30 @@ const styles = StyleSheet.create({
     marginLeft: Spacing[4] + 28 + Spacing[3],
     backgroundColor: withOpacity(Colors.white, 0.06),
   },
+  premiumUpsell: {
+    gap: Spacing[2],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.action, 0.18),
+    backgroundColor: withOpacity(Colors.action, 0.06),
+  },
+  premiumUpsellEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.action,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  premiumUpsellTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  premiumUpsellBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
   logoutButton: {
     alignItems: 'center',
     paddingVertical: Spacing[3],
@@ -461,8 +589,5 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
     color: Colors.error,
-  },
-  bottomPad: {
-    height: 12,
   },
 });

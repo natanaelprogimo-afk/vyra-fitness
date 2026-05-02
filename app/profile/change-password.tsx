@@ -1,101 +1,128 @@
-// app/profile/change-password.tsx
-import React, { useState } from 'react';
-import {
-  View, Text, StyleSheet, TextInput,
-  TouchableOpacity, Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
+import SafeScreen from '@/components/ui/SafeScreen';
+import Header from '@/components/layout/Header';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import NoticeCard from '@/components/ui/NoticeCard';
+import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
+import SectionHeader from '@/components/ui/SectionHeader';
 import { Colors } from '@/constants/colors';
+import { Spacing } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
+import { useUIStore } from '@/stores/uiStore';
 
 export default function ChangePasswordScreen() {
-  const [newPass,    setNewPass]    = useState('');
+  const showToast = useUIStore((state) => state.showToast);
+  const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
-  const [saving,     setSaving]     = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const validationError = useMemo(() => {
+    if (!newPass && !confirmPass) return null;
+    if (newPass.length < 8) return 'Usa al menos 8 caracteres para que la clave no quede fragil.';
+    if (confirmPass.length > 0 && newPass !== confirmPass) return 'Las contrasenas no coinciden todavia.';
+    return null;
+  }, [confirmPass, newPass]);
 
   async function handleChange() {
-    if (newPass.length < 8) {
-      Alert.alert('Contraseña muy corta', 'Usá al menos 8 caracteres.');
+    if (validationError) {
+      setSubmitError(validationError);
       return;
     }
-    if (newPass !== confirmPass) {
-      Alert.alert('No coinciden', 'Las contraseñas no son iguales.');
-      return;
-    }
+
     setSaving(true);
+    setSubmitError(null);
+    setSaved(false);
+
     try {
       const { error } = await supabase.auth.updateUser({ password: newPass });
       if (error) throw error;
-      Alert.alert('¡Listo!', 'Tu contraseña fue actualizada.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      setSaved(true);
+      showToast('Contrasena actualizada.', 'success');
     } catch {
-      Alert.alert('Error', 'No se pudo cambiar la contraseña. Intentá de nuevo.');
+      setSubmitError('No pudimos cambiar la contrasena ahora mismo. Intenta de nuevo en unos segundos.');
+      showToast('No se pudo actualizar la contrasena.', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.inner}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backBtn}>← Volver</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Cambiar contraseña</Text>
+    <SafeScreen padHorizontal={false} padBottom>
+      <Header title="Cambiar contrasena" showBack color={Colors.brand} />
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Nueva contraseña</Text>
-          <TextInput
-            style={styles.input}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {saved ? (
+          <NoticeCard
+            title="Contrasena actualizada"
+            body="Tu acceso sigue listo en esta cuenta. Puedes volver cuando quieras."
+            tone="success"
+            actionLabel="Volver al perfil"
+            onAction={() => router.back()}
+          />
+        ) : null}
+
+        {submitError ? (
+          <NoticeCard title="Revisemos este paso" body={submitError} tone="error" />
+        ) : null}
+
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Seguridad"
+            title="Actualiza tu acceso sin salir del flujo"
+            subtitle="Validacion visible, feedback inline y el mismo sistema de inputs que el resto de la app."
+          />
+
+          <Input
+            label="Nueva contrasena"
             value={newPass}
             onChangeText={setNewPass}
             secureTextEntry
-            placeholder="Mínimo 8 caracteres"
-            placeholderTextColor={Colors.textMuted}
+            placeholder="Minimo 8 caracteres"
+            autoCapitalize="none"
+            secureToggleAccessibilityLabel="Mostrar nueva contrasena"
+            error={submitError && newPass.length < 8 ? validationError : null}
           />
-        </View>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Confirmar contraseña</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Confirmar contrasena"
             value={confirmPass}
             onChangeText={setConfirmPass}
             secureTextEntry
-            placeholder="Repetí la contraseña"
-            placeholderTextColor={Colors.textMuted}
+            placeholder="Repite la contrasena"
+            autoCapitalize="none"
+            secureToggleAccessibilityLabel="Mostrar confirmacion de contrasena"
+            error={submitError && newPass !== confirmPass ? validationError : null}
           />
-        </View>
 
-        <TouchableOpacity
-          style={[styles.btn, saving && { opacity: 0.6 }]}
-          onPress={handleChange}
-          disabled={saving}
-        >
-          <Text style={styles.btnText}>{saving ? 'Guardando...' : 'Actualizar contraseña'}</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          <Button
+            onPress={() => void handleChange()}
+            label={saving ? 'Guardando...' : 'Actualizar contrasena'}
+            loading={saving}
+            color={Colors.brand}
+            fullWidth
+            disabled={Boolean(validationError) && confirmPass.length > 0}
+          />
+        </Card>
+
+        <ScreenFooterSpacer extra={Spacing[2]} />
+      </ScrollView>
+    </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  inner:     { padding: 20 },
-  backBtn:   { color: Colors.brand, fontSize: 14, marginBottom: 16 },
-  title:     { color: Colors.textPrimary, fontSize: 24, fontWeight: '800', marginBottom: 24 },
-  field:     { marginBottom: 20 },
-  label:     { color: Colors.textSecondary, fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  input: {
-    backgroundColor: Colors.bgSurface, color: Colors.textPrimary,
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 16, borderWidth: 1, borderColor: Colors.border,
+  scroll: {
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[4],
+    gap: Spacing[4],
   },
-  btn: {
-    backgroundColor: Colors.brand, borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center', marginTop: 8,
+  card: {
+    gap: Spacing[4],
   },
-  btnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 });

@@ -1,26 +1,23 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import Svg, { Circle, Rect } from 'react-native-svg';
+import RewardedUnlockCard from '@/components/ads/RewardedUnlockCard';
 import AnimatedNumber from '@/components/ui/AnimatedNumber';
 import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
+import MuscleSilhouette from '@/components/workout/MuscleSilhouette';
+import { preloadPlacement, showRewardedPlacement } from '@/lib/ads/runtime';
+import { buildWorkoutShareSvg, writeWorkoutShareSvgFile } from '@/lib/workout-share-image';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useWorkout } from '@/hooks/useWorkout';
-
-function dayDiff(fromIso: string, toIso: string) {
-  const from = new Date(fromIso);
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(toIso);
-  to.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.round((to.getTime() - from.getTime()) / 86400000));
-}
+import { formatDuration } from '@/utils/formatters';
 
 function wasFreezeUsedYesterday(iso: string | null | undefined) {
   if (!iso) return false;
@@ -32,165 +29,55 @@ function wasFreezeUsedYesterday(iso: string | null | undefined) {
   return used.getTime() === yesterday.getTime();
 }
 
-function buildDoneCopy({
-  streak,
-  sessionCount,
-  duration,
-  prs,
-  prExerciseName,
-  previousSessionStartedAt,
-  currentSessionStartedAt,
-  isHardestSessionThisWeek,
-  freezeUsedYesterday,
-}: {
-  streak: number;
-  sessionCount: number;
-  duration: number;
-  prs: number;
-  prExerciseName: string | null;
-  previousSessionStartedAt: string | null;
-  currentSessionStartedAt: string | null;
-  isHardestSessionThisWeek: boolean;
-  freezeUsedYesterday: boolean;
-}) {
-  if (freezeUsedYesterday) {
-    return { title: 'Racha protegida.', subtitle: 'Usaste tu comodin. La racha sigue. Hoy la refuerzas.' };
-  }
-
-  if (sessionCount <= 1) {
-    return { title: 'Lo hiciste.', subtitle: 'Tu primer entrenamiento. Asi empieza todo.' };
-  }
-
-  if (prs > 0) {
-    return {
-      title: 'Nuevo record.',
-      subtitle: prExerciseName
-        ? `Record en ${prExerciseName}. Te estas volviendo mas fuerte.`
-        : 'Te estas volviendo mas fuerte.',
-    };
-  }
-
-  if (streak >= 30) {
-    return { title: '30 dias.', subtitle: '30 dias consecutivos. Eres otra persona.' };
-  }
-  if (streak >= 14) {
-    return { title: '14 dias.', subtitle: 'Ya no necesitas motivacion. Tienes habito.' };
-  }
-  if (streak >= 7) {
-    return { title: 'Una semana.', subtitle: '7 dias completos. Ya no es casualidad, es decision.' };
-  }
-  if (streak >= 3) {
-    return { title: 'Lo hiciste.', subtitle: `${streak} dias seguidos. El habito se esta formando.` };
-  }
-
-  if (previousSessionStartedAt && currentSessionStartedAt) {
-    const daysAway = dayDiff(previousSessionStartedAt, currentSessionStartedAt) - 1;
-    if (daysAway >= 7) {
-      return { title: 'Volviste.', subtitle: 'Volviste. Eso es lo mas dificil. Ya esta hecho.' };
-    }
-    if (daysAway >= 3) {
-      return { title: 'Volviste.', subtitle: `Estuviste ${daysAway} dias. Ya esta. Eso es lo mas dificil.` };
-    }
-  }
-
-  if (duration >= 60) {
-    return { title: 'Una hora.', subtitle: 'Tu primera sesion de mas de una hora. A por mas.' };
-  }
-
-  if (isHardestSessionThisWeek) {
-    return { title: 'Lo hiciste.', subtitle: 'Esa era la sesion mas dura de la semana. La hiciste.' };
-  }
-
-  return { title: 'Lo hiciste.', subtitle: 'Otro dia entrenado. Asi se construye esto.' };
+function normalizeMuscleKey(label: string) {
+  const lower = label.toLowerCase();
+  if (lower.includes('pecho')) return 'chest';
+  if (lower.includes('espalda') || lower.includes('dorsal')) return 'back';
+  if (lower.includes('hombro')) return 'shoulders';
+  if (lower.includes('biceps') || lower.includes('triceps') || lower.includes('brazo')) return 'arms';
+  if (lower.includes('pierna') || lower.includes('gluteo') || lower.includes('femoral') || lower.includes('cuadr')) return 'legs';
+  if (lower.includes('core') || lower.includes('abd')) return 'core';
+  return lower;
 }
 
-function normalizeMuscles(musclesWorked: string[]) {
-  const lower = musclesWorked.map((item) => item.toLowerCase());
-  return {
-    chest: lower.some((item) => item.includes('pecho')),
-    back: lower.some((item) => item.includes('espalda') || item.includes('dorsal')),
-    shoulders: lower.some((item) => item.includes('hombro')),
-    arms: lower.some((item) => item.includes('brazo') || item.includes('biceps') || item.includes('triceps')),
-    legs: lower.some((item) => item.includes('pierna') || item.includes('cuadr') || item.includes('gluteo') || item.includes('femoral')),
-    core: lower.some((item) => item.includes('core') || item.includes('abd')),
-  };
+function buildMuscleCounts(
+  exerciseIds: string[],
+  sets: Array<{ exercise_id: string }>,
+  exercises: Array<{
+    id: string;
+    muscle_group: string;
+    muscles_secondary?: string[];
+  }>,
+) {
+  const exerciseMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const counts: Record<string, number> = {};
+
+  sets.forEach((set) => {
+    if (!exerciseIds.includes(set.exercise_id)) return;
+    const exercise = exerciseMap.get(set.exercise_id);
+    if (!exercise) return;
+
+    const names = [exercise.muscle_group, ...(exercise.muscles_secondary ?? [])].filter(Boolean);
+    names.forEach((name) => {
+      const key = normalizeMuscleKey(name);
+      counts[key] = (counts[key] ?? 0) + 1;
+    });
+  });
+
+  return counts;
 }
 
-function MuscleSilhouette({ musclesWorked }: { musclesWorked: string[] }) {
-  const zones = normalizeMuscles(musclesWorked);
-  const active = withOpacity(Colors.action, 0.42);
-  const base = Colors.bgElevated;
-
-  return (
-    <View style={styles.silhouetteWrap}>
-      <Svg width={220} height={92} viewBox="0 0 220 92">
-        <Circle cx={46} cy={16} r={10} fill={base} />
-        <Rect x={36} y={28} width={20} height={18} rx={8} fill={zones.chest ? active : base} />
-        <Rect x={30} y={48} width={32} height={14} rx={7} fill={zones.core ? active : base} />
-        <Rect x={18} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
-        <Rect x={64} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
-        <Rect x={32} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
-        <Rect x={48} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
-        <Rect x={30} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
-        <Rect x={50} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
-
-        <Circle cx={174} cy={16} r={10} fill={base} />
-        <Rect x={164} y={28} width={20} height={18} rx={8} fill={zones.back ? active : base} />
-        <Rect x={158} y={48} width={32} height={14} rx={7} fill={zones.core ? active : base} />
-        <Rect x={146} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
-        <Rect x={192} y={28} width={10} height={28} rx={5} fill={zones.arms ? active : base} />
-        <Rect x={160} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
-        <Rect x={176} y={64} width={12} height={22} rx={6} fill={zones.legs ? active : base} />
-        <Rect x={158} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
-        <Rect x={178} y={24} width={12} height={10} rx={5} fill={zones.shoulders ? active : base} />
-      </Svg>
-    </View>
-  );
-}
-
-function buildShareCardHtml(input: {
-  name: string;
-  userName: string;
-  dateLabel: string;
-  duration: number;
-  sets: number;
-  volume: number;
-  streak: number;
-}) {
-  return `
-    <html>
-      <body style="margin:0;padding:24px;background:#09090B;color:#F0F0F3;font-family:Inter,Arial,sans-serif;">
-        <div style="border:1px solid rgba(255,255,255,.08);border-radius:24px;background:#111115;padding:28px;">
-          <div style="height:4px;background:#FF4500;border-radius:999px;margin-bottom:24px;"></div>
-          <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:#9090A0;">VYRA</div>
-          <div style="font-size:32px;font-weight:800;margin-top:8px;">${input.name}</div>
-          <div style="font-size:15px;color:#9090A0;margin-top:8px;">${input.userName} · ${input.dateLabel}</div>
-          <div style="display:flex;gap:16px;margin-top:28px;">
-            <div style="flex:1;">
-              <div style="font-size:28px;font-weight:700;">${input.duration} min</div>
-              <div style="font-size:13px;color:#9090A0;">Duracion</div>
-            </div>
-            <div style="flex:1;">
-              <div style="font-size:28px;font-weight:700;">${input.sets}</div>
-              <div style="font-size:13px;color:#9090A0;">Series</div>
-            </div>
-            <div style="flex:1;">
-              <div style="font-size:28px;font-weight:700;">${Math.round(input.volume).toLocaleString('es-UY')} kg</div>
-              <div style="font-size:13px;color:#9090A0;">Volumen</div>
-            </div>
-          </div>
-          <div style="margin-top:28px;padding:16px;border-radius:16px;background:#18181D;">
-            <div style="font-size:12px;color:#9090A0;text-transform:uppercase;letter-spacing:1.2px;">Racha</div>
-            <div style="font-size:24px;font-weight:700;margin-top:6px;">${input.streak} dias seguidos</div>
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
+function buildComparison(currentVolume: number, previousVolume: number | null) {
+  if (!previousVolume || previousVolume <= 0) return null;
+  const deltaPct = Math.round(((currentVolume - previousVolume) / previousVolume) * 100);
+  if (deltaPct === 0) return 'Mismo nivel que tu ultima sesion.';
+  return `${deltaPct > 0 ? '+' : ''}${deltaPct}% vs tu ultima sesion.`;
 }
 
 export default function WorkoutDoneScreen() {
   const [isSharing, setIsSharing] = useState(false);
+  const [isUnlockingInsights, setIsUnlockingInsights] = useState(false);
+  const [extendedInsightsUnlocked, setExtendedInsightsUnlocked] = useState(false);
   const params = useLocalSearchParams<{
     sessionId?: string;
     duration?: string;
@@ -200,91 +87,194 @@ export default function WorkoutDoneScreen() {
     name?: string;
   }>();
   const profile = useAuthStore((state) => state.profile);
-  const { history, getConsistencyStats, getSessionDetail } = useWorkout();
+  const showToast = useUIStore((state) => state.showToast);
+  const {
+    history,
+    exercises,
+    getConsistencyStats,
+    getSessionDetail,
+    getActiveProgram,
+  } = useWorkout();
 
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
-  const duration = Number(params.duration ?? 0) || 0;
-  const volume = Number(params.volume ?? 0) || 0;
-  const sets = Number(params.sets ?? 0) || 0;
-  const prs = Number(params.prs ?? 0) || 0;
+  const fallbackDuration = Number(params.duration ?? 0) || 0;
+  const fallbackVolume = Number(params.volume ?? 0) || 0;
+  const fallbackSets = Number(params.sets ?? 0) || 0;
+  const fallbackPrs = Number(params.prs ?? 0) || 0;
   const name = typeof params.name === 'string' ? params.name : 'Entrenamiento';
-  const streak = Number(profile?.current_streak ?? profile?.streak ?? getConsistencyStats().currentStreak ?? 0);
   const detail = sessionId ? getSessionDetail(sessionId) : null;
-  const musclesWorked = detail?.session?.muscles_worked ?? [];
-  const previousSession = history.find((entry) => entry.id !== sessionId) ?? null;
-  const currentSessionStartedAt =
-    detail?.session?.started_at ?? history.find((entry) => entry.id === sessionId)?.started_at ?? null;
-  const prExerciseName = detail?.sets.find((set) => set.is_pr)?.exercise_name ?? null;
+  const activeProgram = getActiveProgram();
+  const streak = Number(profile?.current_streak ?? profile?.streak ?? getConsistencyStats().currentStreak ?? 0);
   const freezeUsedYesterday = wasFreezeUsedYesterday(profile?.streak_freeze_last_used_at ?? null);
+  const previousSession = history.find((entry) => entry.id !== sessionId) ?? null;
+  const duration = detail?.session?.duration_min ?? detail?.durationMin ?? fallbackDuration;
+  const totalVolume = detail?.session?.total_volume_kg ?? fallbackVolume;
+  const sets = detail?.session?.sets_count ?? fallbackSets;
+  const prs = detail?.sets.filter((set) => set.is_pr).length ?? fallbackPrs;
+  const estimatedCalories =
+    detail?.session?.estimated_calories ??
+    Math.round(Math.max(12, duration) * 5.6);
+  const muscleLabels = (detail?.session?.muscles_worked ?? []).slice(0, 4);
+  const prExerciseName = detail?.sets.find((set) => set.is_pr)?.exercise_name ?? null;
+  const muscleCounts = useMemo(
+    () =>
+      buildMuscleCounts(
+        detail?.sets.map((set) => set.exercise_id) ?? [],
+        detail?.sets ?? [],
+        exercises,
+      ),
+    [detail?.sets, exercises],
+  );
+
+  const totalProgramSessions = activeProgram
+    ? Math.max(1, (activeProgram.days_per_week || 4) * (activeProgram.duration_weeks || 4))
+    : null;
+  const completedProgramSessions = totalProgramSessions
+    ? Math.min(totalProgramSessions, history.length)
+    : null;
+  const programProgressPct = totalProgramSessions && completedProgramSessions !== null
+    ? Math.min(100, Math.round((completedProgramSessions / totalProgramSessions) * 100))
+    : null;
+  const programDayLabel = completedProgramSessions && totalProgramSessions
+    ? `Dia ${completedProgramSessions} de ${totalProgramSessions}`
+    : null;
+  const xpEarned = Math.min(150, 25 + sets * 2 + prs * 10);
 
   const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const currentVolume = Math.round(volume);
   const isHardestSessionThisWeek = history
     .filter((entry) => new Date(entry.started_at).getTime() >= weekCutoff)
-    .every((entry) => entry.id === sessionId || Number(entry.total_volume_kg ?? 0) <= currentVolume);
+    .every((entry) => entry.id === sessionId || Number(entry.total_volume_kg ?? 0) <= totalVolume);
 
-  const copy = buildDoneCopy({
-    streak,
-    sessionCount: history.length,
-    duration,
-    prs,
-    prExerciseName,
-    previousSessionStartedAt: previousSession?.started_at ?? null,
-    currentSessionStartedAt,
-    isHardestSessionThisWeek,
-    freezeUsedYesterday,
-  });
+  const headerTitle = activeProgram && programDayLabel ? `${programDayLabel} completado` : 'Sesion completada';
+  const headerSubtitle = freezeUsedYesterday
+    ? 'Ayer protegiste la racha y hoy la reforzaste.'
+    : prExerciseName
+      ? `Gran cierre en ${prExerciseName}.`
+      : 'Buen trabajo. Ya quedo registrado y cuenta para tu progreso.';
 
-  const dateLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat('es-UY', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }).format(new Date()),
-    [],
-  );
+  const comparisonText = buildComparison(totalVolume, previousSession?.total_volume_kg ?? null);
+  const quickInsights = useMemo(() => {
+    const items: string[] = [];
+    if (comparisonText) items.push(comparisonText);
+    if (prExerciseName) items.push(`Mejor ejercicio de hoy: ${prExerciseName}.`);
+    if (muscleLabels.length) items.push(`Enfoque principal: ${muscleLabels.join(', ')}.`);
+    if (isHardestSessionThisWeek) items.push('Fue tu sesion mas exigente de la semana.');
+    return items.slice(0, 3);
+  }, [comparisonText, isHardestSessionThisWeek, muscleLabels, prExerciseName]);
+
+  const extendedInsights = useMemo(() => {
+    const items: string[] = [];
+    if (comparisonText) items.push(`Comparacion de carga: ${comparisonText}`);
+    if (totalVolume > 0) items.push(`Volumen total registrado: ${Math.round(totalVolume).toLocaleString('es-UY')} kg.`);
+    if (muscleLabels.length) items.push(`Musculos mas trabajados: ${muscleLabels.join(', ')}.`);
+    if (streak > 0) items.push(`Racha actual despues de esta sesion: ${streak} dia${streak === 1 ? '' : 's'}.`);
+    return items;
+  }, [comparisonText, muscleLabels, streak, totalVolume]);
+
+  useEffect(() => {
+    void preloadPlacement('workout_summary_extended').catch((e) => {
+      console.debug?.('[workout/summary] preloadPlacement failed', e);
+    });
+  }, []);
 
   const handleShare = useCallback(async () => {
     const userName = profile?.name?.trim() || 'Usuario';
     setIsSharing(true);
 
     try {
-      const html = buildShareCardHtml({
-        name,
+      const svg = buildWorkoutShareSvg({
+        sessionName: name,
+        title: headerTitle,
+        subtitle: headerSubtitle,
         userName,
-        dateLabel,
-        duration,
+        dateLabel: new Intl.DateTimeFormat('es-UY', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }).format(new Date()),
+        durationMin: duration,
         sets,
-        volume,
+        volumeKg: totalVolume,
+        prs,
         streak,
+        muscleLabels,
+        comparisonText,
+        streakImpact: programDayLabel,
       });
-
-      const file = await Print.printToFileAsync({ html });
+      const uri = await writeWorkoutShareSvgFile(svg, name);
       const canShareFile = await Sharing.isAvailableAsync();
 
       if (canShareFile) {
-        await Sharing.shareAsync(file.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Compartir entrenamiento',
-        });
-        return;
+        try {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'image/svg+xml',
+            UTI: 'public.svg-image',
+            dialogTitle: 'Compartir imagen',
+          });
+          return;
+        } catch {
+          // Fall back to plain share when the target app does not accept SVG files.
+        }
       }
 
       await Share.share({
-        title: 'Compartir entrenamiento',
-        message: `${name}\n${duration} min - ${sets} series - ${Math.round(volume).toLocaleString('es-UY')} kg\nRacha actual: ${streak} dias\nVYRA`,
+        title: 'Compartir imagen',
+        message: `${name}\n${formatDuration(duration)} | ${sets} series | ${estimatedCalories} kcal\nRacha actual: ${streak} dia${streak === 1 ? '' : 's'}\nVYRA`,
       });
     } finally {
       setIsSharing(false);
     }
-  }, [dateLabel, duration, name, profile?.name, sets, streak, volume]);
+  }, [comparisonText, duration, estimatedCalories, headerSubtitle, headerTitle, muscleLabels, name, profile?.name, programDayLabel, prs, sets, streak, totalVolume]);
+
+  const handleUnlockInsights = useCallback(async () => {
+    setIsUnlockingInsights(true);
+
+    try {
+      const outcome = await showRewardedPlacement('workout_summary_extended');
+      if (!outcome.shown) {
+        if (outcome.reason === 'capped') {
+          showToast('Ya viste varios extras hoy. Vuelve mas tarde para otro analisis.', 'info');
+          return;
+        }
+
+        showToast('El video recompensado no esta listo todavia. Intenta de nuevo en un momento.', 'error');
+        return;
+      }
+
+      if (!outcome.result.completed) {
+        showToast('Necesitas ver el video completo para desbloquear el analisis.', 'info');
+        return;
+      }
+
+      setExtendedInsightsUnlocked(true);
+      showToast('Analisis extendido desbloqueado.', 'success');
+    } catch {
+      showToast('No pudimos abrir el video recompensado ahora mismo.', 'error');
+    } finally {
+      setIsUnlockingInsights(false);
+    }
+  }, [showToast]);
+
+  const handlePrimaryAction = () => {
+    if (activeProgram) {
+      router.push(Routes.workout.programs as never);
+      return;
+    }
+    router.replace(Routes.workout.index as never);
+  };
 
   return (
     <SafeScreen padHorizontal={false} padBottom={false}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.closeRow}>
-          <Pressable onPress={() => router.replace(Routes.tabs.home as never)} style={styles.closeButton}>
+          <Pressable
+            onPress={() => router.replace(Routes.tabs.home as never)}
+            style={styles.closeButton}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar resumen"
+            accessibilityHint="Vuelve al inicio despues de terminar la sesion."
+            hitSlop={8}
+          >
             <Ionicons name="close" size={16} color={Colors.textMuted} />
           </Pressable>
         </View>
@@ -296,37 +286,127 @@ export default function WorkoutDoneScreen() {
         </View>
 
         <View style={styles.header}>
-          <Text style={styles.title}>{copy.title}</Text>
-          <Text style={styles.subtitle}>{copy.subtitle}</Text>
+          <Text style={styles.eyebrow}>Lo hiciste</Text>
+          <Text style={styles.title}>{headerTitle}</Text>
+          <Text style={styles.subtitle}>{headerSubtitle}</Text>
         </View>
 
-        <View style={styles.statsRow}>
-          <Stat label="Duracion" value={duration} suffix=" min" delay={0} />
-          <Stat label="Series" value={sets} delay={100} />
-          <Stat
-            label="Volumen"
-            value={Math.round(volume)}
-            suffix=" kg"
-            delay={200}
-            formatFn={(value) => Math.round(value).toLocaleString('es-UY')}
+        <Card style={styles.highlightCard} shadow={false}>
+          <View style={styles.highlightRow}>
+            <View style={styles.highlightMain}>
+              <Text style={styles.highlightValue}>{formatDuration(duration)}</Text>
+              <Text style={styles.highlightLabel}>tiempo real completado</Text>
+            </View>
+            <View style={styles.highlightSide}>
+              <Text style={styles.highlightSideValue}>{estimatedCalories}</Text>
+              <Text style={styles.highlightSideLabel}>kcal est.</Text>
+            </View>
+          </View>
+
+          {activeProgram && programProgressPct !== null ? (
+            <View style={styles.programStrip}>
+              <View style={styles.programStripTop}>
+                <Text style={styles.programStripTitle}>{activeProgram.name}</Text>
+                <Text style={styles.programStripMeta}>{programProgressPct}%</Text>
+              </View>
+              <Text style={styles.programStripBody}>
+                {programDayLabel} · {activeProgram.days_per_week} dias por semana
+              </Text>
+              <View style={styles.programTrack}>
+                <View style={[styles.programFill, { width: `${programProgressPct}%` }]} />
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.highlightHelper}>
+              Esta sesion ya cuenta para tu progreso general y para tu racha.
+            </Text>
+          )}
+        </Card>
+
+        <View style={styles.statsGrid}>
+          <StatCard icon="barbell-outline" label="Series" value={sets} />
+          <StatCard icon="sparkles-outline" label="PRs" value={prs} />
+          <StatCard icon="game-controller-outline" label="XP" value={xpEarned} />
+        </View>
+
+        <Card style={styles.streakCard} shadow={false}>
+          <View style={styles.streakRow}>
+            <View>
+              <Text style={styles.cardTitle}>Gamificacion</Text>
+              <Text style={styles.streakValue}>+{xpEarned} XP · Racha {streak} dia{streak === 1 ? '' : 's'}</Text>
+            </View>
+            <Ionicons name="flame-outline" size={20} color={Colors.action} />
+          </View>
+        </Card>
+
+        {!extendedInsightsUnlocked ? (
+          <RewardedUnlockCard
+            title="Desbloquea el analisis extendido ahora"
+            body="Acabas de terminar. Mira el video recompensado ahora y abrimos la lectura fina de carga, PRs y foco muscular."
+            buttonLabel="Ver recompensa"
+            loading={isUnlockingInsights}
+            accent={Colors.workout}
+            onPress={() => {
+              void handleUnlockInsights();
+            }}
           />
-        </View>
+        ) : null}
 
-        <MuscleSilhouette musclesWorked={musclesWorked} />
+        <Card style={styles.insightsCard} shadow={false}>
+          <Text style={styles.cardTitle}>Lo importante de hoy</Text>
+          <View style={styles.insightsList}>
+            {quickInsights.length ? (
+              quickInsights.map((insight) => (
+                <View key={insight} style={styles.insightRow}>
+                  <View style={styles.insightDot} />
+                  <Text style={styles.insightText}>{insight}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.insightText}>
+                Cerraste una sesion mas y eso ya sostiene tu direccion.
+              </Text>
+            )}
+          </View>
+        </Card>
 
-        <View style={styles.streakRow}>
-          {Array.from({ length: 7 }, (_, index) => {
-            const active = index < Math.min(7, streak);
-            return <View key={index} style={[styles.streakDot, active && styles.streakDotActive]} />;
-          })}
-        </View>
+        <Card style={styles.silhouetteCard} shadow={false}>
+          <Text style={styles.cardTitle}>Mapa muscular</Text>
+          <MuscleSilhouette counts={muscleCounts} musclesWorked={detail?.session?.muscles_worked ?? []} width={260} height={170} />
+          {muscleLabels.length ? (
+            <View style={styles.muscleRow}>
+              {muscleLabels.map((label) => (
+                <View key={label} style={styles.musclePill}>
+                  <Text style={styles.musclePillText}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </Card>
+
+        {extendedInsightsUnlocked ? (
+          <Card style={styles.extendedCard} shadow={false}>
+            <Text style={styles.cardTitle}>Analisis extendido</Text>
+            <View style={styles.insightsList}>
+              {extendedInsights.map((insight) => (
+                <View key={insight} style={styles.insightRow}>
+                  <View style={styles.insightDot} />
+                  <Text style={styles.insightText}>{insight}</Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+        ) : null}
 
         <View style={styles.actions}>
-          <Button onPress={() => router.push(Routes.tabs.progress as never)} fullWidth size="lg" haptic="medium">
-            Ver mi progreso
+          <Button onPress={handlePrimaryAction} fullWidth size="lg" haptic="medium">
+            {activeProgram ? 'Continuar programa' : 'Volver a entreno'}
+          </Button>
+          <Button onPress={() => router.push(Routes.tabs.progress as never)} variant="secondary" fullWidth>
+            Ver progreso
           </Button>
           <Button onPress={() => void handleShare()} variant="secondary" fullWidth loading={isSharing}>
-            Compartir entrenamiento
+            Compartir
           </Button>
           <Button onPress={() => router.replace(Routes.tabs.home as never)} variant="ghost" fullWidth>
             Volver al inicio
@@ -337,30 +417,21 @@ export default function WorkoutDoneScreen() {
   );
 }
 
-function Stat({
+function StatCard({
+  icon,
   label,
   value,
-  suffix = '',
-  delay = 0,
-  formatFn,
 }: {
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: number;
-  suffix?: string;
-  delay?: number;
-  formatFn?: (value: number) => string;
 }) {
   return (
-    <View style={styles.statItem}>
-      <AnimatedNumber
-        value={value}
-        duration={800 + delay}
-        suffix={suffix}
-        formatFn={formatFn}
-        style={styles.statValue}
-      />
+    <Card style={styles.statCard} shadow={false}>
+      <Ionicons name={icon} size={18} color={Colors.workout} />
+      <AnimatedNumber value={value} duration={900} style={styles.statValue} />
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Card>
   );
 }
 
@@ -369,7 +440,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[5],
     paddingBottom: Spacing[10],
-    gap: Spacing[6],
+    gap: Spacing[4],
   },
   closeRow: {
     alignItems: 'flex-end',
@@ -383,11 +454,11 @@ const styles = StyleSheet.create({
   },
   checkWrap: {
     alignItems: 'center',
-    marginTop: Spacing[5],
+    marginTop: Spacing[2],
   },
   checkCircle: {
-    width: 80,
-    height: 80,
+    width: 84,
+    height: 84,
     borderRadius: Radius.full,
     backgroundColor: Colors.action,
     alignItems: 'center',
@@ -397,60 +468,201 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing[2],
   },
+  eyebrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.action,
+    textTransform: 'uppercase',
+    letterSpacing: 1.3,
+  },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 48,
-    lineHeight: 50,
+    fontSize: 38,
+    lineHeight: 42,
     color: Colors.textPrimary,
-    letterSpacing: -2,
+    letterSpacing: -1.8,
     textAlign: 'center',
   },
   subtitle: {
     fontFamily: FontFamily.regular,
-    fontSize: 18,
+    fontSize: 16,
     color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
   },
-  statsRow: {
+  highlightCard: {
+    gap: Spacing[3],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.workout, 0.22),
+    backgroundColor: withOpacity(Colors.workout, 0.08),
+  },
+  highlightRow: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: Spacing[3],
   },
-  statItem: {
+  highlightMain: {
+    flex: 1,
+    gap: 4,
+  },
+  highlightValue: {
+    fontFamily: FontFamily.display,
+    fontSize: 34,
+    lineHeight: 36,
+    color: Colors.textPrimary,
+  },
+  highlightLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  highlightSide: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  highlightSideValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
+    color: Colors.workout,
+  },
+  highlightSideLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  highlightHelper: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  programStrip: {
+    gap: Spacing[2],
+  },
+  programStripTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+    alignItems: 'center',
+  },
+  programStripTitle: {
+    flex: 1,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  programStripMeta: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.workout,
+  },
+  programStripBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  programTrack: {
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.workout, 0.12),
+    overflow: 'hidden',
+  },
+  programFill: {
+    height: '100%',
+    borderRadius: Radius.full,
+    backgroundColor: Colors.workout,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  statCard: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   statValue: {
     fontFamily: FontFamily.bold,
-    fontSize: 36,
+    fontSize: 24,
     color: Colors.textPrimary,
-    textAlign: 'center',
   },
   statLabel: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 13,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
     color: Colors.textMuted,
-    letterSpacing: 0.5,
-    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
-  silhouetteWrap: {
-    alignItems: 'center',
+  streakCard: {
+    gap: Spacing[2],
   },
   streakRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  streakValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  cardTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  insightsCard: {
+    gap: Spacing[3],
+  },
+  insightsList: {
+    gap: Spacing[2],
+  },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing[2],
+  },
+  insightDot: {
+    width: 6,
+    height: 6,
+    borderRadius: Radius.full,
+    marginTop: 7,
+    backgroundColor: Colors.workout,
+  },
+  insightText: {
+    flex: 1,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  silhouetteCard: {
+    gap: Spacing[3],
+    alignItems: 'center',
+  },
+  muscleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     gap: Spacing[2],
   },
-  streakDot: {
-    width: 14,
-    height: 14,
+  musclePill: {
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: withOpacity(Colors.workout, 0.12),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.5],
   },
-  streakDotActive: {
-    backgroundColor: Colors.action,
+  musclePillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.workout,
+  },
+  extendedCard: {
+    gap: Spacing[3],
   },
   actions: {
     gap: Spacing[2],

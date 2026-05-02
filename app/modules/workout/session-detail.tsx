@@ -7,12 +7,14 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useWorkout } from '@/hooks/useWorkout';
+import { getWorkoutDisplayName } from '@/lib/workout-data';
 import { formatCalories, formatDateShort, formatDuration, formatTime } from '@/utils/formatters';
 
 export default function WorkoutSessionDetailScreen() {
-  const params = useLocalSearchParams<{ sessionId?: string }>();
+  const params = useLocalSearchParams<{ sessionId?: string; id?: string }>();
   const { getSessionDetail } = useWorkout();
-  const detail = params.sessionId ? getSessionDetail(String(params.sessionId)) : null;
+  const resolvedSessionId = typeof params.sessionId === 'string' ? params.sessionId : typeof params.id === 'string' ? params.id : '';
+  const detail = resolvedSessionId ? getSessionDetail(String(resolvedSessionId)) : null;
   const session = detail?.session ?? null;
 
   if (!detail || !session) {
@@ -31,7 +33,7 @@ export default function WorkoutSessionDetailScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header eyebrow="Entreno" title={session.name} color={Colors.workout} />
+      <Header eyebrow="Entreno" title={getWorkoutDisplayName(session.name)} color={Colors.workout} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Card accentColor={Colors.workout} decorative style={styles.heroCard}>

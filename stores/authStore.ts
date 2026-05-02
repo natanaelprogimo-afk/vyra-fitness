@@ -129,13 +129,6 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
           ? raw.coach_name_preference
           : null,
     context_memory_json: contextMemory,
-    coach_name_preference:
-      typeof raw.coach_name_preference === 'string'
-        ? raw.coach_name_preference
-        : typeof raw.context_name_preference === 'string'
-          ? raw.context_name_preference
-          : null,
-    coach_memory_json: contextMemory,
     onboarding_completed: Boolean(raw.onboarding_completed),
     first_week_completed: Boolean(raw.first_week_completed),
     created_at:
@@ -168,7 +161,6 @@ interface AuthState {
 
   // Computed helpers
   isAuthenticated:  () => boolean;
-  isPremium:        () => boolean;
   isOnboarded:      () => boolean;
 }
 
@@ -218,14 +210,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // Computed: retorna función para que siempre lea el estado actual
   isAuthenticated: () => get().session !== null && get().user !== null,
-
-  isPremium: () => {
-    const profile = get().profile;
-    if (!profile) return false;
-    if (!profile.is_premium) return false;
-    if (!profile.premium_expires_at) return true;
-    return new Date(profile.premium_expires_at) > new Date();
-  },
 
   isOnboarded: () => get().profile?.onboarding_completed ?? false,
 }));
