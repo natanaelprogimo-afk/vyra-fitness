@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 import type { UserProfile } from '@/types/user';
 import { supabase } from '@/lib/supabase';
+import { normalizeManagedGuestName } from '@/lib/guest-auth';
 
 const GOAL_VALUES = new Set([
   'lose_fat',
@@ -35,7 +36,7 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
   if (!profile) return null;
 
   const raw = profile as unknown as Record<string, unknown>;
-  const goal = normalizeGoal(raw.goal ?? raw.primary_goal);
+  const goal = normalizeGoal(raw.primary_goal ?? raw.goal);
   const primaryGoal = normalizeGoal(raw.primary_goal ?? raw.goal);
   const gender = normalizeGender(raw.gender ?? raw.biological_sex);
   const dob = typeof raw.dob === 'string' ? raw.dob : null;
@@ -78,7 +79,10 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
   return {
     ...profile,
     email: typeof raw.email === 'string' ? raw.email : '',
-    name: typeof raw.name === 'string' ? raw.name : 'Usuario',
+    name:
+      typeof raw.name === 'string' && raw.name.trim().length > 0
+        ? normalizeManagedGuestName(raw.name) || raw.name.trim()
+        : 'Usuario',
     avatar_url: typeof raw.avatar_url === 'string' ? raw.avatar_url : null,
     height_cm: typeof raw.height_cm === 'number' ? raw.height_cm : null,
     weight_start_kg: typeof raw.weight_start_kg === 'number' ? raw.weight_start_kg : null,
@@ -140,37 +144,49 @@ function normalizeProfile(profile: UserProfile | null): UserProfile | null {
 
 interface AuthState {
   // Estado
-  session:        Session | null;
-  user:           User | null;
-  profile:        UserProfile | null;
-  isLoading:      boolean;
-  isInitialized:  boolean;
+  session:           Session | null;
+  user:              User | null;
+  profile:           UserProfile | null;
+  isLoading:         boolean;
+  isInitialized:     boolean;
   hasResolvedProfile: boolean;
+  
+  // Guest session state
+  guestUserId:       string | null;
+  isGuest:           boolean;
 
   // Acciones
-  setSession:    (session: Session | null) => void;
-  setUser:       (user: User | null) => void;
-  setProfile:    (profile: UserProfile | null) => void;
-  updateProfile: (partial: Partial<UserProfile>) => void;
-  setLoading:    (loading: boolean) => void;
-  setInitialized:(initialized: boolean) => void;
+  setSession:        (session: Session | null) => void;
+  setUser:           (user: User | null) => void;
+  setProfile:        (profile: UserProfile | null) => void;
+  updateProfile:     (partial: Partial<UserProfile>) => void;
+  setLoading:        (loading: boolean) => void;
+  setInitialized:    (initialized: boolean) => void;
   setHasResolvedProfile: (resolved: boolean) => void;
-  reset:         () => void;
-  signOut:       () => Promise<void>;
-  logout:        () => Promise<void>;
+  
+  // Guest session actions
+  setGuestSession:   (userId: string) => void;
+  clearGuestSession: () => void;
+  
+  reset:             () => void;
+  signOut:           () => Promise<void>;
+  logout:            () => Promise<void>;
 
   // Computed helpers
   isAuthenticated:  () => boolean;
   isOnboarded:      () => boolean;
+  isGuestSession:   () => boolean;
 }
 
 const initialState = {
-  session:       null,
-  user:          null,
-  profile:       null,
-  isLoading:     true,
-  isInitialized: false,
+  session:           null,
+  user:              null,
+  profile:           null,
+  isLoading:         true,
+  isInitialized:     false,
   hasResolvedProfile: false,
+  guestUserId:       null,
+  isGuest:           false,
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -194,6 +210,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setHasResolvedProfile: (hasResolvedProfile) => set({ hasResolvedProfile }),
 
+  setGuestSession: (userId) => set({ guestUserId: userId, isGuest: true }),
+
+  clearGuestSession: () => set({ guestUserId: null, isGuest: false }),
+
   reset: () => set({ ...initialState, isLoading: false, isInitialized: true }),
 
   signOut: async () => {
@@ -212,4 +232,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: () => get().session !== null && get().user !== null,
 
   isOnboarded: () => get().profile?.onboarding_completed ?? false,
+
+  isGuestSession: () => get().isGuest && get().guestUserId !== null,
 }));

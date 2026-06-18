@@ -10,7 +10,7 @@ export default function SleepModuleTabs({ active }: { active: SleepTabKey }) {
     <View
       style={styles.wrap}
       accessibilityRole="tablist"
-      accessibilityLabel="Secciones del modulo de sueno"
+      accessibilityLabel="Secciones del módulo de sueño"
     >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {SLEEP_TABS.map((tab) => {
@@ -20,15 +20,17 @@ export default function SleepModuleTabs({ active }: { active: SleepTabKey }) {
               key={tab.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
-              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityLabel={`Pestaña ${tab.label}`}
               accessibilityHint={
                 isActive
-                  ? `Ya estas en ${tab.label}.`
-                  : `Abre ${tab.label} dentro del modulo de sueno.`
+                  ? `Ya estás en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del módulo de sueño.`
               }
               hitSlop={8}
               onPress={() => {
-                if (!isActive) router.push(tab.route as never);
+                if (!isActive) {
+                  router.push(tab.route as never);
+                }
               }}
               style={[styles.pill, isActive && styles.pillActive]}
             >

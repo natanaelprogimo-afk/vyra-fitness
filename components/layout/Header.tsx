@@ -1,19 +1,15 @@
-// ============================================================
-// VYRA FITNESS - Header
-// Header de navegacion con back button, titulo y accion derecha
-// ============================================================
-
+// REDESIGNED: 2026-05-20 - header is tighter, calmer, and more consistent
 import React from 'react';
 import {
-  View,
-  Text,
   Pressable,
   StyleSheet,
+  Text,
+  View,
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Colors } from '@/constants/colors';
+import { Colors, withOpacity } from '@/constants/colors';
 import { ComponentHeight, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { triggerImpactHaptic } from '@/lib/haptics';
 
@@ -58,8 +54,8 @@ export default function Header({
   };
 
   const rightEl = rightElement ?? rightAction;
-  const useDisplayTitle = displayTitle ?? (typeof title === 'string' && title.length <= 16);
-  const titleLines = rightEl ? 1 : useDisplayTitle ? 1 : 2;
+  const useDisplayTitle = displayTitle ?? false;
+  const resolvedColor = color ?? Colors.textPrimary;
 
   return (
     <View style={[styles.container, style]}>
@@ -68,7 +64,7 @@ export default function Header({
           <Pressable
             onPress={handleBack}
             style={styles.backBtn}
-            hitSlop={12}
+            hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={backLabel}
             accessibilityHint={backHint}
@@ -78,13 +74,14 @@ export default function Header({
         ) : null}
       </View>
 
-      <View style={[styles.titleContainer, titleAlign === 'center' && styles.titleCenter]}>
+      <View
+        style={[
+          styles.titleWrap,
+          titleAlign === 'center' ? styles.titleCenter : styles.titleLeft,
+        ]}
+      >
         {eyebrow ? (
-          <Text
-            style={[styles.eyebrow, { color: color ?? Colors.textSecondary }]}
-            numberOfLines={1}
-            maxFontSizeMultiplier={1.3}
-          >
+          <Text style={styles.eyebrow} numberOfLines={1} maxFontSizeMultiplier={1.2}>
             {eyebrow}
           </Text>
         ) : null}
@@ -92,14 +89,14 @@ export default function Header({
         {title ? (
           <Text
             style={[
-              styles.title,
-              useDisplayTitle ? styles.titleDisplay : styles.titleDefault,
-              { color: color ?? Colors.textPrimary },
+              useDisplayTitle ? styles.titleDisplay : styles.title,
+              { color: resolvedColor },
+              titleAlign === 'center' ? styles.centeredText : null,
             ]}
-            numberOfLines={titleLines}
-            ellipsizeMode="tail"
+            numberOfLines={titleAlign === 'center' ? 1 : 2}
+            ellipsizeMode="middle"
             accessibilityRole="header"
-            maxFontSizeMultiplier={1.3}
+            maxFontSizeMultiplier={1.25}
           >
             {title}
           </Text>
@@ -107,88 +104,87 @@ export default function Header({
 
         {subtitle ? (
           <Text
-            style={styles.subtitle}
+            style={[styles.subtitle, titleAlign === 'center' ? styles.centeredText : null]}
             numberOfLines={1}
-            maxFontSizeMultiplier={1.3}
+            maxFontSizeMultiplier={1.2}
           >
             {subtitle}
           </Text>
         ) : null}
       </View>
 
-      <View style={[styles.side, rightEl ? styles.sideRight : styles.sideSpacer]}>
-        {rightEl}
-      </View>
+      <View style={[styles.side, styles.sideRight]}>{rightEl}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    minHeight: ComponentHeight.header,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    minHeight: ComponentHeight.header + 14,
-    paddingHorizontal: Spacing[5],
-    paddingBottom: Spacing[3],
+    alignItems: 'center',
+    paddingHorizontal: Spacing[4],
+    paddingBottom: Spacing[1],
+    gap: Spacing[2],
   },
   side: {
-    minWidth: 48,
-    flexBasis: 48,
-    alignItems: 'flex-start',
+    minWidth: 40,
+    minHeight: 40,
     justifyContent: 'center',
   },
   sideRight: {
     alignItems: 'flex-end',
-    maxWidth: 120,
-    flexShrink: 1,
-  },
-  sideSpacer: {
-    minWidth: 8,
-    flexBasis: 8,
+    flexShrink: 0,
   },
   backBtn: {
-    width: 42,
-    height: 42,
+    width: 36,
+    height: 36,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: withOpacity(Colors.white, 0.04),
     borderWidth: 1,
-    borderColor: Colors.border2,
+    borderColor: Colors.borderSubtle,
   },
-  titleContainer: {
+  titleWrap: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: Spacing[3],
     gap: 2,
+  },
+  titleLeft: {
+    alignItems: 'flex-start',
   },
   titleCenter: {
     alignItems: 'center',
   },
-  title: {},
-  titleDisplay: {
-    fontFamily: FontFamily.display,
-    fontSize: FontSize['2xl'],
-    lineHeight: 32,
-    letterSpacing: 1.8,
+  title: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.lg,
+    lineHeight: 22,
+    letterSpacing: -0.1,
   },
-  titleDefault: {
-    fontFamily: FontFamily.bold,
+  titleDisplay: {
+    fontFamily: FontFamily.semibold,
     fontSize: FontSize.xl,
-    lineHeight: 28,
+    lineHeight: 30,
+    letterSpacing: -0.3,
   },
   subtitle: {
+    color: Colors.textMuted,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    marginTop: 1,
-    color: Colors.textSecondary,
+    lineHeight: 16,
   },
   eyebrow: {
-    fontFamily: FontFamily.semibold,
+    color: Colors.textMuted,
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
+    lineHeight: 16,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    marginBottom: 2,
+  },
+  centeredText: {
+    textAlign: 'center',
   },
 });
 

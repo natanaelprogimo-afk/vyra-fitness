@@ -1,21 +1,23 @@
+// REDESIGNED: 2026-05-20 - card surface types aligned to redesign foundations
 import React from 'react';
 import {
+  Platform,
   Pressable,
-  View,
   StyleSheet,
-  type ViewStyle,
+  View,
   type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
-  withTiming,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 import { Colors, withOpacity } from '@/constants/colors';
-import { Radius, Spacing, Shadows } from '@/constants/theme';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { triggerImpactHaptic } from '@/lib/haptics';
 import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 interface CardProps {
   children: React.ReactNode;
@@ -30,6 +32,7 @@ interface CardProps {
   haptic?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  variant?: 'default' | 'hero' | 'metric' | 'insight' | 'inset';
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -43,27 +46,28 @@ export default function Card({
   borderColor,
   shadow = false,
   accentColor,
+  decorative,
   haptic = true,
   accessibilityLabel,
   accessibilityHint,
+  variant = 'default',
 }: CardProps) {
   const scale = useSharedValue(1);
   const highContrast = useSettingsStore((state) => state.highContrast);
   const { reduceMotionEnabled } = useAccessibilityPreferences();
 
-  const animStyle = useAnimatedStyle(() => ({
+  const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const handlePressIn = () => {
-    if (!onPress) return;
-    if (reduceMotionEnabled) return;
-    scale.value = withTiming(0.98, { duration: 90 });
+    if (!onPress || reduceMotionEnabled) return;
+    scale.value = withSpring(0.98, { damping: 15, stiffness: 180 });
   };
 
   const handlePressOut = () => {
     if (reduceMotionEnabled) return;
-    scale.value = withTiming(1, { duration: 100 });
+    scale.value = withSpring(1, { damping: 16, stiffness: 190 });
   };
 
   const handlePress = () => {
@@ -72,20 +76,25 @@ export default function Card({
     onPress();
   };
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: elevated ? Colors.bgElevated : Colors.bgSurface,
-    borderRadius: Radius.xl,
-    padding: noPad ? 0 : Spacing[5],
-    borderWidth: 1,
-    borderColor:
-      borderColor ?? (highContrast ? withOpacity(Colors.white, 0.2) : Colors.border),
-    overflow: accentColor ? 'hidden' : 'visible',
-    ...(shadow ? { ...Shadows.md, shadowColor: accentColor ?? Colors.black } : {}),
-  };
+  const surfaceStyle = getSurfaceStyle({
+    variant,
+    noPad,
+    elevated,
+    shadow,
+    borderColor,
+    accentColor,
+    highContrast,
+    decorative,
+  });
 
   const content = (
-    <View style={[cardStyle, style]}>
-      {accentColor ? <View style={[styles.accent, { backgroundColor: accentColor }]} /> : null}
+    <View style={[surfaceStyle, style]}>
+      {variant === 'insight' && accentColor ? (
+        <View style={[styles.insightBorder, { backgroundColor: accentColor }]} />
+      ) : null}
+      {accentColor && variant !== 'insight' ? (
+        <View style={[styles.topAccent, { backgroundColor: accentColor }]} />
+      ) : null}
       {children}
     </View>
   );
@@ -97,7 +106,7 @@ export default function Card({
       onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={animStyle}
+      style={animatedStyle}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
@@ -108,11 +117,81 @@ export default function Card({
 }
 
 const styles = StyleSheet.create({
-  accent: {
+  topAccent: {
     position: 'absolute',
+    top: 0,
     left: 0,
+    right: 0,
+    height: 3,
+  },
+  insightBorder: {
+    position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 3,
+    left: 0,
+    width: 2,
   },
 });
+
+function getSurfaceStyle({
+  variant,
+  noPad,
+  elevated,
+  shadow,
+  borderColor,
+  accentColor,
+  highContrast,
+  decorative,
+}: {
+  variant: 'default' | 'hero' | 'metric' | 'insight' | 'inset';
+  noPad: boolean;
+  elevated: boolean;
+  shadow: boolean;
+  borderColor?: string;
+  accentColor?: string;
+  highContrast: boolean;
+  decorative?: boolean;
+}): ViewStyle {
+  const resolvedBorder =
+    borderColor ??
+    (highContrast ? withOpacity(Colors.white, 0.18) : Colors.border);
+
+  const padding = noPad
+    ? 0
+    : variant === 'hero'
+      ? Spacing[5]
+      : variant === 'metric' || variant === 'insight'
+        ? Spacing[4]
+        : Spacing[4];
+
+  const backgroundColor =
+    variant === 'inset'
+      ? Colors.surface2
+      : variant === 'insight' && accentColor
+        ? withOpacity(accentColor, 0.08)
+        : elevated
+          ? Colors.surface2
+          : Colors.surface1;
+
+  return {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor,
+    borderRadius: variant === 'hero' ? Radius.xl : Radius.lg,
+    padding,
+    borderWidth: 1,
+    borderColor: variant === 'insight' && accentColor ? withOpacity(accentColor, 0.14) : resolvedBorder,
+    ...(shadow || elevated
+      ? Platform.OS === 'ios'
+        ? {
+            ...(variant === 'hero' ? Shadows.lg : Shadows.md),
+            shadowColor: accentColor ?? Colors.black,
+            shadowOpacity: accentColor ? 0.18 : variant === 'hero' ? 0.42 : 0.32,
+          }
+        : {
+            elevation: variant === 'hero' ? 4 : 2,
+          }
+      : {}),
+    ...(decorative && accentColor ? { shadowColor: accentColor } : {}),
+  };
+}

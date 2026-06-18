@@ -11,7 +11,7 @@ import Button from '@/components/ui/Button';
 import { supabase } from '@/lib/supabase';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, LineHeight, Radius, Spacing } from '@/constants/theme';
 import { captureError } from '@/lib/sentry';
 import { isGuestAuthUser } from '@/lib/guest-auth';
 import {
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   heroText: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
   },
   statusRow: {
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   errorBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
   },
   errorActions: {
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
   hintBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
   },
 });

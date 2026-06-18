@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -13,7 +13,22 @@ import { useWorkout } from '@/hooks/useWorkout';
 
 const TYPE_OPTIONS = ['strength', 'cardio', 'core', 'mobility'];
 
-function SelectPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function parseListField(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function SelectPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -29,13 +44,43 @@ function SelectPill({ label, active, onPress }: { label: string; active: boolean
 }
 
 export default function WorkoutExerciseCreateScreen() {
-  const { createExercise } = useWorkout();
+  const params = useLocalSearchParams<{ seedExerciseId?: string }>();
+  const { createExercise, exercises } = useWorkout();
+  const seedExercise = useMemo(
+    () => exercises.find((item) => item.id === String(params.seedExerciseId ?? '')) ?? null,
+    [exercises, params.seedExerciseId],
+  );
+
   const [name, setName] = useState('');
   const [muscle, setMuscle] = useState('');
   const [equipment, setEquipment] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [description, setDescription] = useState('');
   const [type, setType] = useState('strength');
+  const [aliasesInput, setAliasesInput] = useState('');
+  const [variationsInput, setVariationsInput] = useState('');
+  const [cuesInput, setCuesInput] = useState('');
+  const [mistakesInput, setMistakesInput] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [gifUrl, setGifUrl] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!seedExercise) return;
+
+    setName(`${seedExercise.name} variante`);
+    setMuscle(seedExercise.muscle_group ?? '');
+    setEquipment(seedExercise.equipment ?? '');
+    setInstructions(seedExercise.instructions ?? '');
+    setDescription(seedExercise.description ?? '');
+    setType(seedExercise.type?.trim() || 'strength');
+    setAliasesInput((seedExercise.aliases ?? []).join(', '));
+    setVariationsInput((seedExercise.variations ?? []).join(', '));
+    setCuesInput((seedExercise.cues ?? []).join('\n'));
+    setMistakesInput((seedExercise.mistakes ?? []).join('\n'));
+    setVideoUrl(seedExercise.video_url ?? '');
+    setGifUrl(seedExercise.gif_url ?? '');
+  }, [seedExercise?.id]);
 
   const formReady = useMemo(
     () => name.trim().length >= 3 && muscle.trim().length >= 2 && equipment.trim().length >= 2,
@@ -50,6 +95,13 @@ export default function WorkoutExerciseCreateScreen() {
       muscle_group: muscle.trim(),
       equipment: equipment.trim(),
       instructions: instructions.trim() || null,
+      description: description.trim() || null,
+      aliases: parseListField(aliasesInput),
+      variations: parseListField(variationsInput),
+      cues: parseListField(cuesInput),
+      mistakes: parseListField(mistakesInput),
+      video_url: videoUrl.trim() || null,
+      gif_url: gifUrl.trim() || null,
       type: type.trim() || 'strength',
     });
     setSaving(false);
@@ -60,20 +112,31 @@ export default function WorkoutExerciseCreateScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header eyebrow="Entreno" title="Crear ejercicio" color={Colors.workout} />
+      <Header eyebrow="Entreno" title={seedExercise ? 'Crear variante' : 'Crear ejercicio'} color={Colors.workout} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Card accentColor={Colors.workout} decorative style={styles.heroCard}>
-          <Text style={styles.heroEyebrow}>Movimiento propio</Text>
-          <Text style={styles.heroTitle}>Sumá un ejercicio nuevo con el mismo lenguaje visual del resto del módulo.</Text>
-          <Text style={styles.heroBody}>Primero dejalo claro y usable. Después lo vas refinando con media, cues o variantes si hace falta.</Text>
+          <Text style={styles.heroEyebrow}>{seedExercise ? 'Variante propia' : 'Movimiento propio'}</Text>
+          <Text style={styles.heroTitle}>
+            {seedExercise
+              ? 'Parte de un ejercicio base y guardalo con tu propia variacion.'
+              : 'Suma un ejercicio nuevo con el mismo lenguaje visual del resto del modulo.'}
+          </Text>
+          <Text style={styles.heroBody}>
+            Primero dejalo claro y usable. Despues puedes enriquecerlo con media, cues, errores y variantes reales.
+          </Text>
         </Card>
 
         <Card accentColor={Colors.workout} style={styles.card}>
           <Text style={styles.cardTitle}>Base del ejercicio</Text>
           <Input label="Nombre" value={name} onChangeText={setName} placeholder="Sentadilla goblet" />
           <Input label="Grupo muscular" value={muscle} onChangeText={setMuscle} placeholder="Piernas" />
-          <Input label="Equipo" value={equipment} onChangeText={setEquipment} placeholder="Mancuerna, polea o peso corporal" />
+          <Input
+            label="Equipo"
+            value={equipment}
+            onChangeText={setEquipment}
+            placeholder="Mancuerna, polea o peso corporal"
+          />
 
           <Text style={styles.blockLabel}>Tipo</Text>
           <View
@@ -82,19 +145,86 @@ export default function WorkoutExerciseCreateScreen() {
             accessibilityLabel="Tipo de ejercicio"
           >
             {TYPE_OPTIONS.map((option) => (
-              <SelectPill key={option} label={option} active={type === option} onPress={() => setType(option)} />
+              <SelectPill
+                key={option}
+                label={option}
+                active={type === option}
+                onPress={() => setType(option)}
+              />
             ))}
           </View>
 
           <Input
+            label="Descripcion corta"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Para que sirve o cuando conviene usarlo"
+            multiline
+          />
+          <Input
             label="Instrucciones"
             value={instructions}
             onChangeText={setInstructions}
-            placeholder="Qué debe sentir, cómo se mueve y qué no hacer"
+            placeholder="Que debe sentir, como se mueve y que no hacer"
             multiline
           />
-          <Button onPress={() => void handleSave()} loading={saving} disabled={!formReady} fullWidth color={Colors.workout}>
-            Guardar ejercicio
+        </Card>
+
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>Soporte visual y tecnico</Text>
+          <Input
+            label="Video URL"
+            value={videoUrl}
+            onChangeText={setVideoUrl}
+            placeholder="https://..."
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Input
+            label="GIF URL"
+            value={gifUrl}
+            onChangeText={setGifUrl}
+            placeholder="https://..."
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Input
+            label="Cues"
+            value={cuesInput}
+            onChangeText={setCuesInput}
+            placeholder="Una linea por cue o separado por comas"
+            multiline
+          />
+          <Input
+            label="Errores comunes"
+            value={mistakesInput}
+            onChangeText={setMistakesInput}
+            placeholder="Que tiende a salir mal"
+            multiline
+          />
+          <Input
+            label="Aliases"
+            value={aliasesInput}
+            onChangeText={setAliasesInput}
+            placeholder="Nombres alternativos separados por coma"
+            multiline
+          />
+          <Input
+            label="Variantes"
+            value={variationsInput}
+            onChangeText={setVariationsInput}
+            placeholder="Goblet, talones elevados, tempo, etc."
+            multiline
+          />
+
+          <Button
+            onPress={() => void handleSave()}
+            loading={saving}
+            disabled={!formReady}
+            fullWidth
+            color={Colors.workout}
+          >
+            {seedExercise ? 'Guardar variante' : 'Guardar ejercicio'}
           </Button>
         </Card>
       </ScrollView>
@@ -160,7 +290,7 @@ const styles = StyleSheet.create({
   },
   pillActive: {
     borderColor: Colors.workout,
-    backgroundColor: Colors.workoutBg,
+    backgroundColor: Colors.workout,
   },
   pillText: {
     fontFamily: FontFamily.medium,

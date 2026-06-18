@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Redirect } from 'expo-router';
 import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -17,7 +18,10 @@ import {
   type NotificationAdaptivePlan,
   type NotificationTodayCount,
 } from '@/services/backend/notifications';
+import { Routes } from '@/constants/routes';
 import { useAuthStore } from '@/stores/authStore';
+
+const INTERNAL_SETTINGS_ENABLED = __DEV__ && process.env.EXPO_PUBLIC_ENABLE_INTERNAL_ROUTES === 'true';
 
 function pickActivityString(row: NotificationActivityRow, keys: string[], fallback: string) {
   for (const key of keys) {
@@ -55,6 +59,10 @@ function LoadingRows({ count = 3 }: { count?: number }) {
 }
 
 export default function NotificationsHistoryScreen() {
+  if (!INTERNAL_SETTINGS_ENABLED) {
+    return <Redirect href={Routes.settings.index as never} />;
+  }
+
   const profile = useAuthStore((state) => state.profile);
   const [loading, setLoading] = useState(true);
   const [activityRows, setActivityRows] = useState<NotificationActivityRow[]>([]);
@@ -84,15 +92,12 @@ export default function NotificationsHistoryScreen() {
       const [activity, plan, count] = await Promise.all([
         loadRecentNotificationActivity(profile.id, 12).catch((e) => {
           activityFailed = true;
-          console.debug?.('[notifications-history] loadRecentNotificationActivity failed', e);
           return [] as NotificationActivityRow[];
         }),
         getNotificationAdaptivePlan().catch((e) => {
-          console.debug?.('[notifications-history] getNotificationAdaptivePlan failed', e);
           return null;
         }),
         getNotificationTodayCount().catch((e) => {
-          console.debug?.('[notifications-history] getNotificationTodayCount failed', e);
           return null;
         }),
       ]);
@@ -139,7 +144,7 @@ export default function NotificationsHistoryScreen() {
         <Card style={styles.card}>
           <SectionHeader
             eyebrow="Hoy"
-            title="Entrega del dia"
+            title="Entrega del día"
             subtitle="Cuantos avisos salieron y cuanto se interactuo con ellos."
           />
 
@@ -193,7 +198,7 @@ export default function NotificationsHistoryScreen() {
                 <Text style={styles.planValue}>{formatHour(adaptivePlan.water)}</Text>
               </View>
               <View style={styles.planRow}>
-                <Text style={styles.planLabel}>Sueno</Text>
+                <Text style={styles.planLabel}>Sueño</Text>
                 <Text style={styles.planValue}>{formatHour(adaptivePlan.sleep)}</Text>
               </View>
               <View style={styles.planRow}>
@@ -319,7 +324,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontFamily: FontFamily.display,
-    fontSize: 24,
+    fontSize: FontSize['2.75xl'],
     lineHeight: 24,
     color: Colors.textPrimary,
   },

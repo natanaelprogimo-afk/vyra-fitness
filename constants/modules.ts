@@ -28,7 +28,7 @@ export interface ModuleDefinition {
 
 export const CORE_MODULE_IDS: ModuleId[] = ['workout', 'nutrition', 'sleep', 'water', 'steps'];
 export const CONTEXTUAL_MODULE_IDS: ModuleId[] = ['fasting', 'female', 'supplements'];
-export const DEFAULT_ACTIVE_MODULES: ModuleId[] = [...CORE_MODULE_IDS];
+export const DEFAULT_ACTIVE_MODULES: ModuleId[] = ['nutrition', 'water'];
 
 const MODULE_PRIORITY: Record<ModuleId, number> = {
   workout: 0,
@@ -122,7 +122,7 @@ export const MODULES: ModuleDefinition[] = [
     name: 'Suplementos',
     shortName: 'Suples',
     emoji: '💊',
-    color: Colors.brand,
+    color: Colors.supplements,
     route: '/modules/supplements',
     description: 'Stack, recordatorios y adherencia.',
     tier: 'contextual',

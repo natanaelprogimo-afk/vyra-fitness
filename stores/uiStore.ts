@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { announceAccessibility } from '@/lib/accessibility';
+import { trackQuickLogOpened } from '@/lib/analytics';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -37,6 +38,8 @@ export interface WorkoutSummarySnapshot {
   }>;
 }
 
+export type QuickLogMode = 'menu' | 'water' | 'sleep' | 'weight' | 'fasting';
+
 interface UIState {
   toasts: Toast[];
   showToast: (message: string, type?: ToastType, duration?: number) => void;
@@ -62,7 +65,8 @@ interface UIState {
   bumpNotificationsRefresh: () => void;
 
   isQuickLogOpen: boolean;
-  openQuickLog: () => void;
+  quickLogMode: QuickLogMode;
+  openQuickLog: (mode?: QuickLogMode) => void;
   closeQuickLog: () => void;
 }
 
@@ -112,6 +116,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     set((state) => ({ notificationsRefreshKey: state.notificationsRefreshKey + 1 })),
 
   isQuickLogOpen: false,
-  openQuickLog: () => set({ isQuickLogOpen: true }),
-  closeQuickLog: () => set({ isQuickLogOpen: false }),
+  quickLogMode: 'menu',
+  openQuickLog: (mode = 'menu') => {
+    trackQuickLogOpened(mode, 'home');
+    set({ isQuickLogOpen: true, quickLogMode: mode });
+  },
+  closeQuickLog: () => set({ isQuickLogOpen: false, quickLogMode: 'menu' }),
 }));

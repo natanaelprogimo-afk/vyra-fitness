@@ -4,28 +4,40 @@ import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import useScreenBanner from '@/hooks/useScreenBanner';
 import { useNutrition } from '@/hooks/useNutrition';
+
+const NUTRITION_HISTORY_CHART_HEIGHT = 120;
+
+function getGoalOffsetPx(goal: number, maxValue: number) {
+  if (maxValue <= 0) return 0;
+  return Math.max(0, Math.min(NUTRITION_HISTORY_CHART_HEIGHT, (goal / maxValue) * NUTRITION_HISTORY_CHART_HEIGHT));
+}
 
 export default function NutritionHistoryScreen() {
   const { weeklyData, calorieGoal, macroGoals } = useNutrition();
-  useScreenBanner('nutrition_history_banner');
 
   const maxKcal = Math.max(...weeklyData.map((item) => item.calories), calorieGoal, 1);
-  const avgCalories = weeklyData.length
-    ? weeklyData.reduce((sum, item) => sum + item.calories, 0) / weeklyData.length
+  const goalOffset = getGoalOffsetPx(calorieGoal, maxKcal);
+  const recordedDays = weeklyData.filter((item) => item.calories > 0);
+  const averageBase = recordedDays.length ? recordedDays : weeklyData;
+  const denominator = averageBase.length || 7;
+  const avgCalories = averageBase.length
+    ? averageBase.reduce((sum, item) => sum + item.calories, 0) / averageBase.length
     : 0;
-  const avgProtein = weeklyData.length
-    ? weeklyData.reduce((sum, item) => sum + item.protein, 0) / weeklyData.length
+  const avgProtein = averageBase.length
+    ? averageBase.reduce((sum, item) => sum + item.protein, 0) / averageBase.length
     : 0;
-  const avgCarbs = weeklyData.length
-    ? weeklyData.reduce((sum, item) => sum + item.carbs, 0) / weeklyData.length
+  const avgCarbs = averageBase.length
+    ? averageBase.reduce((sum, item) => sum + item.carbs, 0) / averageBase.length
     : 0;
-  const avgFat = weeklyData.length
-    ? weeklyData.reduce((sum, item) => sum + item.fat, 0) / weeklyData.length
+  const avgFat = averageBase.length
+    ? averageBase.reduce((sum, item) => sum + item.fat, 0) / averageBase.length
+    : 0;
+  const avgFiber = averageBase.length
+    ? averageBase.reduce((sum, item) => sum + item.fiber, 0) / averageBase.length
     : 0;
 
-  const daysOnTarget = weeklyData.filter(
+  const daysOnTarget = averageBase.filter(
     (item) => item.calories >= calorieGoal * 0.85 && item.calories <= calorieGoal * 1.15,
   ).length;
 
@@ -39,27 +51,25 @@ export default function NutritionHistoryScreen() {
             <Text style={styles.chartTitle}>Calorias · ultimos 7 dias</Text>
             {weeklyData.length > 0 ? (
               <View style={styles.bars}>
-                {weeklyData.map((item, index) => {
+                {weeklyData.map((item) => {
                   const pct = (item.calories / maxKcal) * 100;
                   const onTarget =
                     item.calories >= calorieGoal * 0.85 && item.calories <= calorieGoal * 1.15;
                   const over = item.calories > calorieGoal * 1.15;
-                  const dayLabel = new Date(`${item.date}T12:00:00`).toLocaleDateString('es', {
+                  const dayLabel = new Date(`${item.date}T12:00:00`).toLocaleDateString('es-UY', {
                     weekday: 'short',
                   });
                   const isToday = item.date === new Date().toISOString().split('T')[0];
 
                   return (
-                    <View key={index} style={styles.barCol}>
+                    <View key={item.date} style={styles.barCol}>
                       <Text style={styles.barVal}>
                         {item.calories >= 1000
                           ? `${(item.calories / 1000).toFixed(1)}k`
                           : Math.round(item.calories)}
                       </Text>
                       <View style={styles.barTrack}>
-                        <View
-                          style={[styles.goalLine, { bottom: `${(calorieGoal / maxKcal) * 100}%` }]}
-                        />
+                        <View style={[styles.goalLine, { bottom: goalOffset }]} />
                         <View
                           style={[
                             styles.barFill,
@@ -105,13 +115,15 @@ export default function NutritionHistoryScreen() {
           <View style={styles.statsRow}>
             <Card style={styles.statCard}>
               <Text style={styles.statEmoji}>OBJ</Text>
-              <Text style={styles.statValue}>{daysOnTarget}/7</Text>
+              <Text style={styles.statValue}>{daysOnTarget}/{denominator}</Text>
               <Text style={styles.statLabel}>Dias en meta</Text>
             </Card>
             <Card style={styles.statCard}>
               <Text style={styles.statEmoji}>KCAL</Text>
               <Text style={styles.statValue}>{Math.round(avgCalories)}</Text>
-              <Text style={styles.statLabel}>Promedio diario</Text>
+              <Text style={styles.statLabel}>
+                {recordedDays.length ? 'Promedio con registros' : 'Promedio diario'}
+              </Text>
             </Card>
           </View>
 
@@ -135,6 +147,13 @@ export default function NutritionHistoryScreen() {
               goal={macroGoals.fat}
               color="#FFD43B"
             />
+            <MacroRow
+              label="Fibra"
+              avg={Math.round(avgFiber)}
+              goal={30}
+              color={Colors.textPrimary}
+              isLast
+            />
           </Card>
         </ScrollView>
       </View>
@@ -147,15 +166,17 @@ function MacroRow({
   avg,
   goal,
   color,
+  isLast = false,
 }: {
   label: string;
   avg: number;
   goal: number;
   color: string;
+  isLast?: boolean;
 }) {
-  const pct = Math.min(100, (avg / goal) * 100);
+  const pct = Math.min(100, goal > 0 ? (avg / goal) * 100 : 0);
   return (
-    <View style={styles.macroRow}>
+    <View style={[styles.macroRow, isLast && styles.macroRowLast]}>
       <Text style={styles.macroLabel}>{label}</Text>
       <View style={styles.macroBarWrap}>
         <View style={[styles.macroBarFill, { width: `${pct}%`, backgroundColor: color }]} />
@@ -185,7 +206,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: Spacing[1.5],
-    height: 120,
+    height: NUTRITION_HISTORY_CHART_HEIGHT,
     marginBottom: Spacing[3],
   },
   barCol: {
@@ -205,7 +226,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     borderRadius: Radius.sm,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   goalLine: {
     position: 'absolute',
@@ -293,6 +314,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.divider,
   },
+  macroRowLast: {
+    borderBottomWidth: 0,
+  },
   macroLabel: {
     width: 100,
     fontFamily: FontFamily.medium,
@@ -304,7 +328,7 @@ const styles = StyleSheet.create({
     height: 8,
     overflow: 'hidden',
     borderRadius: 4,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   macroBarFill: {
     minWidth: 4,

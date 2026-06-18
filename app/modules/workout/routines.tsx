@@ -148,6 +148,15 @@ export default function WorkoutRoutinesScreen() {
           })}
         </View>
 
+        <Button
+          onPress={() => router.push(Routes.workout.routineEditor as never)}
+          variant="secondary"
+          color={Colors.workout}
+          fullWidth
+        >
+          Nueva rutina
+        </Button>
+
         {visibleRoutines.length ? (
           visibleRoutines.map((routine) => {
             const lastSession = getRoutineLastSession(routine.id, history);
@@ -326,7 +335,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2],
   },
@@ -375,7 +384,7 @@ const styles = StyleSheet.create({
   },
   baseBadge: {
     borderRadius: Radius.full,
-    backgroundColor: Colors.successBg,
+    backgroundColor: Colors.success,
     paddingHorizontal: Spacing[2.5],
     paddingVertical: Spacing[1],
   },
@@ -434,3 +443,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

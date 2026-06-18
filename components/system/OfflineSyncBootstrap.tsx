@@ -14,7 +14,7 @@ export default function OfflineSyncBootstrap() {
       showToast(
         queueEnabled
           ? 'No se pudo sincronizar. Los datos pendientes siguen esperando sync.'
-          : 'No se pudo revisar la sync parcial. Algunos modulos siguen guardando localmente.',
+          : 'No se pudo revisar la sync parcial. Algunos módulos siguen guardando localmente.',
         'error',
       );
     }

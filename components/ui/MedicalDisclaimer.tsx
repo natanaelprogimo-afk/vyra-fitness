@@ -20,7 +20,7 @@ export default function MedicalDisclaimer({
   summary,
   details = [],
   accentColor = Colors.warning,
-  accentBg = Colors.warningBg,
+  accentBg = Colors.warning,
   ctaLabel = 'Ver aviso completo',
   modalTitle,
 }: MedicalDisclaimerProps) {

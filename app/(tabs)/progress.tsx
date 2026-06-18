@@ -1,17 +1,23 @@
-import { useMemo } from 'react';
+// REDESIGNED: 2026-05-21 - progress tab now reads as a real analytical cockpit
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import ProgressCircle from '@/components/charts/ProgressCircle';
+import MiniSparkline from '@/components/progress/MiniSparkline';
+import VyraBalanceTrendChart from '@/components/progress/VyraBalanceTrendChart';
 import MuscleSilhouette from '@/components/workout/MuscleSilhouette';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import NoticeCard from '@/components/ui/NoticeCard';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
+import SegmentedControl from '@/components/ui/SegmentedControl';
 import { Colors, withOpacity } from '@/constants/colors';
-import { MODULES, type ModuleId } from '@/constants/modules';
+import { MODULES } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { useLocalizedStrings, ProgressPageStrings } from '@/constants/strings';
+import { FontFamily, FontSize, Radius, Spacing, TextLeading } from '@/constants/theme';
+import { useResponsiveLayout } from '@/constants/useResponsiveLayout';
 import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWorkout } from '@/hooks/useWorkout';
@@ -19,8 +25,11 @@ import { useNutrition } from '@/hooks/useNutrition';
 import { useWater } from '@/hooks/useWater';
 import { useSteps } from '@/hooks/useSteps';
 import { useSleep } from '@/hooks/useSleep';
+import { useFasting } from '@/hooks/useFasting';
+import { useFemaleHealth } from '@/hooks/useFemaleHealth';
 import { useWeight } from '@/hooks/useWeight';
 import { useEngagementStreak } from '@/hooks/useEngagementStreak';
+import { useReadiness, type ScoreBreakdown, type ScoreHistory } from '@/hooks/useReadiness';
 import { getActiveModules } from '@/lib/active-modules';
 import {
   buildEngagementWeekDots,
@@ -48,7 +57,29 @@ type ModuleProgressCard = {
   route: string;
 };
 
-type MuscleCounts = Record<'chest' | 'back' | 'shoulders' | 'arms' | 'core' | 'legs', number>;
+type RangeKey = '7d' | '30d' | '90d';
+
+type FactorCardData = {
+  key: keyof ScoreBreakdown;
+  label: string;
+  color: string;
+  value: number;
+  delta: number | null;
+  route: string;
+  series: number[];
+};
+
+const RANGE_DAYS: Record<RangeKey, number> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+};
+
+const RANGE_OPTIONS = [
+  { value: '7d' as const, label: '7d' },
+  { value: '30d' as const, label: '30d' },
+  { value: '90d' as const, label: '90d' },
+];
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -59,52 +90,156 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function averageRows(rows: ScoreHistory[]) {
+  if (!rows.length) return null;
+  const total = rows.reduce((sum, row) => sum + Number(row.total_score ?? 0), 0);
+  return Math.round(total / rows.length);
+}
+
+function sortHistory(rows: ScoreHistory[]) {
+  return [...rows].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function formatHistoryLabel(value: string, range: RangeKey) {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  if (range === '7d') {
+    return date.toLocaleDateString('es-UY', { weekday: 'short' }).replace('.', '');
+  }
+
+  return date.toLocaleDateString('es-UY', { day: 'numeric', month: 'short' });
+}
+
+function formatRangeWindow(range: RangeKey) {
+  if (range === '7d') return 'esta semana';
+  if (range === '30d') return 'los ultimos 30 dias';
+  return 'los ultimos 90 dias';
+}
+
+function formatDelta(delta: number | null) {
+  if (delta === null) return '--';
+  if (delta === 0) return '0';
+  return `${delta > 0 ? '+' : ''}${delta}`;
+}
+
+function getDeltaTone(delta: number | null) {
+  if (delta === null || delta === 0) return Colors.textMuted;
+  return delta > 0 ? Colors.success : Colors.error;
+}
+
+function getTrendArrow(delta: number | null) {
+  if (delta === null || delta === 0) return 'remove';
+  return delta > 0 ? 'arrow-up' : 'arrow-down';
+}
+
 function getModuleInfo(moduleId: string) {
   return MODULES.find((item) => item.id === moduleId);
 }
 
-function normalizeMuscleKey(value: string) {
-  const lower = value.toLowerCase();
-  if (lower.includes('pecho')) return 'chest';
-  if (lower.includes('espalda') || lower.includes('dorsal')) return 'back';
-  if (lower.includes('hombro')) return 'shoulders';
-  if (
-    lower.includes('brazo') ||
-    lower.includes('biceps') ||
-    lower.includes('triceps') ||
-    lower.includes('antebrazo')
-  ) {
-    return 'arms';
+function getFemalePhaseLabel(phase: string | null | undefined) {
+  switch (phase) {
+    case 'menstrual':
+      return 'Menstrual';
+    case 'follicular':
+      return 'Folicular';
+    case 'ovulation':
+      return 'Ovulacion';
+    case 'luteal':
+      return 'Lutea';
+    default:
+      return 'Ciclo';
   }
-  if (
-    lower.includes('pierna') ||
-    lower.includes('gluteo') ||
-    lower.includes('cuadr') ||
-    lower.includes('femoral') ||
-    lower.includes('pantorr')
-  ) {
-    return 'legs';
-  }
-  if (lower.includes('core') || lower.includes('abd') || lower.includes('oblic')) return 'core';
-  return null;
 }
 
-function buildMuscleCounts(muscles: string[]): MuscleCounts {
-  const counts: MuscleCounts = {
-    chest: 0,
-    back: 0,
-    shoulders: 0,
-    arms: 0,
-    core: 0,
-    legs: 0,
-  };
+function getMetricSeries(history: ScoreHistory[], key: keyof ScoreBreakdown) {
+  return history.map((row) => {
+    if (key === 'hydration') return Number(row.hydration_pct ?? 0);
+    if (key === 'activity') return Number(row.activity_pct ?? 0);
+    if (key === 'sleep') return Number(row.sleep_pct ?? 0);
+    if (key === 'nutrition') return Number(row.nutrition_pct ?? 0);
+    return Number(row.mental_pct ?? 0);
+  });
+}
 
-  muscles.forEach((muscle) => {
-    const key = normalizeMuscleKey(muscle);
-    if (key) counts[key] += 1;
+function getMetricDelta(series: number[]) {
+  if (series.length < 2) return null;
+  return Math.round(series[series.length - 1] - series[0]);
+}
+
+function buildFactorCards(
+  history: ScoreHistory[],
+  breakdown: ScoreBreakdown | null,
+  activeModules: string[],
+): FactorCardData[] {
+  const activeSet = new Set(activeModules);
+  const hydrationSeries = getMetricSeries(history, 'hydration');
+  const activitySeries = getMetricSeries(history, 'activity');
+  const sleepSeries = getMetricSeries(history, 'sleep');
+  const nutritionSeries = getMetricSeries(history, 'nutrition');
+  const mentalSeries = getMetricSeries(history, 'mental');
+
+  const cards: FactorCardData[] = [];
+
+  if (activeSet.has('water')) {
+    cards.push({
+      key: 'hydration',
+      label: 'Agua',
+      color: Colors.water,
+      value: breakdown?.hydration ?? hydrationSeries[hydrationSeries.length - 1] ?? 0,
+      delta: getMetricDelta(hydrationSeries),
+      route: Routes.water.index,
+      series: hydrationSeries,
+    });
+  }
+
+  if (activeSet.has('workout') || activeSet.has('steps')) {
+    cards.push({
+      key: 'activity',
+      label: 'Movimiento',
+      color: Colors.steps,
+      value: breakdown?.activity ?? activitySeries[activitySeries.length - 1] ?? 0,
+      delta: getMetricDelta(activitySeries),
+      route: activeSet.has('workout') ? Routes.workout.index : Routes.steps.index,
+      series: activitySeries,
+    });
+  }
+
+  if (activeSet.has('sleep')) {
+    cards.push({
+      key: 'sleep',
+      label: 'Sueño',
+      color: Colors.sleep,
+      value: breakdown?.sleep ?? sleepSeries[sleepSeries.length - 1] ?? 0,
+      delta: getMetricDelta(sleepSeries),
+      route: Routes.sleep.index,
+      series: sleepSeries,
+    });
+  }
+
+  if (activeSet.has('nutrition')) {
+    cards.push({
+      key: 'nutrition',
+      label: 'Nutricion',
+      color: Colors.nutrition,
+      value: breakdown?.nutrition ?? nutritionSeries[nutritionSeries.length - 1] ?? 0,
+      delta: getMetricDelta(nutritionSeries),
+      route: Routes.nutrition.index,
+      series: nutritionSeries,
+    });
+  }
+
+  cards.push({
+    key: 'mental',
+    label: 'Mental',
+    color: Colors.mental,
+    value: breakdown?.mental ?? mentalSeries[mentalSeries.length - 1] ?? 0,
+    delta: getMetricDelta(mentalSeries),
+    route: Routes.readiness,
+    series: mentalSeries,
   });
 
-  return counts;
+  return cards;
 }
 
 function buildGoalCopy(params: {
@@ -113,46 +248,68 @@ function buildGoalCopy(params: {
   targetCalories: number;
   activityCalories: number;
   nutritionStreakDays: number;
+  progressStrings: ReturnType<typeof useLocalizedStrings>['ShellStrings']['progress'];
 }) {
-  const { goal, consumedCalories, targetCalories, activityCalories, nutritionStreakDays } = params;
+  const { goal, consumedCalories, targetCalories, activityCalories, nutritionStreakDays, progressStrings } = params;
+  if (consumedCalories <= 0) {
+    return {
+      title: 'Aun no registraste comidas hoy',
+      body: 'Registra tu primera comida para ver energía, macros y balance del día.',
+      note: 'En cuanto cargues algo, esta card deja de estar vacia.',
+    };
+  }
   const remaining = Math.max(0, Math.round(targetCalories - consumedCalories));
   const overTarget = Math.max(0, Math.round(consumedCalories - targetCalories));
   const targetPct = clampPercent((consumedCalories / Math.max(1, targetCalories)) * 100);
 
   if (goal === 'lose_fat') {
     return {
-      title: remaining > 0 ? `${remaining} kcal todavia dentro del plan` : `${overTarget} kcal por encima del plan`,
+      title:
+        remaining > 0
+          ? progressStrings.goals.loseFatRemaining.replace('{{remaining}}', String(remaining))
+          : progressStrings.goals.loseFatOver.replace('{{over}}', String(overTarget)),
       body:
         remaining > 0
-          ? `Hoy vienes con ${formatCalories(activityCalories)} de actividad y margen limpio para cerrar el dia.`
-          : `Te conviene cerrar el dia liviano para no romper el deficit que estas buscando.`,
-      note: `Nutricion ${targetPct}% · racha ${nutritionStreakDays} dias`,
+          ? progressStrings.goals.loseFatBodyGood.replace('{{activity}}', formatCalories(activityCalories))
+          : progressStrings.goals.loseFatBodyOver,
+      note: progressStrings.goals.loseFatNote
+        .replace('{{pct}}', String(targetPct))
+        .replace('{{days}}', String(nutritionStreakDays)),
     };
   }
 
   if (goal === 'gain_muscle') {
     return {
-      title: remaining > 0 ? `${remaining} kcal para cerrar volumen` : 'Plan calorico cubierto',
+      title:
+        remaining > 0
+          ? progressStrings.goals.gainMuscleRemaining.replace('{{remaining}}', String(remaining))
+          : progressStrings.goals.gainMuscleDone,
       body:
         remaining > 0
-          ? `Te faltan calorias utiles para construir mejor y recuperar el entreno.`
-          : `Hoy ya cubriste suficiente energia para construir y sostener rendimiento.`,
-      note: `Nutricion ${targetPct}% · actividad ${formatCalories(activityCalories)}`,
+          ? progressStrings.goals.gainMuscleBodyRemaining
+          : progressStrings.goals.gainMuscleBodyDone,
+      note: progressStrings.goals.gainMuscleNote
+        .replace('{{pct}}', String(targetPct))
+        .replace('{{activity}}', formatCalories(activityCalories)),
     };
   }
 
   if (goal === 'sport_performance' || goal === 'performance') {
     return {
-      title: `${targetPct}% del combustible del dia`,
-      body: `Actividad ${formatCalories(activityCalories)}. Aqui importa llegar con energia, no solo cumplir numeros.`,
-      note: `Objetivo ${formatCalories(targetCalories)} · racha ${nutritionStreakDays} dias`,
+      title: progressStrings.goals.performanceTitle.replace('{{pct}}', String(targetPct)),
+      body: progressStrings.goals.performanceBody.replace('{{activity}}', formatCalories(activityCalories)),
+      note: progressStrings.goals.performanceNote
+        .replace('{{target}}', formatCalories(targetCalories))
+        .replace('{{days}}', String(nutritionStreakDays)),
     };
   }
 
   return {
-    title: `${targetPct}% del plan diario cubierto`,
-    body: `Actividad ${formatCalories(activityCalories)} y ${nutritionStreakDays} dias seguidos registrando comida.`,
-    note: `Meta ${formatCalories(targetCalories)}`,
+    title: progressStrings.goals.defaultTitle.replace('{{pct}}', String(targetPct)),
+    body: progressStrings.goals.defaultBody
+      .replace('{{activity}}', formatCalories(activityCalories))
+      .replace('{{days}}', String(nutritionStreakDays)),
+    note: progressStrings.goals.defaultNote.replace('{{target}}', formatCalories(targetCalories)),
   };
 }
 
@@ -162,52 +319,49 @@ function buildWeightCopy(params: {
   target: number | null;
   weeklyDelta: number | null;
   weightUnit: 'kg' | 'lb';
+  progressStrings: ReturnType<typeof useLocalizedStrings>['ShellStrings']['progress'];
 }) {
-  const { goal, current, target, weeklyDelta, weightUnit } = params;
+  const { goal, current, target, weeklyDelta, weightUnit, progressStrings } = params;
 
   if (current === null) {
     return {
-      title: 'Todavia no hay peso reciente',
-      body: 'Cuando registres peso real, aqui veras la direccion del cambio y no solo el numero suelto.',
-      note: 'Abre progreso y registra una medicion para empezar.',
+      title: progressStrings.weight.noDataTitle,
+      body: progressStrings.weight.noDataBody,
+      note: progressStrings.weight.noDataNote,
     };
   }
 
   const deltaText =
     weeklyDelta === null
-      ? 'Sin tendencia semanal todavia'
-      : `${weeklyDelta > 0 ? '+' : ''}${formatWeight(Math.abs(weeklyDelta), weightUnit).replace(/^(0 )?/, '')} esta semana`;
+      ? progressStrings.weight.noTrend
+      : progressStrings.weight.weeklyDelta
+          .replace('{{sign}}', weeklyDelta > 0 ? '+' : '')
+          .replace('{{value}}', formatWeight(Math.abs(weeklyDelta), weightUnit).replace(/^(0 )?/, ''));
 
   if (target !== null) {
     const difference = Math.round((current - target) * 10) / 10;
     if (goal === 'lose_fat' && difference > 0) {
       return {
-        title: `${formatWeight(difference, weightUnit)} para tu objetivo`,
-        body: `Peso actual ${formatWeight(current, weightUnit)}. Lo importante ahora es sostener la tendencia, no mirar un dia aislado.`,
+        title: progressStrings.weight.toGoal.replace('{{value}}', formatWeight(difference, weightUnit)),
+        body: progressStrings.weight.loseFatBody.replace('{{current}}', formatWeight(current, weightUnit)),
         note: deltaText,
       };
     }
 
     if (goal === 'gain_muscle' && difference < 0) {
       return {
-        title: `${formatWeight(Math.abs(difference), weightUnit)} para tu objetivo`,
-        body: `Peso actual ${formatWeight(current, weightUnit)}. Un superavit consistente vale mas que una subida rapida sin control.`,
+        title: progressStrings.weight.toGoal.replace('{{value}}', formatWeight(Math.abs(difference), weightUnit)),
+        body: progressStrings.weight.gainMuscleBody.replace('{{current}}', formatWeight(current, weightUnit)),
         note: deltaText,
       };
     }
   }
 
   return {
-    title: `Peso actual ${formatWeight(current, weightUnit)}`,
-    body: 'La lectura buena no es solo cuanto pesas, sino si la tendencia acompana el objetivo que elegiste.',
+    title: progressStrings.weight.currentWeight.replace('{{value}}', formatWeight(current, weightUnit)),
+    body: progressStrings.weight.defaultBody,
     note: deltaText,
   };
-}
-
-function buildRescueRoute(activeModules: ModuleId[], completedToday: Set<string>) {
-  const priority: ModuleId[] = ['water', 'steps', 'nutrition', 'workout', 'sleep', 'fasting', 'supplements', 'female'];
-  const target = priority.find((moduleId) => activeModules.includes(moduleId) && !completedToday.has(moduleId));
-  return getModuleInfo(target ?? activeModules[0] ?? 'workout')?.route ?? Routes.tabs.home;
 }
 
 function ProgressBar({ color, progress }: { color: string; progress: number }) {
@@ -226,15 +380,34 @@ function ProgressBar({ color, progress }: { color: string; progress: number }) {
   );
 }
 
+function StatPill({
+  label,
+  value,
+  toneColor = Colors.textPrimary,
+}: {
+  label: string;
+  value: string;
+  toneColor?: string;
+}) {
+  return (
+    <View style={styles.statPill}>
+      <Text style={styles.statPillLabel}>{label}</Text>
+      <Text style={[styles.statPillValue, { color: toneColor }]}>{value}</Text>
+    </View>
+  );
+}
+
 export default function ProgressScreen() {
+  const [range, setRange] = useState<RangeKey>('7d');
   const profile = useAuthStore((state) => state.profile);
-  const hasSeenGuide = useSettingsStore((state) => Boolean(state.moduleIntroSeen.progress));
-  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
+  const layout = useResponsiveLayout();
+  const { ShellStrings: shellStrings, ModuleNames: moduleNames } = useLocalizedStrings();
+  const progressStrings = shellStrings.progress;
   const volumeUnit = useSettingsStore((state) => state.volumeUnit);
   const weightUnit = useSettingsStore((state) => state.weightUnit);
   const distUnit = useSettingsStore((state) => state.distUnit);
-
   const activeModules = getActiveModules(profile);
+
   const { activeDates: storedEngagementDates } = useEngagementStreak(90);
   const { history, getWeeklyStats, getActiveProgram } = useWorkout();
   const {
@@ -247,13 +420,45 @@ export default function ProgressScreen() {
   } = useNutrition();
   const { totalHydro, goal: waterGoal, hydrationStreak } = useWater();
   const { totalSteps, goal: stepGoal, daysMetGoal, distanceKm } = useSteps();
-  const { lastDurationHours, goalHours, qualityInfo, daysWithGoal, getLastNight } = useSleep();
+  const { lastDurationHours, goalHours, daysWithGoal, getLastNight } = useSleep();
+  const {
+    isActive: fastingActive,
+    protocol: fastingProtocol,
+    elapsedHours: fastingElapsedHours,
+    targetHours: fastingTargetHours,
+    progressPct: fastingProgressPct,
+  } = useFasting();
+  const {
+    currentPhase: femalePhase,
+    daysInPhase: femaleDaysInPhase,
+    cycleLength: femaleCycleLength,
+    nextPeriodDate: femaleNextPeriodDate,
+    isInCycle: isFemaleInCycle,
+  } = useFemaleHealth();
   const { stats } = useWeight();
+  const {
+    dailyScore,
+    history: readinessHistory,
+    fetchHistory,
+    predictedScore,
+    similarDayComparison,
+    focusActions,
+    morningNarrative,
+    crossModuleInsights,
+    qualityScoreStreak,
+    scoreColor,
+    scoreLabel,
+  } = useReadiness();
 
   const activeProgram = getActiveProgram();
   const weeklyWorkout = getWeeklyStats();
   const lastSleep = getLastNight();
   const today = todayKey();
+  const rangeDays = RANGE_DAYS[range];
+
+  useEffect(() => {
+    void fetchHistory(rangeDays);
+  }, [fetchHistory, rangeDays]);
 
   const workoutToday = history.some((entry) => entry.started_at.slice(0, 10) === today);
   const nutritionToday = todayMeals.length > 0;
@@ -268,8 +473,10 @@ export default function ProgressScreen() {
     if (stepsToday) set.add('steps');
     if (waterToday) set.add('water');
     if (sleepTracked) set.add('sleep');
+    if (fastingActive) set.add('fasting');
+    if (isFemaleInCycle && Boolean(femalePhase)) set.add('female');
     return set;
-  }, [nutritionToday, sleepTracked, stepsToday, waterToday, workoutToday]);
+  }, [fastingActive, femalePhase, isFemaleInCycle, nutritionToday, sleepTracked, stepsToday, waterToday, workoutToday]);
 
   const liveEngagementDates = useMemo(
     () =>
@@ -290,11 +497,6 @@ export default function ProgressScreen() {
   const streak = useMemo(() => calculateEngagementStreak(allEngagementDates), [allEngagementDates]);
   const weekDots = useMemo(() => buildEngagementWeekDots(allEngagementDates), [allEngagementDates]);
 
-  const rescueRoute = useMemo(
-    () => buildRescueRoute(activeModules, completedToday),
-    [activeModules, completedToday],
-  );
-
   const recentWorkoutMuscles = useMemo(
     () =>
       history
@@ -305,15 +507,6 @@ export default function ProgressScreen() {
         .flatMap((entry) => entry.muscles_worked ?? []),
     [history],
   );
-  const muscleCounts = useMemo(() => buildMuscleCounts(recentWorkoutMuscles), [recentWorkoutMuscles]);
-  const topMuscles = useMemo(
-    () =>
-      Object.entries(muscleCounts)
-        .sort((left, right) => right[1] - left[1])
-        .filter(([, value]) => value > 0)
-        .slice(0, 3),
-    [muscleCounts],
-  );
 
   const programSessionsDone = useMemo(() => {
     if (!activeProgram) return 0;
@@ -322,6 +515,9 @@ export default function ProgressScreen() {
 
   const moduleCards = useMemo<ModuleProgressCard[]>(() => {
     const cards: ModuleProgressCard[] = [];
+    const nextFemalePeriodLabel = femaleNextPeriodDate
+      ? new Date(`${femaleNextPeriodDate}T12:00:00`).toLocaleDateString('es-UY', { day: 'numeric', month: 'short' })
+      : null;
 
     activeModules.forEach((moduleId) => {
       const definition = getModuleInfo(moduleId);
@@ -329,18 +525,20 @@ export default function ProgressScreen() {
 
       if (moduleId === 'workout') {
         const targetSessions = activeProgram?.days_per_week ?? 3;
-        const programTitle = activeProgram?.name ?? 'Entreno semanal';
+        const programTitle = activeProgram?.name ?? progressStrings.cards.workoutMeta;
         cards.push({
           id: moduleId,
-          title: definition.name,
+          title: moduleNames.workout,
           color: definition.color,
-          value: `${weeklyWorkout.sessions}/${targetSessions} sesiones`,
-          meta: activeProgram ? programTitle : 'Tu semana de fuerza',
+          value: `${weeklyWorkout.sessions}/${targetSessions} ${ProgressPageStrings.workoutSessions}`,
+          meta: activeProgram ? programTitle : progressStrings.cards.workoutMeta,
           note:
             weeklyWorkout.sessions > 0
-              ? `${formatDuration(Math.max(weeklyWorkout.sessions * 45, 30))} aprox. · ${programSessionsDone} sesiones del programa`
-              : 'Empieza una sesion y la racha ya cuenta desde hoy.',
-          cta: activeProgram ? 'Continuar programa' : 'Empezar entreno',
+              ? progressStrings.cards.workoutProgramNote
+                  .replace('{{duration}}', formatDuration(Math.max(weeklyWorkout.sessions * 45, 30)))
+                  .replace('{{count}}', String(programSessionsDone))
+              : progressStrings.cards.workoutNote,
+          cta: activeProgram ? progressStrings.cards.continueProgram : progressStrings.cards.startWorkout,
           progress: (weeklyWorkout.sessions / Math.max(1, targetSessions)) * 100,
           route: activeProgram ? Routes.workout.programs : Routes.workout.index,
         });
@@ -350,12 +548,17 @@ export default function ProgressScreen() {
       if (moduleId === 'nutrition') {
         cards.push({
           id: moduleId,
-          title: definition.name,
+          title: moduleNames.nutrition,
           color: definition.color,
           value: `${Math.round(totals.calories)} / ${Math.round(simpleTargets.calories)} kcal`,
-          meta: `${Math.round(totals.protein)}g proteina · racha ${nutritionStreakDays} dias`,
-          note: `${nutritionWeeklyData.filter((row) => Number(row.calories ?? 0) > 0).length}/7 dias registrados esta semana`,
-          cta: 'Abrir nutricion',
+          meta: progressStrings.cards.nutritionMeta
+            .replace('{{protein}}', String(Math.round(totals.protein)))
+            .replace('{{days}}', String(nutritionStreakDays)),
+          note: progressStrings.cards.nutritionNote.replace(
+            '{{days}}',
+            String(nutritionWeeklyData.filter((row) => Number(row.calories ?? 0) > 0).length),
+          ),
+          cta: progressStrings.cards.openNutrition,
           progress: (totals.calories / Math.max(1, simpleTargets.calories)) * 100,
           route: Routes.nutrition.index,
         });
@@ -365,12 +568,12 @@ export default function ProgressScreen() {
       if (moduleId === 'water') {
         cards.push({
           id: moduleId,
-          title: definition.name,
+          title: moduleNames.water,
           color: definition.color,
           value: `${formatVolume(totalHydro, volumeUnit)} / ${formatVolume(waterGoal, volumeUnit)}`,
-          meta: `Racha ${hydrationStreak.streakDays} dias`,
-          note: hydrationStreak.metToday ? 'Ya cumpliste hidratacion hoy.' : 'Un registro mas puede salvar la racha.',
-          cta: 'Abrir agua',
+          meta: progressStrings.cards.waterMeta.replace('{{days}}', String(hydrationStreak.streakDays)),
+          note: hydrationStreak.metToday ? progressStrings.cards.waterDone : progressStrings.cards.waterPending,
+          cta: progressStrings.cards.openWater,
           progress: (totalHydro / Math.max(1, waterGoal)) * 100,
           route: Routes.water.index,
         });
@@ -380,12 +583,12 @@ export default function ProgressScreen() {
       if (moduleId === 'steps') {
         cards.push({
           id: moduleId,
-          title: definition.name,
+          title: moduleNames.steps,
           color: definition.color,
-          value: `${Math.round(totalSteps).toLocaleString('es-UY')} / ${Math.round(stepGoal).toLocaleString('es-UY')}`,
-          meta: `${daysMetGoal}/7 dias cerrando meta`,
-          note: `${formatDistance(Number(distanceKm) * 1000, distUnit)} caminados hoy`,
-          cta: 'Abrir pasos',
+          value: `${Math.round(totalSteps).toLocaleString()} / ${Math.round(stepGoal).toLocaleString()}`,
+          meta: progressStrings.cards.stepsMeta.replace('{{days}}', String(daysMetGoal)),
+          note: progressStrings.cards.stepsNote.replace('{{distance}}', formatDistance(distanceKm, distUnit)),
+          cta: progressStrings.cards.openSteps,
           progress: (totalSteps / Math.max(1, stepGoal)) * 100,
           route: Routes.steps.index,
         });
@@ -395,26 +598,65 @@ export default function ProgressScreen() {
       if (moduleId === 'sleep') {
         cards.push({
           id: moduleId,
-          title: definition.name,
+          title: moduleNames.sleep,
           color: definition.color,
           value: `${lastDurationHours.toFixed(1)}h / ${goalHours.toFixed(1)}h`,
-          meta: `${daysWithGoal}/7 noches cerrando meta`,
-          note: qualityInfo.label,
-          cta: 'Abrir sueno',
+          meta: progressStrings.cards.sleepMeta.replace('{{days}}', String(daysWithGoal)),
+          note: lastDurationHours >= goalHours ? ProgressPageStrings.sleepRecovered : ProgressPageStrings.sleepRecovering,
+          cta: progressStrings.cards.openSleep,
           progress: (lastDurationHours / Math.max(1, goalHours)) * 100,
           route: Routes.sleep.index,
         });
         return;
       }
 
+      if (moduleId === 'fasting') {
+        cards.push({
+          id: moduleId,
+          title: moduleNames.fasting ?? 'Ayuno',
+          color: definition.color,
+          value: fastingActive ? `${fastingProtocol} activo` : 'Listo para iniciar',
+          meta: fastingActive
+            ? `${Math.max(0, fastingElapsedHours).toFixed(1)} / ${Math.max(1, fastingTargetHours)}h`
+            : 'Ventana base configurada',
+          note: fastingActive ? 'El timer esta corriendo' : 'Toca para iniciar tu ventana',
+          cta: fastingActive ? 'Ver ayuno' : 'Abrir ayuno',
+          progress: fastingActive ? fastingProgressPct : 0,
+          route: Routes.fasting.index,
+        });
+        return;
+      }
+
+      if (moduleId === 'female') {
+        cards.push({
+          id: moduleId,
+          title: moduleNames.female ?? 'Ciclo',
+          color: definition.color,
+          value: isFemaleInCycle ? `${getFemalePhaseLabel(femalePhase)} · Día ${Math.max(1, femaleDaysInPhase + 1)}` : 'Pendiente',
+          meta: isFemaleInCycle
+            ? `${nextFemalePeriodLabel ? `Proximo ${nextFemalePeriodLabel}` : 'Ciclo activo'}`
+            : 'Configura tu ciclo',
+          note: isFemaleInCycle
+            ? 'La fase actual ya puede guiar tu semana'
+            : 'Agrega tu primer periodo para empezar a leer contexto',
+          cta: 'Abrir ciclo',
+          progress:
+            isFemaleInCycle && femaleCycleLength > 0
+              ? (femaleDaysInPhase / Math.max(1, femaleCycleLength)) * 100
+              : 0,
+          route: Routes.female.index,
+        });
+        return;
+      }
+
       cards.push({
         id: moduleId,
-        title: definition.name,
+        title: moduleNames[moduleId as keyof typeof moduleNames] ?? definition.name,
         color: definition.color,
-        value: 'Activo',
-        meta: definition.description,
-        note: 'Este modulo sigue disponible para tu plan actual.',
-        cta: 'Abrir modulo',
+        value: progressStrings.cards.active,
+        meta: progressStrings.cards.active,
+        note: progressStrings.cards.moduleAvailable,
+        cta: progressStrings.cards.openModule,
         progress: completedToday.has(moduleId) ? 100 : 0,
         route: definition.route,
       });
@@ -422,6 +664,9 @@ export default function ProgressScreen() {
 
     return cards;
   }, [
+    ProgressPageStrings.sleepRecovered,
+    ProgressPageStrings.sleepRecovering,
+    ProgressPageStrings.workoutSessions,
     activeModules,
     activeProgram,
     completedToday,
@@ -433,10 +678,21 @@ export default function ProgressScreen() {
     hydrationStreak.metToday,
     hydrationStreak.streakDays,
     lastDurationHours,
+    fastingActive,
+    fastingElapsedHours,
+    fastingProtocol,
+    fastingProgressPct,
+    fastingTargetHours,
+    femaleCycleLength,
+    femaleDaysInPhase,
+    femaleNextPeriodDate,
+    femalePhase,
+    isFemaleInCycle,
+    moduleNames,
     nutritionStreakDays,
     nutritionWeeklyData,
     programSessionsDone,
-    qualityInfo.label,
+    progressStrings.cards,
     simpleTargets.calories,
     stepGoal,
     totalHydro,
@@ -448,6 +704,95 @@ export default function ProgressScreen() {
     weeklyWorkout.sessions,
   ]);
 
+  const sortedReadinessHistory = useMemo(() => sortHistory(readinessHistory), [readinessHistory]);
+  const visibleReadinessHistory = useMemo(
+    () => sortedReadinessHistory.slice(-rangeDays),
+    [rangeDays, sortedReadinessHistory],
+  );
+  const previousReadinessHistory = useMemo(
+    () => sortedReadinessHistory.slice(-rangeDays * 2, -rangeDays),
+    [rangeDays, sortedReadinessHistory],
+  );
+  const chartData = useMemo(
+    () =>
+      visibleReadinessHistory.map((row) => ({
+        label: formatHistoryLabel(row.date, range),
+        value: Number(row.total_score ?? 0),
+      })),
+    [range, visibleReadinessHistory],
+  );
+
+  const averageScoreValue = useMemo(() => averageRows(visibleReadinessHistory), [visibleReadinessHistory]);
+  const previousAverageScore = useMemo(() => averageRows(previousReadinessHistory), [previousReadinessHistory]);
+  const averageDelta = averageScoreValue !== null && previousAverageScore !== null
+    ? averageScoreValue - previousAverageScore
+    : null;
+  const bestScore = visibleReadinessHistory.length
+    ? Math.max(...visibleReadinessHistory.map((row) => Number(row.total_score ?? 0)))
+    : null;
+  const latestHistoryScore = visibleReadinessHistory[visibleReadinessHistory.length - 1]?.total_score ?? null;
+  const latestScore = Math.round(
+    Number(
+      dailyScore?.score ??
+      latestHistoryScore ??
+      0,
+    ),
+  );
+  const buildPhase = visibleReadinessHistory.length < 7;
+  const buildProgressPct = Math.min(100, (visibleReadinessHistory.length / 7) * 100);
+  const heroScoreColor = buildPhase ? Colors.warning : scoreColor(latestScore);
+  const heroScoreLabel = buildPhase
+    ? 'Construyendo tu primera lectura'
+    : latestScore > 0
+      ? scoreLabel(latestScore)
+      : 'Todavia no hay lectura suficiente';
+  const heroRingValue = buildPhase ? buildProgressPct : latestScore;
+  const heroRingText = buildPhase
+    ? `${visibleReadinessHistory.length}/7`
+    : latestScore > 0
+      ? String(latestScore)
+      : '--';
+  const heroSummaryTitle = buildPhase
+    ? `Registra ${Math.max(0, 7 - visibleReadinessHistory.length)} día${7 - visibleReadinessHistory.length === 1 ? '' : 's'} más para desbloquear tu primer VYRA Score`
+    : heroScoreLabel;
+
+  const factorCards = useMemo(
+    () => buildFactorCards(visibleReadinessHistory, dailyScore?.breakdown ?? null, activeModules),
+    [activeModules, dailyScore?.breakdown, visibleReadinessHistory],
+  );
+  const strongestFactor = [...factorCards].sort((a, b) => b.value - a.value)[0] ?? null;
+  const weakestFactor = [...factorCards].sort((a, b) => a.value - b.value)[0] ?? null;
+
+  const heroNarrative = useMemo(() => {
+    if (buildPhase) {
+      return `Llevas ${visibleReadinessHistory.length}/7 dias con datos. Cuando cierres 7 dias, aparece tu primer VYRA Score.`;
+    }
+    if (focusActions[0]) {
+      const base = similarDayComparison?.message ?? morningNarrative ?? 'La mejor mejora sigue siendo la mas simple.';
+      return `${focusActions[0].title}. ${base}`;
+    }
+    if (crossModuleInsights[0]) return crossModuleInsights[0];
+    if (similarDayComparison?.message) return similarDayComparison.message;
+    if (morningNarrative) return morningNarrative;
+    return 'Cuando registres algunos dias mas, esta pantalla te va a devolver contexto real y no solo datos sueltos.';
+  }, [buildPhase, crossModuleInsights, focusActions, morningNarrative, similarDayComparison?.message, visibleReadinessHistory.length]);
+
+  const coachTitle = buildPhase
+    ? 'Tu lectura todavia se esta armando'
+    : focusActions[0]
+      ? 'La siguiente mejor accion'
+      : crossModuleInsights[0]
+        ? 'Lo que esta semana ya se esta repitiendo'
+        : 'Tu lectura todavia se esta armando';
+  const coachBody = buildPhase
+    ? `Faltan ${Math.max(0, 7 - visibleReadinessHistory.length)} dias para abrir tu primer score.`
+    : focusActions[0]
+      ? `${focusActions[0].title}. ${weakestFactor ? `${weakestFactor.label} sigue siendo la palanca mas floja de la ventana.` : ''}`.trim()
+      : crossModuleInsights[0] ?? similarDayComparison?.message ?? 'Sigue registrando unos dias mas para sacar una senal fuerte.';
+  const insightsRoute = buildPhase ? Routes.tabs.home : Routes.progress.insights;
+  const coachRoute = focusActions[0]?.route ?? insightsRoute;
+  const coachAccent = weakestFactor?.color ?? Colors.brand;
+
   const goalCopy = useMemo(
     () =>
       buildGoalCopy({
@@ -456,8 +801,17 @@ export default function ProgressScreen() {
         targetCalories: Math.round(simpleTargets.calories),
         activityCalories,
         nutritionStreakDays,
+        progressStrings,
       }),
-    [activityCalories, nutritionStreakDays, profile?.goal, profile?.primary_goal, simpleTargets.calories, totals.calories],
+    [
+      activityCalories,
+      nutritionStreakDays,
+      profile?.goal,
+      profile?.primary_goal,
+      progressStrings,
+      simpleTargets.calories,
+      totals.calories,
+    ],
   );
 
   const weightCopy = useMemo(
@@ -468,66 +822,127 @@ export default function ProgressScreen() {
         target: profile?.weight_goal_kg ?? null,
         weeklyDelta: stats.weeklyDelta,
         weightUnit,
+        progressStrings,
       }),
-    [profile?.goal, profile?.primary_goal, profile?.weight_goal_kg, stats.current, stats.weeklyDelta, weightUnit],
+    [
+      profile?.goal,
+      profile?.primary_goal,
+      profile?.weight_goal_kg,
+      progressStrings,
+      stats.current,
+      stats.weeklyDelta,
+      weightUnit,
+    ],
   );
 
   const currentProgramLabel = activeProgram
-    ? `${activeProgram.name} · ${programSessionsDone}/${Math.max(1, activeProgram.days_per_week * activeProgram.duration_weeks)} sesiones`
+    ? progressStrings.muscle.programProgress
+        .replace('{{name}}', activeProgram.name)
+        .replace('{{done}}', String(programSessionsDone))
+        .replace('{{total}}', String(Math.max(1, activeProgram.days_per_week * activeProgram.duration_weeks)))
     : history[0]
-      ? `Ultimo entreno: ${getWorkoutDisplayName(history[0].name)}`
-      : 'Sin programa activo todavia';
+      ? progressStrings.muscle.lastWorkout.replace('{{name}}', getWorkoutDisplayName(history[0].name))
+      : progressStrings.muscle.noProgram;
+  const needsNutritionKickoff = totals.calories <= 0;
+  const needsWeightKickoff = stats.current === null;
+  const muscleMapHeight = layout.isTablet ? 320 : 228;
+  const stackActionRows = layout.containerWidth < 360;
+  const compactModuleCards = layout.containerWidth < 390;
 
   return (
     <SafeScreen padHorizontal={false} padBottom={false}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {!hasSeenGuide ? (
-          <NoticeCard
-            title="Como leer Progreso"
-            body="Aqui manda la constancia: primero mira la racha, luego tus modulos elegidos y al final que musculos y objetivos se estan moviendo de verdad."
-            tone="info"
-            actionLabel="Entendido"
-            onAction={() => markModuleIntroSeen('progress')}
-          />
-        ) : null}
-
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            maxWidth: layout.maxWidth,
+            alignSelf: 'center',
+            paddingHorizontal: layout.paddingHorizontal,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>Tu progreso real</Text>
-            <Text style={styles.subtitle}>
-              Menos ruido, mas direccion. Aqui solo vive lo que te ayuda a sostener el plan.
-            </Text>
+            <Text style={styles.title}>{progressStrings.title}</Text>
+            <Text style={styles.subtitle}>{progressStrings.subtitle}</Text>
           </View>
           <Pressable
             style={styles.exportButton}
             onPress={() => router.push(Routes.profile.exportData as never)}
             accessibilityRole="button"
-            accessibilityLabel="Exportar tus datos"
+            accessibilityLabel={progressStrings.exportAccessibility}
           >
-            <Ionicons name="share-social-outline" size={18} color={Colors.textPrimary} />
+            <Ionicons name="download-outline" size={18} color={Colors.textPrimary} />
           </Pressable>
         </View>
 
-        <Card accentColor={Colors.brand} decorative style={styles.heroCard}>
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroNumberWrap}>
-              <Text style={styles.heroEyebrow}>Lo mas importante hoy</Text>
-              <Text style={styles.heroNumber}>{streak}</Text>
-              <Text style={styles.heroLabel}>{streak === 1 ? 'dia de racha' : 'dias de racha'}</Text>
+        <SegmentedControl
+          value={range}
+          options={RANGE_OPTIONS}
+          onChange={setRange}
+          accessibilityLabel="Cambiar ventana de progreso"
+        />
+
+        <Card variant="hero" accentColor={heroScoreColor} decorative elevated style={styles.heroCard}>
+          <View style={[styles.heroTop, layout.isTablet && styles.heroTopWide]}>
+            <View style={styles.ringColumn}>
+              <ProgressCircle
+                value={heroRingValue}
+                size={layout.isTablet ? 156 : 130}
+                strokeWidth={10}
+                color={heroScoreColor}
+                trackColor={withOpacity(Colors.white, 0.08)}
+                accessibilityLabel={buildPhase ? `Progreso de lectura ${heroRingText}` : `Vyra score ${latestScore} sobre 100`}
+              >
+                <View style={styles.ringContent}>
+                  <Text style={styles.ringEyebrow}>Vyra score</Text>
+                  <Text style={styles.ringValue}>{heroRingText}</Text>
+                  <Text style={[styles.ringLabel, { color: heroScoreColor }]}>{heroScoreLabel}</Text>
+                </View>
+              </ProgressCircle>
+
+              <View style={styles.streakBadge}>
+                <Ionicons name="flame" size={14} color={Colors.premium} />
+                <Text style={styles.streakBadgeText}>
+                  {streak > 0
+                    ? `${streak} dias activos${qualityScoreStreak > 0 ? ` · ${qualityScoreStreak} fuertes` : ''}`
+                    : 'Empieza a construir continuidad'}
+                </Text>
+              </View>
             </View>
-            <View style={styles.heroBadge}>
-              <Ionicons name="flame" size={14} color={Colors.brand} />
-              <Text style={styles.heroBadgeText}>
-                {completedToday.size}/{Math.max(1, activeModules.length)} modulos tocados hoy
-              </Text>
+
+            <View style={styles.heroSummary}>
+              <Text style={styles.heroWindowLabel}>Lectura de {formatRangeWindow(range)}</Text>
+              <Text style={styles.heroSummaryTitle}>{heroSummaryTitle}</Text>
+              <Text style={styles.heroSummaryBody}>{heroNarrative}</Text>
+
+              <View style={styles.statGrid}>
+                <StatPill label="Promedio" value={averageScoreValue !== null ? String(averageScoreValue) : '--'} toneColor={Colors.premium} />
+                <StatPill label="Vs. bloque previo" value={formatDelta(averageDelta)} toneColor={getDeltaTone(averageDelta)} />
+                <StatPill label="Proyeccion hoy" value={predictedScore !== null ? String(predictedScore) : '--'} toneColor={Colors.info} />
+                <StatPill label="Módulos tocados" value={`${completedToday.size}/${Math.max(activeModules.length, 1)}`} toneColor={Colors.textPrimary} />
+              </View>
             </View>
           </View>
 
-          <Text style={styles.heroBody}>
-            {completedToday.size > 0
-              ? 'Ya moviste el dia. Una accion chica tambien sostiene el progreso grande.'
-              : 'Todavia estas a tiempo de salvar hoy con una accion simple y mantener la continuidad viva.'}
-          </Text>
+          <View style={styles.heroChartWrap}>
+            {chartData.length ? (
+              <VyraBalanceTrendChart
+                data={chartData}
+                average={averageScoreValue}
+                best={bestScore}
+                caption={range === '7d' ? 'ventana semanal' : `ventana ${range}`}
+              />
+            ) : (
+              <View style={styles.emptyChart}>
+                <Text style={styles.emptyChartTitle}>Todavia no hay curva suficiente</Text>
+                <Text style={styles.emptyChartBody}>
+                  En cuanto cierres algunos dias con registros, aqui veras la tendencia del score sin tener que abrir otro modulo.
+                </Text>
+              </View>
+            )}
+          </View>
 
           <View style={styles.weekRow}>
             {weekDots.map((dot) => (
@@ -542,117 +957,224 @@ export default function ProgressScreen() {
             ))}
           </View>
 
-          <View style={styles.heroActions}>
+          <View style={[styles.heroActions, stackActionRows && styles.actionColumn]}>
             <Button
-              onPress={() => router.push((completedToday.size > 0 ? Routes.workout.programs : rescueRoute) as never)}
-              color={Colors.brand}
-              style={styles.flexButton}
+              onPress={() => router.push(insightsRoute as never)}
+              color={Colors.warning}
+              style={stackActionRows ? undefined : styles.flexButton}
+              fullWidth={stackActionRows}
+              size="sm"
             >
-              {completedToday.size > 0 ? 'Ver mi progreso de hoy' : 'Salvar mi racha ahora'}
+              Leer insights
             </Button>
             <Button
-              onPress={() => router.push(Routes.settings.modules as never)}
+              onPress={() => router.push(Routes.progress.history as never)}
               variant="secondary"
-              color={Colors.brand}
-              style={styles.flexButton}
+              color={Colors.warning}
+              style={stackActionRows ? undefined : styles.flexButton}
+              fullWidth={stackActionRows}
+              size="sm"
             >
-              Ajustar modulos
+              Ver historial
             </Button>
           </View>
         </Card>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Modulos que elegiste</Text>
-          <Text style={styles.sectionHint}>Solo lo que realmente empuja tu objetivo.</Text>
+          <Text style={styles.sectionTitle}>Lo que sostiene tu score</Text>
+          <Text style={styles.sectionHint}>Cada fila mezcla estado actual, cambio dentro de la ventana y a donde te conviene entrar.</Text>
         </View>
 
-        <View style={styles.moduleList}>
+        <Card style={styles.factorCard}>
+          <View style={styles.factorHeaderRow}>
+            <Text style={styles.factorHeaderTitle}>Desglose real</Text>
+            <Text style={styles.factorHeaderHint}>
+              {strongestFactor && weakestFactor
+                ? `${strongestFactor.label} empuja. ${weakestFactor.label} sigue pidiendo atencion.`
+                : 'Aun estamos reuniendo suficiente historial para ordenar mejor las palancas.'}
+            </Text>
+          </View>
+
+          <View style={styles.factorList}>
+            {factorCards.map((factor) => (
+              <Pressable
+                key={factor.key}
+                style={styles.factorRow}
+                onPress={() => router.push(factor.route as never)}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir ${factor.label}`}
+                accessibilityHint={`Muestra el detalle del modulo ${factor.label}.`}
+              >
+                <View style={styles.factorTopRow}>
+                  <View style={styles.factorTitleRow}>
+                    <View style={[styles.factorDot, { backgroundColor: factor.color }]} />
+                    <Text style={styles.factorLabel}>{factor.label}</Text>
+                  </View>
+                  <View style={styles.factorValueWrap}>
+                    <Ionicons name={getTrendArrow(factor.delta)} size={13} color={getDeltaTone(factor.delta)} />
+                    <Text style={[styles.factorValue, { color: factor.color }]}>{clampPercent(factor.value)}%</Text>
+                  </View>
+                </View>
+
+                <ProgressBar color={factor.color} progress={factor.value} />
+
+                <View style={styles.factorMetaRow}>
+                  <Text style={styles.factorMeta}>
+                    {factor.delta === null
+                      ? 'Aun no hay comparacion suficiente'
+                      : `${factor.delta > 0 ? 'Sube' : factor.delta < 0 ? 'Baja' : 'Se mantiene'} ${Math.abs(factor.delta)} pts en la ventana`}
+                  </Text>
+                  <MiniSparkline values={factor.series} color={factor.color} width={88} height={24} />
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </Card>
+
+        <Card variant="insight" accentColor={coachAccent} style={styles.coachCard}>
+          <View style={styles.coachTop}>
+            <View style={[styles.coachIconWrap, { backgroundColor: withOpacity(coachAccent, 0.16) }]}>
+              <Ionicons name="sparkles" size={18} color={coachAccent} />
+            </View>
+            <View style={styles.coachCopy}>
+              <Text style={styles.coachEyebrow}>Coach inteligente</Text>
+              <Text style={styles.coachTitle}>{coachTitle}</Text>
+              <Text style={styles.coachBody}>{coachBody}</Text>
+            </View>
+          </View>
+          <View style={[styles.coachActions, stackActionRows && styles.actionColumn]}>
+            <Button
+              onPress={() => router.push(coachRoute as never)}
+              color={coachAccent}
+              style={stackActionRows ? undefined : styles.flexButton}
+              fullWidth={stackActionRows}
+              size="sm"
+            >
+              Abrir accion sugerida
+            </Button>
+            <Button
+              onPress={() => router.push(insightsRoute as never)}
+              variant="ghost"
+              color={Colors.textSecondary}
+              style={stackActionRows ? undefined : styles.flexButton}
+              fullWidth={stackActionRows}
+              size="sm"
+            >
+              Ver lectura extendida
+            </Button>
+          </View>
+        </Card>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>{progressStrings.sections.chosenModules}</Text>
+          <Text style={styles.sectionHint}>{progressStrings.sections.chosenModulesHint}</Text>
+        </View>
+
+        <View style={styles.moduleGrid}>
           {moduleCards.map((card) => (
-            <Card key={card.id} style={styles.moduleCard}>
+            <Card
+              key={card.id}
+              onPress={() => router.push(card.route as never)}
+              style={[styles.moduleCard, compactModuleCards && styles.moduleCardCompact]}
+              accessibilityLabel={`Abrir ${card.title}`}
+              accessibilityHint={card.note}
+            >
               <View style={styles.moduleTop}>
                 <View style={styles.moduleCopy}>
                   <Text style={[styles.moduleLabel, { color: card.color }]}>{card.title}</Text>
                   <Text style={styles.moduleValue}>{card.value}</Text>
                   <Text style={styles.moduleMeta}>{card.meta}</Text>
                 </View>
-                <View style={[styles.modulePercentBadge, { borderColor: withOpacity(card.color, 0.25) }]}>
+                <View style={[styles.modulePercentBadge, { borderColor: withOpacity(card.color, 0.22) }]}>
                   <Text style={[styles.modulePercentText, { color: card.color }]}>{clampPercent(card.progress)}%</Text>
                 </View>
               </View>
               <ProgressBar color={card.color} progress={card.progress} />
               <Text style={styles.moduleNote}>{card.note}</Text>
-              <Button
-                onPress={() => router.push(card.route as never)}
-                variant="secondary"
-                color={card.color}
-                fullWidth
-              >
-                {card.cta}
-              </Button>
             </Card>
           ))}
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Musculos que mejor vienes trabajando</Text>
-          <Text style={styles.sectionHint}>Basado en tus ultimos 30 dias de entreno real.</Text>
+          <Text style={styles.sectionTitle}>{progressStrings.sections.trainedMuscles}</Text>
+          <Text style={styles.sectionHint}>{progressStrings.sections.trainedMusclesHint}</Text>
         </View>
 
         <Card style={styles.muscleCard}>
-          <MuscleSilhouette counts={muscleCounts} />
-          {topMuscles.length ? (
-            <View style={styles.muscleChipRow}>
-              {topMuscles.map(([key, value]) => (
-                <View key={key} style={styles.muscleChip}>
-                  <Text style={styles.muscleChipTitle}>{key.toUpperCase()}</Text>
-                  <Text style={styles.muscleChipBody}>{value} sesiones con foco</Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>
-              Cuando completes mas sesiones, aqui vas a ver rapido si tu trabajo real esta cayendo en piernas, espalda, core o torso.
-            </Text>
-          )}
+          <MuscleSilhouette
+            musclesWorked={recentWorkoutMuscles}
+            sex={profile?.biological_sex ?? profile?.gender ?? 'male'}
+            height={muscleMapHeight}
+          />
+          {!recentWorkoutMuscles.length ? <Text style={styles.emptyText}>{progressStrings.muscle.empty}</Text> : null}
           <Text style={styles.programNote}>{currentProgramLabel}</Text>
         </Card>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Energia y peso</Text>
-          <Text style={styles.sectionHint}>Lo importante cambia segun el objetivo que elegiste.</Text>
+          <Text style={styles.sectionTitle}>{ProgressPageStrings.sectionEnergy}</Text>
+          <Text style={styles.sectionHint}>{ProgressPageStrings.sectionEnergyHint}</Text>
         </View>
 
         <View style={styles.energyGrid}>
           <Card style={styles.energyCard}>
-            <Text style={styles.energyEyebrow}>Calorias de hoy</Text>
+            <Text style={styles.energyEyebrow}>{ProgressPageStrings.caloriesEyebrow}</Text>
             <Text style={styles.energyTitle}>{goalCopy.title}</Text>
             <Text style={styles.energyBody}>{goalCopy.body}</Text>
             <Text style={styles.energyNote}>{goalCopy.note}</Text>
+            {needsNutritionKickoff ? (
+              <Button
+                onPress={() =>
+                  router.push({
+                    pathname: Routes.nutrition.log,
+                    params: { mealType: 'breakfast' },
+                  } as never)
+                }
+                variant="secondary"
+                color={Colors.nutrition}
+                fullWidth
+                size="sm"
+              >
+                Registrar primera comida
+              </Button>
+            ) : null}
           </Card>
 
           <Card style={styles.energyCard}>
-            <Text style={styles.energyEyebrow}>Peso y direccion</Text>
+            <Text style={styles.energyEyebrow}>{ProgressPageStrings.weightEyebrow}</Text>
             <Text style={styles.energyTitle}>{weightCopy.title}</Text>
             <Text style={styles.energyBody}>{weightCopy.body}</Text>
             <Text style={styles.energyNote}>{weightCopy.note}</Text>
+            {needsWeightKickoff ? (
+              <Button
+                onPress={() => router.push(Routes.settings.account as never)}
+                variant="secondary"
+                color={Colors.textPrimary}
+                fullWidth
+                size="sm"
+              >
+                Registrar peso actual
+              </Button>
+            ) : null}
           </Card>
         </View>
 
-        <View style={styles.footerActions}>
+        <View style={[styles.footerActions, stackActionRows && styles.actionColumn]}>
           <Button
             onPress={() => router.push(Routes.workout.programs as never)}
             color={Colors.workout}
-            style={styles.flexButton}
+            style={stackActionRows ? undefined : styles.flexButton}
+            fullWidth={stackActionRows}
           >
-            Ver programas
+            {ProgressPageStrings.viewPrograms}
           </Button>
           <Button
             onPress={() => router.push(Routes.tabs.home as never)}
             variant="secondary"
             color={Colors.textPrimary}
-            style={styles.flexButton}
+            style={stackActionRows ? undefined : styles.flexButton}
+            fullWidth={stackActionRows}
           >
-            Volver a inicio
+            {ProgressPageStrings.backHome}
           </Button>
         </View>
 
@@ -664,7 +1186,6 @@ export default function ProgressScreen() {
 
 const styles = StyleSheet.create({
   scroll: {
-    paddingHorizontal: Spacing[5],
     paddingTop: Spacing[2],
     paddingBottom: Spacing[10],
     gap: Spacing[4],
@@ -677,78 +1198,153 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 32,
+    fontSize: FontSize['2.5xl'],
+    lineHeight: TextLeading['2.5xl'],
     color: Colors.textPrimary,
   },
   subtitle: {
     fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
+    fontSize: FontSize.md,
+    lineHeight: TextLeading.md,
     color: Colors.textSecondary,
   },
   exportButton: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.surface3, 0.9),
+    backgroundColor: withOpacity(Colors.surface3, 0.92),
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
   },
   heroCard: {
     gap: Spacing[3],
-    backgroundColor: withOpacity(Colors.surface2, 0.9),
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
   },
-  heroTopRow: {
-    gap: Spacing[3],
+  heroTop: {
+    gap: Spacing[4],
   },
-  heroNumberWrap: {
+  heroTopWide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ringColumn: {
+    gap: Spacing[2],
+    alignItems: 'center',
+  },
+  ringContent: {
+    alignItems: 'center',
     gap: 2,
   },
-  heroEyebrow: {
+  ringEyebrow: {
     fontFamily: FontFamily.semibold,
-    fontSize: 11,
+    fontSize: FontSize.xs,
     letterSpacing: 1,
     textTransform: 'uppercase',
-    color: Colors.brand,
+    color: Colors.textMuted,
   },
-  heroNumber: {
+  ringValue: {
     fontFamily: FontFamily.display,
-    fontSize: 56,
-    lineHeight: 58,
+    fontSize: FontSize['3xl'],
+    lineHeight: TextLeading['3xl'],
     color: Colors.textPrimary,
   },
-  heroLabel: {
-    fontFamily: FontFamily.medium,
+  ringLabel: {
+    fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    textAlign: 'center',
   },
-  heroBadge: {
-    alignSelf: 'flex-start',
+  streakBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.brand, 0.1),
+    backgroundColor: withOpacity(Colors.premium, 0.12),
     borderWidth: 1,
-    borderColor: withOpacity(Colors.brand, 0.2),
-    paddingHorizontal: Spacing[3],
+    borderColor: withOpacity(Colors.premium, 0.24),
+    paddingHorizontal: Spacing[2.5],
     paddingVertical: Spacing[1.5],
   },
-  heroBadgeText: {
+  streakBadgeText: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: Colors.brand,
+    color: Colors.textPrimary,
   },
-  heroBody: {
+  heroSummary: {
+    flex: 1,
+    gap: Spacing[2],
+  },
+  heroWindowLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
+  heroSummaryTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize['lg+'],
+    lineHeight: TextLeading['lg+'],
+    color: Colors.textPrimary,
+  },
+  heroSummaryBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: TextLeading.sm,
+    color: Colors.textSecondary,
+  },
+  statGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  statPill: {
+    minWidth: '47%',
+    minHeight: 92,
+    flexGrow: 1,
+    gap: 4,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2.5],
+  },
+  statPillLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  statPillValue: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  heroChartWrap: {
+    borderRadius: Radius.xl,
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+    padding: Spacing[3],
+  },
+  emptyChart: {
+    gap: Spacing[2],
+    paddingVertical: Spacing[3],
+  },
+  emptyChartTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  emptyChartBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: TextLeading.sm,
     color: Colors.textSecondary,
   },
   weekRow: {
@@ -757,12 +1353,12 @@ const styles = StyleSheet.create({
   },
   weekDot: {
     flex: 1,
-    height: 10,
+    height: 6,
     borderRadius: Radius.full,
     backgroundColor: withOpacity(Colors.white, 0.08),
   },
   weekDotDone: {
-    backgroundColor: withOpacity(Colors.brand, 0.88),
+    backgroundColor: withOpacity(Colors.premium, 0.88),
   },
   weekDotToday: {
     borderWidth: 1,
@@ -770,7 +1366,10 @@ const styles = StyleSheet.create({
   },
   heroActions: {
     flexDirection: 'row',
-    gap: Spacing[2],
+    gap: Spacing[1.5],
+  },
+  actionColumn: {
+    flexDirection: 'column',
   },
   flexButton: {
     flex: 1,
@@ -780,26 +1379,147 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: FontFamily.semibold,
-    fontSize: 20,
+    fontSize: FontSize['lg+'],
     color: Colors.textPrimary,
   },
   sectionHint: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
+    lineHeight: TextLeading.sm,
     color: Colors.textSecondary,
   },
-  moduleList: {
+  factorCard: {
+    gap: Spacing[3],
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
+  },
+  factorHeaderRow: {
+    gap: 4,
+  },
+  factorHeaderTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  factorHeaderHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: TextLeading.sm,
+    color: Colors.textSecondary,
+  },
+  factorList: {
+    gap: Spacing[2.5],
+  },
+  factorRow: {
+    gap: Spacing[2],
+    borderRadius: Radius.lg,
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.05),
+    padding: Spacing[3],
+  },
+  factorTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  factorTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  factorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radius.full,
+  },
+  factorLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  factorValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  factorValue: {
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.base,
+  },
+  factorMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  factorMeta: {
+    flex: 1,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: TextLeading.xs,
+    color: Colors.textSecondary,
+  },
+  coachCard: {
+    gap: Spacing[3],
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
+  },
+  coachTop: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+    alignItems: 'flex-start',
+  },
+  coachIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coachCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  coachEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
+  coachTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  coachBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: TextLeading.sm,
+    color: Colors.textSecondary,
+  },
+  coachActions: {
+    flexDirection: 'row',
+    gap: Spacing[1.5],
+  },
+  moduleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing[3],
   },
   moduleCard: {
-    gap: Spacing[2.5],
-    backgroundColor: withOpacity(Colors.surface2, 0.9),
+    width: '48%',
+    gap: Spacing[2],
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
+  },
+  moduleCardCompact: {
+    width: '100%',
   },
   moduleTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: Spacing[2],
     alignItems: 'flex-start',
+    gap: Spacing[2],
   },
   moduleCopy: {
     flex: 1,
@@ -813,8 +1533,8 @@ const styles = StyleSheet.create({
   },
   moduleValue: {
     fontFamily: FontFamily.display,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: FontSize.base,
+    lineHeight: TextLeading.base,
     color: Colors.textPrimary,
   },
   moduleMeta: {
@@ -835,7 +1555,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
   },
   progressTrack: {
-    height: 9,
+    height: 8,
     borderRadius: Radius.full,
     backgroundColor: withOpacity(Colors.white, 0.08),
     overflow: 'hidden',
@@ -847,42 +1567,17 @@ const styles = StyleSheet.create({
   moduleNote: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: TextLeading.xs,
     color: Colors.textSecondary,
   },
   muscleCard: {
-    gap: Spacing[3],
-    backgroundColor: withOpacity(Colors.surface2, 0.9),
-  },
-  muscleChipRow: {
-    flexDirection: 'row',
     gap: Spacing[2],
-    flexWrap: 'wrap',
-  },
-  muscleChip: {
-    minWidth: 92,
-    borderRadius: Radius.xl,
-    backgroundColor: withOpacity(Colors.surface3, 0.9),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-    gap: 2,
-  },
-  muscleChipTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 11,
-    color: Colors.textPrimary,
-  },
-  muscleChipBody: {
-    fontFamily: FontFamily.regular,
-    fontSize: 11,
-    color: Colors.textSecondary,
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
   },
   emptyText: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: TextLeading.sm,
     color: Colors.textSecondary,
   },
   programNote: {
@@ -894,26 +1589,26 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   energyCard: {
-    gap: Spacing[2],
-    backgroundColor: withOpacity(Colors.surface2, 0.9),
+    gap: Spacing[1.5],
+    backgroundColor: withOpacity(Colors.surface2, 0.94),
   },
   energyEyebrow: {
     fontFamily: FontFamily.semibold,
-    fontSize: 11,
+    fontSize: FontSize.xs,
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: Colors.textMuted,
   },
   energyTitle: {
     fontFamily: FontFamily.display,
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: FontSize.xl,
+    lineHeight: TextLeading.xl,
     color: Colors.textPrimary,
   },
   energyBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: TextLeading.sm,
     color: Colors.textSecondary,
   },
   energyNote: {

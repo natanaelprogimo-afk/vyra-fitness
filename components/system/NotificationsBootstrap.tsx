@@ -41,6 +41,14 @@ function fallbackActionForType(type: string | null) {
     return NOTIFICATION_ACTIONS.openWorkout;
   }
 
+  if (type === 'female_prediction') {
+    return NOTIFICATION_ACTIONS.openFemale;
+  }
+
+  if (type === 'sleep_morning_log' || type === 'sleep_smart_alarm') {
+    return NOTIFICATION_ACTIONS.openSleepLog;
+  }
+
   return null;
 }
 
@@ -69,16 +77,28 @@ function buildResponseKey(response: Notifications.NotificationResponse) {
   ].join(':');
 }
 
-function openQuickLogFromNotification() {
+function openQuickLogFromNotification(timeoutIdsRef: React.MutableRefObject<NodeJS.Timeout[]>) {
   router.replace(Routes.tabs.home as never);
   useUIStore.getState().openQuickLog();
 
   // Notification taps can race against route/bootstrap work on warm and cold launches.
   [250, 700, 1200].forEach((delayMs) => {
-    setTimeout(() => {
-      useUIStore.getState().openQuickLog();
-    }, delayMs);
+    timeoutIdsRef.current.push(
+      setTimeout(() => {
+        useUIStore.getState().openQuickLog();
+      }, delayMs)
+    );
   });
+}
+
+function openSleepLogFromNotification() {
+  router.replace({
+    pathname: Routes.sleep.log,
+    params: {
+      quick: '1',
+      source: 'notification',
+    },
+  } as never);
 }
 
 export default function NotificationsBootstrap() {
@@ -88,7 +108,16 @@ export default function NotificationsBootstrap() {
   const session = useAuthStore((s) => s.session);
   const [pendingResponses, setPendingResponses] = useState<Notifications.NotificationResponse[]>([]);
   const handledResponseKeysRef = useRef<Set<string>>(new Set());
+  const timeoutIdsRef = useRef<NodeJS.Timeout[]>([]);
   const canProcessResponses = isInitialized && (!session?.user || hasResolvedProfile);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutIdsRef.current.forEach(clearTimeout);
+      timeoutIdsRef.current = [];
+    };
+  }, []);
 
   const enqueueResponse = useCallback((response: Notifications.NotificationResponse) => {
     setPendingResponses((current) => [...current, response]);
@@ -112,7 +141,7 @@ export default function NotificationsBootstrap() {
       void (async () => {
         const saved = await quickLogWaterFromNotification(extractQuickAmount(data));
         if (!saved) {
-          openQuickLogFromNotification();
+          openQuickLogFromNotification(timeoutIdsRef);
         }
       })();
       return;
@@ -142,12 +171,22 @@ export default function NotificationsBootstrap() {
     }
 
     if (action === NOTIFICATION_ACTIONS.openQuickLog) {
-      openQuickLogFromNotification();
+      openQuickLogFromNotification(timeoutIdsRef);
+      return;
+    }
+
+    if (action === NOTIFICATION_ACTIONS.openSleepLog) {
+      openSleepLogFromNotification();
       return;
     }
 
     if (action === NOTIFICATION_ACTIONS.openWorkout) {
       router.replace(Routes.workout.index as never);
+      return;
+    }
+
+    if (action === NOTIFICATION_ACTIONS.openFemale) {
+      router.replace(Routes.female.index as never);
       return;
     }
 

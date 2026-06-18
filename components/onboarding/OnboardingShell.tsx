@@ -1,13 +1,20 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import OnboardingProgress from '@/components/system/OnboardingProgress';
-import { Colors, withOpacity } from '@/constants/colors';
+import { Colors } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { Routes } from '@/constants/routes';
-import { getOnboardingStepMeta } from '@/constants/onboardingFlow';
+import { getOnboardingStepMeta, ONBOARDING_STEPS } from '@/constants/onboardingFlow';
 
 interface OnboardingShellProps {
   pathname: string;
@@ -38,19 +45,52 @@ export default function OnboardingShell({
 }: OnboardingShellProps) {
   const meta = getOnboardingStepMeta(pathname);
   const shouldShowBack = (meta?.order ?? 99) > 1;
+  const stepLabel = meta ? `Paso ${meta.order} de ${ONBOARDING_STEPS.length}` : null;
 
   return (
     <SafeScreen
-      scrollable={scrollable}
+      scrollable={false}
       padBottom
+      disableAtmosphere
       contentStyle={contentStyle ? { ...styles.content, ...contentStyle } : styles.content}
     >
       <View style={styles.topRail}>
         <View style={styles.progressRow}>
+          {shouldShowBack ? (
+            <Pressable
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                  return;
+                }
+                router.replace(Routes.auth.welcome as never);
+              }}
+              style={styles.backButton}
+              accessibilityRole="button"
+              accessibilityLabel="Volver"
+            >
+              <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
+            </Pressable>
+          ) : (
+            <View style={styles.backButtonPlaceholder} />
+          )}
+
           <View style={styles.progressCopy}>
-            <Text style={styles.progressLabel}>{meta?.blockLabel ?? 'Configurando Vyra'}</Text>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>{meta?.blockLabel ?? 'Configurando Vyra'}</Text>
+              {stepLabel ? (
+                <Text
+                  style={styles.progressStep}
+                  accessibilityLiveRegion="polite"
+                  accessible={true}
+                >
+                  {stepLabel}
+                </Text>
+              ) : null}
+            </View>
             <OnboardingProgress pathname={pathname} />
           </View>
+
           {onSkip ? (
             <Pressable
               onPress={onSkip}
@@ -60,27 +100,12 @@ export default function OnboardingShell({
             >
               <Text style={styles.skipText}>{skipLabel}</Text>
             </Pressable>
-          ) : null}
+          ) : (
+            <View style={styles.skipPlaceholder} />
+          )}
         </View>
         {skipHint ? <Text style={styles.skipHint}>{skipHint}</Text> : null}
       </View>
-
-      {shouldShowBack ? (
-        <Pressable
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-              return;
-            }
-            router.replace(Routes.auth.welcome as never);
-          }}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-        >
-          <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
-        </Pressable>
-      ) : null}
 
       <View style={styles.header}>
         <Text style={styles.eyebrow}>{eyebrow}</Text>
@@ -90,77 +115,109 @@ export default function OnboardingShell({
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
 
-      <View style={styles.body}>{children}</View>
-      {footer ? <View style={styles.footer}>{footer}</View> : null}
+      <View
+        style={styles.bodyRegion}
+        accessible={true}
+        accessibilityLabel={`${eyebrow}: ${typeof title === 'string' ? title : ''}`}
+      >
+        {scrollable ? (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollBody}
+          >
+            <View style={styles.body}>{children}</View>
+          </ScrollView>
+        ) : (
+          <View style={styles.body}>{children}</View>
+        )}
+      </View>
+
+      {footer ? <View style={styles.footerPinned}>{footer}</View> : null}
     </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    gap: Spacing[6],
-    paddingTop: Spacing[5],
-    paddingBottom: Spacing[10],
+    flex: 1,
+    gap: Spacing[4],
+    paddingTop: Spacing[1],
+    paddingBottom: Spacing[6],
   },
   topRail: {
-    gap: Spacing[3],
+    gap: Spacing[1.5],
   },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing[3],
+    gap: Spacing[2],
   },
   progressCopy: {
     flex: 1,
+    gap: Spacing[1.5],
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: Spacing[2],
   },
   progressLabel: {
     fontFamily: FontFamily.semibold,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.textMuted,
-    letterSpacing: 1.1,
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
   },
+  progressStep: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
   skipButton: {
-    minHeight: 44,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.22),
-    backgroundColor: withOpacity(Colors.action, 0.08),
-    paddingHorizontal: Spacing[3],
+    minHeight: 32,
+    paddingHorizontal: Spacing[1],
     alignItems: 'center',
     justifyContent: 'center',
   },
+  skipPlaceholder: {
+    width: 30,
+  },
   skipText: {
     fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
-    color: Colors.action,
+    fontSize: 11,
+    color: Colors.textSecondary,
   },
   skipHint: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: 16,
     color: Colors.textSecondary,
     maxWidth: 320,
   },
   backButton: {
-    width: 42,
-    height: 42,
+    width: 36,
+    height: 36,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: Colors.elevated,
+    borderColor: Colors.borderSubtle,
+    backgroundColor: Colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  backButtonPlaceholder: {
+    width: 36,
+    height: 36,
+  },
   header: {
-    gap: Spacing[2],
+    gap: Spacing[1.5],
   },
   eyebrow: {
     fontFamily: FontFamily.semibold,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.textMuted,
-    letterSpacing: 1.2,
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
   },
   titleWrap: {
@@ -168,23 +225,31 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 36,
-    lineHeight: 38,
+    fontSize: 24,
+    lineHeight: 30,
     color: Colors.textPrimary,
-    letterSpacing: -1.5,
+    letterSpacing: -0.6,
   },
   subtitle: {
     fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     color: Colors.textSecondary,
-    maxWidth: 340,
+    maxWidth: 360,
   },
   body: {
-    gap: Spacing[4],
+    gap: Spacing[2.5],
   },
-  footer: {
-    gap: Spacing[3],
-    marginTop: 'auto',
+  bodyRegion: {
+    flex: 1,
+    minHeight: 0,
+  },
+  scrollBody: {
+    flexGrow: 1,
+    paddingBottom: Spacing[8],
+  },
+  footerPinned: {
+    gap: Spacing[2],
+    paddingBottom: Spacing[5],
   },
 });

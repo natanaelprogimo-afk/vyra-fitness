@@ -1,30 +1,31 @@
+// REDESIGNED: 2026-05-20 - palette aligns with VYRA exhaustive redesign system
 import { Appearance, type ColorSchemeName } from 'react-native';
 
-const ACTION_RGB = [255, 69, 0] as const;
+const ACTION_RGB = [255, 255, 255] as const;
 
-const MODULE_RGB = {
-  workout: [255, 85, 51],
-  nutrition: [31, 203, 112],
-  water: [6, 182, 212],
-  sleep: [139, 92, 246],
-  steps: [132, 204, 22],
-  weight: [144, 144, 160],
-  fasting: [245, 158, 11],
-  recovery: [144, 144, 160],
-  mental: [144, 144, 160],
-  supplements: [100, 116, 139],
-  female: [192, 132, 252],
+const MODULE_COLORS = {
+  workout: { main: '#00D4FF', dark: '#0099B8' },
+  nutrition: { main: '#FF6B35', dark: '#D95522' },
+  water: { main: '#00B4D8', dark: '#007F98' },
+  sleep: { main: '#7B61FF', dark: '#5D44E0' },
+  steps: { main: '#30D158', dark: '#1E9E40' },
+  weight: { main: '#FFFFFF', dark: '#D0D0D6' },
+  fasting: { main: '#FF9500', dark: '#CC7400' },
+  recovery: { main: '#FFFFFF', dark: '#D0D0D6' },
+  mental: { main: '#007AFF', dark: '#005CCC' },
+  supplements: { main: '#BF5AF2', dark: '#9442C6' },
+  female: { main: '#FF375F', dark: '#D62A4B' },
 } as const;
 
-type ModuleRgbKey = keyof typeof MODULE_RGB;
-export type AppColorScheme = 'dark' | 'light';
-
-function rgbToString(rgb: readonly number[]) {
-  return rgb.join(',');
-}
+type ModuleKey = keyof typeof MODULE_COLORS;
+export type AppColorScheme = 'dark' | 'light' | 'midnight' | 'pastel' | 'forest' | 'ocean' | 'sunset';
 
 function pair(left: string, right: string): [string, string] {
   return [left, right];
+}
+
+function rgbToString(rgb: readonly number[]) {
+  return rgb.join(',');
 }
 
 export function withOpacity(hex: string, opacity: number): string {
@@ -40,131 +41,264 @@ export function withOpacity(hex: string, opacity: number): string {
 
 function buildPalette(scheme: AppColorScheme) {
   const isLight = scheme === 'light';
+  const isMidnight = scheme === 'midnight';
+  const isPastel = scheme === 'pastel';
+  const isForest = scheme === 'forest';
+  const isOcean = scheme === 'ocean';
+  const isSunset = scheme === 'sunset';
+
+  // Define color palettes for each theme
+  let base: string;
+  let surface1: string;
+  let surface2: string;
+  let surface3: string;
+  let surface4: string;
+  let textPrimary: string;
+  let textSecondary: string;
+  let textTertiary: string;
+  let textDisabled: string;
+  let borderStrong: string;
+  let borderSubtle: string;
+  let borderFocus: string;
+
+  if (isLight) {
+    base = '#F5F6FA';
+    surface1 = '#FFFFFF';
+    surface2 = '#F1F3F9';
+    surface3 = '#E9EDF5';
+    surface4 = '#E1E6F0';
+    textPrimary = '#141419';
+    textSecondary = 'rgba(20,20,25,0.70)';
+    textTertiary = 'rgba(20,20,25,0.45)';
+    textDisabled = 'rgba(20,20,25,0.25)';
+    borderStrong = 'rgba(20,20,25,0.12)';
+    borderSubtle = 'rgba(20,20,25,0.06)';
+    borderFocus = 'rgba(20,20,25,0.22)';
+  } else if (isMidnight) {
+    // Midnight: Oscuro profundo con acentos azules fríos, optimizado para menos fatiga ocular
+    base = '#111111';
+    surface1 = '#1A1A1F';
+    surface2 = '#222229';
+    surface3 = '#2A2A33';
+    surface4 = '#32323E';
+    textPrimary = '#F0F0F6';
+    textSecondary = 'rgba(240,240,246,0.75)';
+    textTertiary = 'rgba(240,240,246,0.50)';
+    textDisabled = 'rgba(240,240,246,0.30)';
+    borderStrong = 'rgba(100,200,255,0.15)';
+    borderSubtle = 'rgba(100,200,255,0.06)';
+    borderFocus = 'rgba(100,200,255,0.40)';
+  } else if (isPastel) {
+    // Pastel: Colores suaves y relajantes
+    base = '#FBF9F6';
+    surface1 = '#FFFDF9';
+    surface2 = '#F5F2ED';
+    surface3 = '#EDE8E0';
+    surface4 = '#E5DED4';
+    textPrimary = '#4A4644';
+    textSecondary = 'rgba(74,70,68,0.75)';
+    textTertiary = 'rgba(74,70,68,0.50)';
+    textDisabled = 'rgba(74,70,68,0.30)';
+    borderStrong = 'rgba(200,180,160,0.20)';
+    borderSubtle = 'rgba(200,180,160,0.08)';
+    borderFocus = 'rgba(200,180,160,0.35)';
+  } else if (isForest) {
+    // Forest: Verdes naturales y tonos tierra
+    base = '#0F1610';
+    surface1 = '#1A2219';
+    surface2 = '#233024';
+    surface3 = '#2C3E2F';
+    surface4 = '#354C38';
+    textPrimary = '#E8F0E5';
+    textSecondary = 'rgba(232,240,229,0.75)';
+    textTertiary = 'rgba(232,240,229,0.50)';
+    textDisabled = 'rgba(232,240,229,0.30)';
+    borderStrong = 'rgba(100,180,120,0.15)';
+    borderSubtle = 'rgba(100,180,120,0.06)';
+    borderFocus = 'rgba(100,180,120,0.40)';
+  } else if (isOcean) {
+    // Ocean: Azules profundos como el océano
+    base = '#0A1420';
+    surface1 = '#132338';
+    surface2 = '#1C3454';
+    surface3 = '#254870';
+    surface4 = '#2E5C8C';
+    textPrimary = '#E0F0FF';
+    textSecondary = 'rgba(224,240,255,0.75)';
+    textTertiary = 'rgba(224,240,255,0.50)';
+    textDisabled = 'rgba(224,240,255,0.30)';
+    borderStrong = 'rgba(100,180,255,0.15)';
+    borderSubtle = 'rgba(100,180,255,0.06)';
+    borderFocus = 'rgba(100,180,255,0.40)';
+  } else if (isSunset) {
+    // Sunset: Naranjas, rosas y cálidos
+    base = '#1F1012';
+    surface1 = '#3D1F2A';
+    surface2 = '#5C3B48';
+    surface3 = '#7B5765';
+    surface4 = '#9A7382';
+    textPrimary = '#FFDFCC';
+    textSecondary = 'rgba(255,223,204,0.75)';
+    textTertiary = 'rgba(255,223,204,0.50)';
+    textDisabled = 'rgba(255,223,204,0.30)';
+    borderStrong = 'rgba(255,150,100,0.15)';
+    borderSubtle = 'rgba(255,150,100,0.06)';
+    borderFocus = 'rgba(255,150,100,0.40)';
+  } else {
+    // Dark (default): Optimizado con #111111 para reducir fatiga ocular
+    base = '#111111';
+    surface1 = '#1A1A1F';
+    surface2 = '#222229';
+    surface3 = '#2A2A33';
+    surface4 = '#32323E';
+    textPrimary = '#FFFFFF';
+    textSecondary = 'rgba(255,255,255,0.70)';
+    textTertiary = 'rgba(255,255,255,0.45)';
+    textDisabled = 'rgba(255,255,255,0.25)';
+    borderStrong = 'rgba(255,255,255,0.12)';
+    borderSubtle = 'rgba(255,255,255,0.04)';
+    borderFocus = 'rgba(255,255,255,0.35)';
+  }
 
   return {
-    action: '#FF4500',
-    actionPressed: '#CC3700',
-    actionDim: '#CC3700',
-    actionBg: withOpacity('#FF4500', isLight ? 0.12 : 0.1),
-    actionBorder: withOpacity('#FF4500', isLight ? 0.28 : 0.25),
-    actionGlow: withOpacity('#FF4500', isLight ? 0.16 : 0.12),
-    actionPulse: withOpacity('#FF4500', isLight ? 0.24 : 0.2),
+    action: '#FFFFFF',
+    primary: '#FFFFFF',
+    actionPressed: isLight ? '#E8EAF1' : '#E9E9EC',
+    actionDim: isLight ? '#DADDE6' : '#CFCFD5',
+    actionBg: isLight ? 'rgba(20,20,25,0.06)' : 'rgba(255,255,255,0.08)',
+    actionBorder: isLight ? 'rgba(20,20,25,0.14)' : 'rgba(255,255,255,0.16)',
+    actionGlow: isLight ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.10)',
+    actionPulse: isLight ? 'rgba(20,20,25,0.10)' : 'rgba(255,255,255,0.14)',
 
-    base: isLight ? '#F3F5F8' : '#07070A',
-    surface: isLight ? '#FFFFFF' : '#111115',
-    elevated: isLight ? '#F8FAFC' : '#18181D',
-    overlaySurface: isLight ? '#EEF2F6' : '#1E1E25',
-    overlaySurface2: isLight ? '#E4E9F0' : '#26262E',
-    glassSurface: isLight ? 'rgba(255,255,255,0.78)' : 'rgba(18,18,23,0.75)',
+    secondary: '#007AFF',
+    secondaryPressed: '#0062CC',
+    secondaryDim: '#5AA7FF',
+    secondaryBg: isLight ? 'rgba(0,122,255,0.08)' : 'rgba(255,255,255,0.08)',
+    secondaryBorder: isLight ? 'rgba(0,122,255,0.18)' : 'rgba(255,255,255,0.16)',
+    secondaryGlow: isLight ? 'rgba(0,122,255,0.10)' : 'rgba(255,255,255,0.10)',
+    secondaryPulse: isLight ? 'rgba(0,122,255,0.14)' : 'rgba(255,255,255,0.14)',
 
-    bgBase: isLight ? '#F3F5F8' : '#07070A',
-    bgPrimary: isLight ? '#F3F5F8' : '#07070A',
-    bgPrimarySoft: isLight ? '#FFFFFF' : '#111115',
-    bgSurface: isLight ? '#FFFFFF' : '#111115',
-    bgElevated: isLight ? '#F8FAFC' : '#18181D',
-    bgOverlay: isLight ? '#EEF2F6' : '#1E1E25',
-    bgOverlay2: isLight ? '#E4E9F0' : '#26262E',
-    bgFloating: isLight ? '#FFFFFF' : '#1E1E25',
-    bgGlass: isLight ? 'rgba(255,255,255,0.78)' : 'rgba(18,18,23,0.75)',
+    base,
+    background: base,
+    surface: surface1,
+    elevated: surface2,
+    overlaySurface: surface2,
+    overlaySurface2: surface4,
+    glassSurface: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(20,20,25,0.82)',
 
-    surface1: isLight ? '#FFFFFF' : '#111115',
-    surface2: isLight ? '#F8FAFC' : '#18181D',
-    surface3: isLight ? '#EEF2F6' : '#1E1E25',
+    bgBase: base,
+    bgPrimary: base,
+    bgPrimarySoft: surface1,
+    bgSurface: surface1,
+    bgElevated: surface2,
+    bgOverlay: surface2,
+    bgOverlay2: surface4,
+    bgFloating: surface1,
+    bgGlass: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(20,20,25,0.82)',
 
-    border: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.06)',
-    border2: isLight ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.10)',
-    borderSubtle: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)',
-    borderStrong: isLight ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.14)',
-    divider: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.06)',
-    borderFocus: withOpacity('#FF4500', isLight ? 0.36 : 0.32),
+    surface1,
+    surface2,
+    surface3,
 
-    textPrimary: isLight ? '#111827' : '#F0F0F3',
-    textSecondary: isLight ? '#475569' : '#9090A0',
-    textMuted: isLight ? '#64748B' : '#55555F',
-    textDisabled: isLight ? '#94A3B8' : '#32323A',
+    border: borderStrong,
+    border2: isLight ? 'rgba(20,20,25,0.16)' : 'rgba(255,255,255,0.12)',
+    borderSubtle,
+    borderStrong,
+    divider: borderSubtle,
+    borderFocus,
 
-    success: isLight ? '#0D9F6E' : '#00E87A',
-    error: isLight ? '#DC2626' : '#EF4444',
-    warning: isLight ? '#D97706' : '#F59E0B',
-    info: isLight ? '#0F766E' : '#9090A0',
-    excellent: isLight ? '#0284C7' : '#38BDF8',
+    textPrimary,
+    text: textPrimary,
+    textSecondary,
+    textMuted: textTertiary,
+    textDisabled,
+    gray400: textTertiary,
+    gray500: textSecondary,
+    gray600: textPrimary,
 
-    successBg: isLight ? withOpacity('#0D9F6E', 0.12) : 'rgba(0,232,122,0.12)',
-    successDim: isLight ? withOpacity('#0D9F6E', 0.1) : 'rgba(0,232,122,0.10)',
-    errorBg: isLight ? withOpacity('#DC2626', 0.12) : 'rgba(239,68,68,0.12)',
-    warningBg: isLight ? withOpacity('#D97706', 0.12) : 'rgba(245,158,11,0.12)',
-    infoBg: isLight ? withOpacity('#0F766E', 0.1) : 'rgba(144,144,160,0.12)',
+    success: '#34C759',
+    error: '#FF3B30',
+    warning: '#FF9500',
+    info: '#007AFF',
+    excellent: '#34C759',
+    danger: '#FF3B30',
 
-    brand: '#FF4500',
-    brandDark: '#CC3700',
-    brandLight: isLight ? '#FF8E66' : '#FF7A45',
+    successBg: withOpacity('#34C759', isLight ? 0.12 : 0.14),
+    primaryLight: withOpacity('#FFFFFF', isLight ? 0.4 : 0.08),
+    successDim: withOpacity('#34C759', isLight ? 0.08 : 0.12),
+    errorBg: withOpacity('#FF3B30', isLight ? 0.12 : 0.15),
+    warningBg: withOpacity('#FF9500', isLight ? 0.12 : 0.14),
+    infoBg: withOpacity('#007AFF', isLight ? 0.1 : 0.14),
 
-    overlay: isLight ? 'rgba(15,23,42,0.22)' : 'rgba(7,7,10,0.88)',
-    overlayLight: isLight ? 'rgba(255,255,255,0.76)' : 'rgba(17,17,21,0.76)',
-    glass: isLight ? 'rgba(255,255,255,0.78)' : 'rgba(18,18,23,0.75)',
-    glassLight: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(24,24,29,0.84)',
+    brand: '#FFFFFF',
+    brandDark: isLight ? '#141419' : '#DADAE0',
+    brandLight: isLight ? '#FFFFFF' : '#FFFFFF',
+    premium: '#FFD60A',
+    premiumBg: withOpacity('#FFD60A', isLight ? 0.12 : 0.14),
 
-    workout: '#FF5533',
-    workoutDark: '#E04A2B',
-    workoutBg: withOpacity('#FF5533', isLight ? 0.12 : 0.1),
-    nutrition: '#1FCB70',
-    nutritionDark: '#19A55A',
-    nutritionBg: withOpacity('#1FCB70', isLight ? 0.12 : 0.1),
-    water: '#06B6D4',
-    waterDark: '#0891B2',
-    waterBg: withOpacity('#06B6D4', isLight ? 0.12 : 0.1),
-    sleep: '#7C3AED',
-    sleepDark: '#6D28D9',
-    sleepBg: withOpacity('#7C3AED', isLight ? 0.12 : 0.1),
-    steps: '#84CC16',
-    stepsDark: '#65A30D',
-    stepsBg: withOpacity('#84CC16', isLight ? 0.12 : 0.1),
-    weight: '#9090A0',
-    weightDark: '#737380',
-    weightBg: withOpacity('#9090A0', isLight ? 0.12 : 0.1),
-    fasting: '#F59E0B',
-    fastingDark: '#D97706',
-    fastingBg: withOpacity('#F59E0B', isLight ? 0.12 : 0.1),
-    recovery: '#9090A0',
-    recoveryDark: '#737380',
-    recoveryBg: withOpacity('#9090A0', isLight ? 0.12 : 0.1),
-    mental: '#9090A0',
-    mentalDark: '#737380',
-    mentalBg: withOpacity('#9090A0', isLight ? 0.12 : 0.1),
-    supplements: '#64748B',
-    supplementsDark: '#475569',
-    supplementsBg: withOpacity('#64748B', isLight ? 0.12 : 0.1),
-    female: '#C084FC',
-    femaleDark: '#A855F7',
-    femaleBg: withOpacity('#C084FC', isLight ? 0.12 : 0.1),
+    overlay: isLight ? 'rgba(20,20,25,0.42)' : 'rgba(0,0,0,0.70)',
+    overlayLight: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(28,28,36,0.84)',
+    glass: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(20,20,25,0.82)',
+    glassLight: isLight ? 'rgba(255,255,255,0.96)' : 'rgba(28,28,36,0.88)',
 
-    premium: isLight ? '#111827' : '#F0F0F3',
-    premiumBg: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)',
+    workout: MODULE_COLORS.workout.main,
+    workoutDark: MODULE_COLORS.workout.dark,
+    workoutBg: withOpacity(MODULE_COLORS.workout.main, isLight ? 0.12 : 0.14),
+    nutrition: MODULE_COLORS.nutrition.main,
+    nutritionDark: MODULE_COLORS.nutrition.dark,
+    nutritionBg: withOpacity(MODULE_COLORS.nutrition.main, isLight ? 0.12 : 0.14),
+    water: MODULE_COLORS.water.main,
+    waterDark: MODULE_COLORS.water.dark,
+    waterBg: withOpacity(MODULE_COLORS.water.main, isLight ? 0.12 : 0.14),
+    sleep: MODULE_COLORS.sleep.main,
+    sleepDark: MODULE_COLORS.sleep.dark,
+    sleepBg: withOpacity(MODULE_COLORS.sleep.main, isLight ? 0.12 : 0.14),
+    steps: MODULE_COLORS.steps.main,
+    stepsDark: MODULE_COLORS.steps.dark,
+    stepsBg: withOpacity(MODULE_COLORS.steps.main, isLight ? 0.12 : 0.14),
+    weight: MODULE_COLORS.weight.main,
+    weightDark: MODULE_COLORS.weight.dark,
+    weightBg: withOpacity(MODULE_COLORS.weight.main, isLight ? 0.08 : 0.10),
+    fasting: MODULE_COLORS.fasting.main,
+    fastingDark: MODULE_COLORS.fasting.dark,
+    fastingBg: withOpacity(MODULE_COLORS.fasting.main, isLight ? 0.12 : 0.14),
+    recovery: MODULE_COLORS.recovery.main,
+    recoveryDark: MODULE_COLORS.recovery.dark,
+    recoveryBg: withOpacity(MODULE_COLORS.recovery.main, isLight ? 0.08 : 0.10),
+    mental: MODULE_COLORS.mental.main,
+    mentalDark: MODULE_COLORS.mental.dark,
+    mentalBg: withOpacity(MODULE_COLORS.mental.main, isLight ? 0.12 : 0.14),
+    supplements: MODULE_COLORS.supplements.main,
+    supplementsDark: MODULE_COLORS.supplements.dark,
+    supplementsBg: withOpacity(MODULE_COLORS.supplements.main, isLight ? 0.12 : 0.14),
+    female: MODULE_COLORS.female.main,
+    femaleDark: MODULE_COLORS.female.dark,
+    femaleBg: withOpacity(MODULE_COLORS.female.main, isLight ? 0.12 : 0.14),
 
-    rarityCommon: '#A1A1AA',
-    rarityRare: '#0EA5E9',
-    rarityEpic: '#8B5CF6',
-    rarityLegendary: '#F59E0B',
+    rarityCommon: textTertiary,
+    rarityRare: MODULE_COLORS.mental.main,
+    rarityEpic: MODULE_COLORS.supplements.main,
+    rarityLegendary: '#FFD60A',
 
     transparent: 'transparent',
     white: '#FFFFFF',
-    black: '#000000',
+    black: '#0A0A0F',
 
     gradients: {
-      brand: pair('#FF4500', '#CC3700'),
-      brandLight: pair(isLight ? '#FF9A73' : '#FF7A45', '#FF4500'),
-      premium: isLight ? pair('#FFFFFF', '#EEF2F6') : pair('#1E1E25', '#111115'),
-      water: pair('#06B6D4', '#0891B2'),
-      steps: pair('#84CC16', '#65A30D'),
-      fasting: pair('#F59E0B', '#D97706'),
-      sleep: pair('#8B5CF6', '#7C3AED'),
-      nutrition: pair('#1FCB70', '#19A55A'),
-      weight: pair('#9090A0', '#737380'),
-      workout: pair('#FF5533', '#E04A2B'),
-      mental: pair('#9090A0', '#737380'),
-      female: pair('#C084FC', '#A855F7'),
-      surface: isLight ? pair('#FFFFFF', '#F3F5F8') : pair('#1E1E25', '#111115'),
-      dark: isLight ? pair('#FFFFFF', '#EEF2F6') : pair('#111115', '#07070A'),
+      brand: pair('#FFFFFF', isLight ? '#E8EAF1' : '#D7D7DD'),
+      brandLight: pair('#FFFFFF', isLight ? '#F7F8FB' : '#EDEDF2'),
+      premium: pair('#FFD60A', '#FFB800'),
+      water: pair(MODULE_COLORS.water.main, MODULE_COLORS.water.dark),
+      steps: pair(MODULE_COLORS.steps.main, MODULE_COLORS.steps.dark),
+      fasting: pair(MODULE_COLORS.fasting.main, MODULE_COLORS.fasting.dark),
+      sleep: pair(MODULE_COLORS.sleep.main, MODULE_COLORS.sleep.dark),
+      nutrition: pair(MODULE_COLORS.nutrition.main, MODULE_COLORS.nutrition.dark),
+      weight: pair(MODULE_COLORS.weight.main, MODULE_COLORS.weight.dark),
+      workout: pair(MODULE_COLORS.workout.main, MODULE_COLORS.workout.dark),
+      mental: pair(MODULE_COLORS.mental.main, MODULE_COLORS.mental.dark),
+      female: pair(MODULE_COLORS.female.main, MODULE_COLORS.female.dark),
+      surface: pair(surface2, surface1),
+      dark: pair(surface2, base),
     },
   };
 }
@@ -187,11 +321,13 @@ let currentColorScheme: AppColorScheme = getDefaultScheme();
 export const Colors: ThemePalette = clonePalette(buildPalette(currentColorScheme));
 
 export function resolveColorSchemePreference(
-  preference: 'dark' | 'light' | 'system',
+  preference: 'dark' | 'light' | 'system' | 'midnight' | 'pastel' | 'forest' | 'ocean' | 'sunset',
   systemColorScheme?: ColorSchemeName | null,
 ): AppColorScheme {
-  if (preference === 'dark' || preference === 'light') return preference;
-  return systemColorScheme === 'light' ? 'light' : 'dark';
+  if (preference === 'system') {
+    return systemColorScheme === 'light' ? 'light' : 'dark';
+  }
+  return preference as AppColorScheme;
 }
 
 export function applyRuntimeColorScheme(scheme: AppColorScheme) {
@@ -225,7 +361,10 @@ export function getModuleColor(module: ModuleColor, focusMode = false): string {
 
 export function getModuleRgb(module: ModuleColor, focusMode = false): readonly number[] {
   if (focusMode) return ACTION_RGB;
-  return MODULE_RGB[module as ModuleRgbKey] ?? MODULE_RGB.workout;
+  const entry = MODULE_COLORS[module as ModuleKey] ?? MODULE_COLORS.workout;
+  const hex = entry.main.replace('#', '');
+  const value = Number.parseInt(hex, 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255] as const;
 }
 
 export function getModuleBg(module: ModuleColor, opacity = 0.12, focusMode = false): string {

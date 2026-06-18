@@ -1,5 +1,28 @@
-// Utility calculations used by the active product surface.
+/**
+ * DEPRECATED: Score-related calculations
+ * 
+ * MIGRATION: All score calculations now live in backend ScoreCalculator
+ * 
+ * Use instead:
+ * - useReadiness() hook → calls POST /api/scores/calculate
+ * - ScoreCalculator service (backend only)
+ * 
+ * These functions are deprecated and will be removed in v2.0:
+ * - calculateDailyScore ❌ Use backend API
+ * - buildScoreReasons ❌ Use backend API
+ * - buildMorningNarrative ❌ Use backend API
+ * - buildFocusActions ❌ Use backend API
+ * - predictEndOfDayScore ❌ Use backend API
+ * 
+ * ═══════════════════════════════════════════════════════════════════
+ */
 
+import { BmiCategories } from '@/constants/strings';
+
+/**
+ * Calculate Basal Metabolic Rate using Mifflin-St Jeor equation
+ * Required for calorie goal recommendation
+ */
 export function calculateBMR(
   weightKg: number,
   heightCm: number,
@@ -11,20 +34,30 @@ export function calculateBMR(
   return base + 5;
 }
 
+/**
+ * Activity level multipliers for TDEE calculation
+ */
 const ACTIVITY_MULTIPLIERS: Record<number, number> = {
-  0: 1.2,
-  1: 1.375,
-  2: 1.375,
-  3: 1.55,
-  4: 1.725,
+  0: 1.2,  // Sedentary
+  1: 1.375, // Light activity
+  2: 1.55, // Moderate activity
+  3: 1.725, // Very active
+  4: 1.9, // Extremely active
   5: 1.9,
 };
 
+/**
+ * Calculate Total Daily Energy Expenditure
+ * = BMR × Activity Level Multiplier
+ */
 export function calculateTDEE(bmr: number, activityLevel: number): number {
   const multiplier = ACTIVITY_MULTIPLIERS[activityLevel] ?? 1.2;
   return Math.round(bmr * multiplier);
 }
 
+/**
+ * Calculate macronutrient targets based on TDEE and goal
+ */
 export function calculateMacros(
   tdee: number,
   goal: 'lose_fat' | 'gain_muscle' | 'health' | 'performance' | 'mental',
@@ -58,6 +91,9 @@ export function calculateMacros(
   };
 }
 
+/**
+ * Calculate BMI value
+ */
 export function calculateBMI(weightKg: number, heightCm: number): number {
   const heightM = heightCm / 100;
   return parseFloat((weightKg / (heightM * heightM)).toFixed(1));
@@ -65,11 +101,21 @@ export function calculateBMI(weightKg: number, heightCm: number): number {
 
 export type BMICategory = 'underweight' | 'normal' | 'overweight' | 'obese';
 
+export function getBmiCategoryLabel(category: BMICategory): string {
+  const labels: Record<BMICategory, string> = {
+    underweight: BmiCategories.underweight,
+    normal: BmiCategories.normal,
+    overweight: BmiCategories.overweight,
+    obese: BmiCategories.obesity,
+  };
+  return labels[category];
+}
+
 export const BMI_CATEGORY_LABELS: Record<BMICategory, string> = {
-  underweight: 'Bajo peso',
-  normal: 'Peso normal',
-  overweight: 'Sobrepeso',
-  obese: 'Obesidad',
+  underweight: BmiCategories.underweight,
+  normal: BmiCategories.normal,
+  overweight: BmiCategories.overweight,
+  obese: BmiCategories.obesity,
 };
 
 export const BMI_CATEGORY_COLORS: Record<BMICategory, string> = {
@@ -99,6 +145,9 @@ export function getBMICategory(bmi: number): BMICategoryInfo {
   };
 }
 
+/**
+ * Hydration factors for different drink types
+ */
 export const HYDRATION_FACTORS: Record<string, number> = {
   water: 1.0,
   electrolyte_water: 1.05,
@@ -113,105 +162,48 @@ export const HYDRATION_FACTORS: Record<string, number> = {
   alcohol: 0.0,
 };
 
-export function calculateHydrationEquivalent(amountMl: number, drinkType: string): number {
-  const factor = HYDRATION_FACTORS[drinkType] ?? 1.0;
+/**
+ * Calculate hydration-equivalent for a drink
+ */
+export function calculateHydrationEquivalent(
+  amountMl: number,
+  drinkType: string,
+  factorOverride?: number | null,
+): number {
+  const factor =
+    typeof factorOverride === 'number' && Number.isFinite(factorOverride)
+      ? factorOverride
+      : (HYDRATION_FACTORS[drinkType] ?? 1.0);
   return Math.round(amountMl * factor);
 }
 
+/**
+ * Calculate recommended daily water goal based on weight
+ */
 export function calculateWaterGoal(weightKg: number): number {
   return Math.round(weightKg * 35);
 }
 
-export interface DailyScoreInputs {
-  waterMl: number;
-  waterGoalMl: number;
-  steps: number;
-  stepsGoal: number;
-  sleepQuality: number;
-  caloriesIn: number;
-  tdee: number;
-  mood: number;
-  stress: number;
-  energy: number;
-  motivation: number;
-}
-
-export interface DailyScoreResult {
-  total: number;
-  hydration: number;
-  activity: number;
-  sleep: number;
-  nutrition: number;
-  mental: number;
-  cappedByStress: boolean;
-}
-
-export function calculateDailyScore(inputs: DailyScoreInputs): DailyScoreResult {
-  const hydration = Math.min(100, (inputs.waterMl / inputs.waterGoalMl) * 100);
-  const activity = Math.min(100, (inputs.steps / inputs.stepsGoal) * 100);
-  const sleep = Math.min(100, inputs.sleepQuality);
-
-  const calDiff = Math.abs(inputs.caloriesIn - inputs.tdee);
-  const nutrition = Math.max(0, 100 - (calDiff / inputs.tdee) * 100);
-
-  const mental =
-    (inputs.mood / 5) * 100 * 0.15 +
-    ((11 - inputs.stress) / 10) * 100 * 0.35 +
-    (inputs.energy / 10) * 100 * 0.25 +
-    (inputs.motivation / 10) * 100 * 0.25;
-
-  let total =
-    hydration * 0.2 +
-    activity * 0.2 +
-    sleep * 0.25 +
-    nutrition * 0.15 +
-    mental * 0.2;
-
-  const cappedByStress = inputs.stress >= 8;
-  if (cappedByStress) total = Math.min(75, total);
-
-  return {
-    total: Math.round(total),
-    hydration: Math.round(hydration),
-    activity: Math.round(activity),
-    sleep: Math.round(sleep),
-    nutrition: Math.round(nutrition),
-    mental: Math.round(mental),
-    cappedByStress,
-  };
-}
-
-export function calculateSleepScore(durationMin: number, qualityRaw: number): number {
-  let durationScore = 0;
-
-  if (durationMin >= 420 && durationMin <= 540) {
-    durationScore = 100;
-  } else if (durationMin >= 360 && durationMin < 420) {
-    durationScore = 70 + ((durationMin - 360) / 60) * 30;
-  } else if (durationMin > 540 && durationMin <= 600) {
-    durationScore = 100 - ((durationMin - 540) / 60) * 20;
-  } else if (durationMin < 360) {
-    durationScore = Math.max(0, (durationMin / 360) * 70);
-  } else {
-    durationScore = Math.max(0, 80 - ((durationMin - 600) / 60) * 20);
-  }
-
-  const qualityScore = (qualityRaw / 10) * 100;
-  return Math.round(durationScore * 0.6 + qualityScore * 0.4);
-}
-
+/**
+ * Calculate distance from steps (using stride length)
+ */
 export function calculateStepsDistance(steps: number, heightCm: number): number {
   const strideM = heightCm * 0.00415;
   return parseFloat((steps * strideM).toFixed(2));
 }
 
+/**
+ * Estimate calories burned from steps
+ */
 export function calculateStepsCalories(steps: number, weightKg: number): number {
   return Math.round((steps * weightKg * 0.04) / 1000);
 }
 
-export function metersToKm(meters: number): string {
-  if (meters < 1000) return `${meters}m`;
-  return `${(meters / 1000).toFixed(2)}km`;
+export function calculateSleepScore(durationMin: number, quality: number): number {
+  const durationHours = durationMin / 60;
+  const durationComponent = Math.max(0, Math.min(100, (durationHours / 8) * 100));
+  const qualityComponent = Math.max(0, Math.min(100, quality * 10));
+  return Math.round(durationComponent * 0.55 + qualityComponent * 0.45);
 }
 
 export function calculateMentalScore(
@@ -220,19 +212,30 @@ export function calculateMentalScore(
   stress: number,
   motivation: number,
 ): number {
-  const moodScore = (mood / 5) * 100;
-  const energyScore = (energy / 10) * 100;
-  const stressScore = ((11 - stress) / 10) * 100;
-  const motivationScore = (motivation / 10) * 100;
+  const moodPct = Math.max(0, Math.min(100, (mood / 5) * 100));
+  const energyPct = Math.max(0, Math.min(100, (energy / 10) * 100));
+  const stressPct = Math.max(0, Math.min(100, ((10 - stress) / 9) * 100));
+  const motivationPct = Math.max(0, Math.min(100, (motivation / 10) * 100));
 
   return Math.round(
-    moodScore * 0.15 +
-      energyScore * 0.25 +
-      stressScore * 0.35 +
-      motivationScore * 0.25,
+    moodPct * 0.3 +
+      energyPct * 0.25 +
+      stressPct * 0.25 +
+      motivationPct * 0.2,
   );
 }
 
+/**
+ * Format meters as km or m
+ */
+export function metersToKm(meters: number): string {
+  if (meters < 1000) return `${meters}m`;
+  return `${(meters / 1000).toFixed(2)}km`;
+}
+
+/**
+ * Fasting phase labels and durations
+ */
 export type FastingPhase =
   | 'digestion'
   | 'glycolysis'
@@ -268,6 +271,9 @@ export const FASTING_PHASE_HOURS: Record<FastingPhase, string> = {
   ampk_mtor: '24h+',
 };
 
+/**
+ * Estimate weeks to reach weight goal
+ */
 export function estimateWeeksToGoal(
   currentKg: number,
   goalKg: number,
@@ -277,4 +283,55 @@ export function estimateWeeksToGoal(
   const totalKgDiff = Math.abs(currentKg - goalKg);
   const weeksNeeded = (totalKgDiff * 7700) / weeklyDeficitKcal;
   return Math.round(weeksNeeded);
+}
+
+/**
+ * ===== DEPRECATED FUNCTIONS (Moved to Backend) =====
+ * 
+ * These functions have been migrated to vyra-backend/src/services/scoreCalculator.ts
+ * The frontend now fetches scores via useReadiness() hook
+ * 
+ * DO NOT USE THESE - they throw errors directing to backend
+ */
+
+/**
+ * ❌ DEPRECATED: Use backend API instead
+ * @deprecated Use POST /api/scores/calculate instead
+ */
+export function calculateDailyScore(): never {
+  throw new Error(
+    'calculateDailyScore is deprecated. Use useReadiness() hook and POST /api/scores/calculate instead.'
+  );
+}
+
+/**
+ * ❌ DEPRECATED
+ * @deprecated Not needed with backend scoring
+ */
+export interface DailyScoreInputs {
+  waterMl: number;
+  waterGoalMl: number;
+  steps: number;
+  stepsGoal: number;
+  sleepQuality: number;
+  caloriesIn: number;
+  tdee: number;
+  mood: number;
+  stress: number;
+  energy: number;
+  motivation: number;
+}
+
+/**
+ * ❌ DEPRECATED
+ * @deprecated Not needed with backend scoring
+ */
+export interface DailyScoreResult {
+  total: number;
+  hydration: number;
+  activity: number;
+  sleep: number;
+  nutrition: number;
+  mental: number;
+  cappedByStress: boolean;
 }

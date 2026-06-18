@@ -10,10 +10,22 @@ import Button from '@/components/ui/Button';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { GOAL_OPTIONS } from '@/lib/onboarding-v2';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
+import type { PrimaryGoal } from '@/types/user';
+
+const PROFILE_GOAL_OPTIONS: Array<{
+  id: PrimaryGoal;
+  label: string;
+  subtitle: string;
+}> = [
+  { id: 'lose_fat', label: 'Perder grasa', subtitle: 'Definir, recortar grasa y mover mejor tu composición.' },
+  { id: 'gain_muscle', label: 'Ganar músculo', subtitle: 'Construir fuerza y masa con más progresión.' },
+  { id: 'general_health', label: 'Salud general', subtitle: 'Mejorar hábitos, descanso y constancia diaria.' },
+  { id: 'sport_performance', label: 'Rendimiento', subtitle: 'Entrenar con más capacidad, energía y continuidad.' },
+  { id: 'mental_wellbeing', label: 'Bienestar mental', subtitle: 'Bajar fricción diaria y sentirte mejor en el proceso.' },
+] as const;
 
 function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, ' ');
@@ -72,10 +84,10 @@ export default function EditProfileScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Editar perfil" showBack color={Colors.action} />
+      <Header title="Editar perfil" showBack color={Colors.secondary} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Card accentColor={Colors.action}>
+        <Card accentColor={Colors.secondary}>
           <Text style={styles.eyebrow}>Identidad</Text>
           <Text style={styles.title}>Así quieres que VYRA te lea.</Text>
           <Text style={styles.body}>
@@ -102,7 +114,7 @@ export default function EditProfileScreen() {
           </Text>
 
           <View style={styles.goalStack}>
-            {GOAL_OPTIONS.map((option) => {
+            {PROFILE_GOAL_OPTIONS.map((option) => {
               const active = goal === option.id;
               return (
                 <Pressable
@@ -111,8 +123,8 @@ export default function EditProfileScreen() {
                   style={[
                     styles.goalCard,
                     active && {
-                      borderColor: withOpacity(Colors.action, 0.5),
-                      backgroundColor: withOpacity(Colors.action, 0.12),
+                      borderColor: withOpacity(Colors.secondary, 0.5),
+                      backgroundColor: withOpacity(Colors.secondary, 0.12),
                     },
                   ]}
                   accessibilityRole="radio"
@@ -124,14 +136,14 @@ export default function EditProfileScreen() {
                   <View
                     style={[
                       styles.goalRail,
-                      { backgroundColor: active ? Colors.action : withOpacity(Colors.white, 0.08) },
+                      { backgroundColor: active ? Colors.secondary : withOpacity(Colors.white, 0.08) },
                     ]}
                   />
                   <View style={styles.goalCopy}>
                     <Text style={styles.goalLabel}>{option.label}</Text>
                     <Text style={styles.goalSubtitle}>{option.subtitle}</Text>
                   </View>
-                  {active ? <Ionicons name="checkmark-circle" size={18} color={Colors.action} /> : null}
+                  {active ? <Ionicons name="checkmark-circle" size={18} color={Colors.secondary} /> : null}
                 </Pressable>
               );
             })}
@@ -167,14 +179,14 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
-    color: Colors.action,
+    color: Colors.secondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 28,
+    fontSize: FontSize['2xl'],
     lineHeight: 30,
     color: Colors.textPrimary,
     marginBottom: 6,

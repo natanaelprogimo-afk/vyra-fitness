@@ -5,6 +5,7 @@ import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
+import ExerciseMediaSheet from '@/components/workout/ExerciseMediaSheet';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
@@ -17,7 +18,15 @@ function estimateSetCalories(weightKg: number, type?: string | null) {
   return Math.round(base * Math.max(0.7, weightKg / 80));
 }
 
-function BulletList({ title, items, tint }: { title: string; items: string[]; tint: string }) {
+function BulletList({
+  title,
+  items,
+  tint,
+}: {
+  title: string;
+  items: string[];
+  tint: string;
+}) {
   if (!items.length) return null;
   return (
     <Card style={styles.sectionCard}>
@@ -34,9 +43,17 @@ function BulletList({ title, items, tint }: { title: string; items: string[]; ti
 
 export default function WorkoutExerciseDetailScreen() {
   const params = useLocalSearchParams<{ exerciseId?: string }>();
-  const { exercises, routines, history, getSessionDetail, getPersonalRecord, toggleFavoriteExercise, favoriteExerciseIds } =
-    useWorkout();
+  const {
+    exercises,
+    routines,
+    history,
+    getSessionDetail,
+    getPersonalRecord,
+    toggleFavoriteExercise,
+    favoriteExerciseIds,
+  } = useWorkout();
   const profile = useAuthStore((state) => state.profile);
+  const [mediaOpen, setMediaOpen] = React.useState(false);
 
   const exercise = exercises.find((item) => item.id === String(params.exerciseId ?? '')) ?? null;
   const relatedRoutines = useMemo(
@@ -60,7 +77,9 @@ export default function WorkoutExerciseDetailScreen() {
         <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
           <Card accentColor={Colors.workout} style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Ejercicio no disponible</Text>
-            <Text style={styles.emptyBody}>Puede que haya sido eliminado o que todavía no exista en tu biblioteca.</Text>
+            <Text style={styles.emptyBody}>
+              Puede que haya sido eliminado o que todavia no exista en tu biblioteca.
+            </Text>
           </Card>
         </ScrollView>
       </SafeScreen>
@@ -80,7 +99,7 @@ export default function WorkoutExerciseDetailScreen() {
         <Card accentColor={Colors.workout} decorative style={styles.heroCard}>
           <Text style={styles.heroEyebrow}>{exercise.muscle_group}</Text>
           <Text style={styles.heroBody}>
-            {exercise.instructions ?? 'Todavía no hay una descripción extendida para este ejercicio.'}
+            {exercise.description?.trim() || exercise.instructions || 'Todavia no hay una descripcion extendida para este ejercicio.'}
           </Text>
           <View style={styles.metaRow}>
             <View style={styles.metaPill}>
@@ -97,6 +116,7 @@ export default function WorkoutExerciseDetailScreen() {
               </View>
             ) : null}
           </View>
+
           <View style={styles.actionRow}>
             <Button
               onPress={() => toggleFavoriteExercise(exercise.id)}
@@ -107,26 +127,76 @@ export default function WorkoutExerciseDetailScreen() {
               {isFavorite ? 'En favoritos' : 'Guardar favorito'}
             </Button>
             <Button
-              onPress={() => router.push({ pathname: Routes.workout.routineEditor, params: { seedExerciseId: exercise.id } } as never)}
-              variant="ghost"
-              color={Colors.textPrimary}
+              onPress={() =>
+                router.push({
+                  pathname: Routes.workout.exercises,
+                  params: { seedExerciseId: exercise.id },
+                } as never)
+              }
+              variant="secondary"
+              color={Colors.workout}
               style={styles.flexButton}
             >
-              Usar en rutina
+              Crear variante
             </Button>
           </View>
+
+          <Button
+            onPress={() =>
+              router.push({ pathname: Routes.workout.routineEditor, params: { seedExerciseId: exercise.id } } as never)
+            }
+            variant="ghost"
+            color={Colors.textPrimary}
+            fullWidth
+          >
+            Usar en rutina
+          </Button>
         </Card>
+
+        {(exercise.video_url ||
+          exercise.gif_url ||
+          exercise.cues?.length ||
+          exercise.instructions?.trim() ||
+          exercise.mistakes?.length ||
+          exercise.variations?.length) ? (
+          <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Referencia rápida</Text>
+            <Text style={styles.resourceBody}>
+              Si ya guardaste media o cues técnicos, puedes abrirlos desde aquí sin salir a buscarlos afuera.
+            </Text>
+            <View style={styles.resourceActions}>
+              <Button
+                onPress={() => setMediaOpen(true)}
+                variant="primary"
+                color={Colors.workout}
+                style={styles.flexButton}
+              >
+                {exercise.video_url || exercise.gif_url ? 'Ver dentro de Vyra' : 'Abrir técnica'}
+              </Button>
+              {exercise.video_url || exercise.gif_url ? (
+                <Button
+                  onPress={() => setMediaOpen(true)}
+                  variant="secondary"
+                  color={Colors.workout}
+                  style={styles.flexButton}
+                >
+                  Abrir referencia
+                </Button>
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
 
         <Card style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Tu progreso</Text>
           <View style={styles.prRow}>
             <View style={styles.prBox}>
               <Text style={styles.prValue}>{pr?.maxWeight ?? 0}</Text>
-              <Text style={styles.prLabel}>kg máximos</Text>
+              <Text style={styles.prLabel}>kg maximos</Text>
             </View>
             <View style={styles.prBox}>
               <Text style={styles.prValue}>{pr?.maxReps ?? 0}</Text>
-              <Text style={styles.prLabel}>reps máximas</Text>
+              <Text style={styles.prLabel}>reps maximas</Text>
             </View>
             <View style={styles.prBox}>
               <Text style={styles.prValue}>{formatNumber(totalVolume)}</Text>
@@ -136,13 +206,15 @@ export default function WorkoutExerciseDetailScreen() {
           <View style={styles.quickInfo}>
             <Text style={styles.quickInfoText}>~{setCalories} kcal por serie a {profileWeight} kg</Text>
             <Text style={styles.quickInfoText}>
-              {lastSet ? `Último registro: ${lastSet.weight_kg} kg × ${lastSet.reps}` : 'Sin registros todavía'}
+              {lastSet ? `Ultimo registro: ${lastSet.weight_kg} kg x ${lastSet.reps}` : 'Sin registros todavia'}
             </Text>
           </View>
         </Card>
 
         <BulletList title="Cues" items={exercise.cues ?? []} tint={Colors.workout} />
         <BulletList title="Errores comunes" items={exercise.mistakes ?? []} tint={Colors.warning} />
+        <BulletList title="Variantes guardadas" items={exercise.variations ?? []} tint={Colors.info} />
+        <BulletList title="Aliases" items={exercise.aliases ?? []} tint={Colors.textMuted} />
 
         <Card style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Rutinas donde aparece</Text>
@@ -156,7 +228,9 @@ export default function WorkoutExerciseDetailScreen() {
                   </Text>
                 </View>
                 <Button
-                  onPress={() => router.push({ pathname: Routes.workout.routineEditor, params: { routineId: routine.id } } as never)}
+                  onPress={() =>
+                    router.push({ pathname: Routes.workout.routineEditor, params: { routineId: routine.id } } as never)
+                  }
                   size="sm"
                   variant="secondary"
                   color={Colors.workout}
@@ -166,10 +240,22 @@ export default function WorkoutExerciseDetailScreen() {
               </View>
             ))
           ) : (
-            <Text style={styles.emptyHint}>Aún no lo usás en ninguna rutina guardada.</Text>
+            <Text style={styles.emptyHint}>Aun no lo usas en ninguna rutina guardada.</Text>
           )}
         </Card>
       </ScrollView>
+
+      <ExerciseMediaSheet
+        visible={mediaOpen}
+        onClose={() => setMediaOpen(false)}
+        exerciseName={exercise.name}
+        videoUrl={exercise.video_url}
+        gifUrl={exercise.gif_url}
+        cues={exercise.cues}
+        mistakes={exercise.mistakes}
+        variations={exercise.variations}
+        instructions={exercise.instructions}
+      />
     </SafeScreen>
   );
 }
@@ -239,6 +325,16 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     color: Colors.textPrimary,
   },
+  resourceBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  resourceActions: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
   prRow: {
     flexDirection: 'row',
     gap: Spacing[2],
@@ -258,14 +354,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   quickInfo: {
     gap: 6,
-    marginTop: Spacing[1],
   },
   quickInfoText: {
-    fontFamily: FontFamily.medium,
+    fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
@@ -277,32 +372,34 @@ const styles = StyleSheet.create({
   bulletDot: {
     width: 8,
     height: 8,
-    borderRadius: Radius.full,
+    borderRadius: 8,
     marginTop: 6,
   },
   listItem: {
     flex: 1,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
     lineHeight: 20,
+    color: Colors.textSecondary,
   },
   routineRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[3],
-    paddingVertical: Spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: withOpacity(Colors.white, 0.06),
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surface2,
+    padding: Spacing[3],
   },
-  routineCopy: { flex: 1 },
+  routineCopy: {
+    flex: 1,
+    gap: 2,
+  },
   routineTitle: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
     color: Colors.textPrimary,
   },
   routineBody: {
-    marginTop: 2,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
@@ -310,6 +407,6 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    color: Colors.textMuted,
+    color: Colors.textSecondary,
   },
 });

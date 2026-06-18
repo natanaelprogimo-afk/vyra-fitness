@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import BannerPlacementCard from '@/components/ads/BannerPlacementCard';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -393,12 +392,6 @@ export default function SupplementsHistoryScreen() {
                 })}
               </View>
             </Card>
-
-            <BannerPlacementCard
-              placementKey="supplements_history_banner"
-              title="Patrocinado"
-              body="Este banner vive en historial para no estorbar la toma diaria ni el registro de hoy."
-            />
 
             <Card>
               <SectionHeader

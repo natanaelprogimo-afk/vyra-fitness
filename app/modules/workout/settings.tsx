@@ -88,7 +88,7 @@ export default function WorkoutSettingsScreen() {
           <SectionHeader
             eyebrow="Ayuda visual"
             title="Cuanto te acompana la UI"
-            subtitle="El modulo puede ser directo o mas guiado segun como quieras llevar la sesion."
+            subtitle="El módulo puede ser directo o más guiado según cómo quieras llevar la sesión."
           />
 
           <SettingToggleRow

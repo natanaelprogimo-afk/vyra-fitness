@@ -1,20 +1,33 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import FastingModuleTabs from '@/components/fasting/FastingModuleTabs';
 import ModuleScaffold from '@/components/modules/ModuleScaffold';
+import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import MetricCard from '@/components/ui/MetricCard';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Colors, withOpacity } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useFasting } from '@/hooks/useFasting';
 
-// FIX #12: Extract Colors.sleep fallback as a module-level constant instead
-// of inlining `Colors.sleep ?? '#8B5CF6'` everywhere. Centralizes the fallback.
-const SLEEP_COLOR: string = Colors.sleep ?? '#8B5CF6';
+const FASTING_INSIGHT_COLOR = Colors.fasting;
+const SCORE_SEGMENTS = 24;
+const WEEKLY_BAR_HEIGHT = 72;
+const WEEKLY_DISPLAY_DAYS = 7;
 
-function buildScore(avgHours: number, streakDays: number, targetHours: number, completedFasts: number) {
-  const adherence = Math.min(1, avgHours / Math.max(targetHours, 1));
+function buildScore(
+  avgHours: number,
+  streakDays: number,
+  targetHours: number,
+  completedFasts: number,
+  weeklyAdherencePct?: number | null,
+) {
+  const adherenceBase = weeklyAdherencePct !== null && weeklyAdherencePct !== undefined
+    ? weeklyAdherencePct / 100
+    : avgHours / Math.max(targetHours, 1);
+  const adherence = Math.min(1, adherenceBase);
   const streak = Math.min(1, streakDays / 7);
   const volume = Math.min(1, completedFasts / 5);
   return Math.max(0, Math.min(100, Math.round(adherence * 45 + streak * 30 + volume * 25)));
@@ -29,8 +42,7 @@ function qualityLabel(score: number): { label: string; emoji: string; color: str
 
 /** Barra de score estilo ecualizador con colores progresivos */
 function ScoreBar({ score, color }: { score: number; color: string }) {
-  const SEGMENTS = 24;
-  const filled = Math.round((score / 100) * SEGMENTS);
+  const filled = Math.round((score / 100) * SCORE_SEGMENTS);
 
   const getSegmentColor = (index: number, total: number) => {
     const ratio = index / total;
@@ -41,18 +53,18 @@ function ScoreBar({ score, color }: { score: number; color: string }) {
 
   return (
     <View style={scoreBarStyles.row}>
-      {Array.from({ length: SEGMENTS }).map((_, i) => {
+      {Array.from({ length: SCORE_SEGMENTS }).map((_, i) => {
         const isFilled = i < filled;
-        const segColor = isFilled ? getSegmentColor(i, SEGMENTS) : Colors.bgElevated;
+        const segColor = isFilled ? getSegmentColor(i, SCORE_SEGMENTS) : Colors.elevated;
         return (
           <View
             key={i}
             style={[
               scoreBarStyles.segment,
               {
-                height: isFilled ? 8 + (i / SEGMENTS) * 16 : 6,
+                height: isFilled ? 8 + (i / SCORE_SEGMENTS) * 16 : 6,
                 backgroundColor: segColor,
-                opacity: isFilled ? 0.5 + (i / SEGMENTS) * 0.5 : 1,
+                opacity: isFilled ? 0.5 + (i / SCORE_SEGMENTS) * 0.5 : 1,
               },
             ]}
           />
@@ -84,13 +96,14 @@ function WeeklyBars({ data, targetHours, dates }: {
   dates: string[];    // ISO date strings corresponding to each data point
 }) {
   const maxVal = Math.max(...data, targetHours, 1);
+  const targetOffset = Math.max(0, Math.min(WEEKLY_BAR_HEIGHT, (targetHours / maxVal) * WEEKLY_BAR_HEIGHT));
 
   // Map JS getDay() (0=Sun) to Spanish short labels
   const DAY_NAMES = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
   return (
     <View style={weeklyStyles.container}>
-      {data.slice(0, 7).map((hours, i) => {
+      {data.slice(0, WEEKLY_DISPLAY_DAYS).map((hours, i) => {
         const pct = (hours / maxVal) * 100;
         const reached = hours >= targetHours * 0.9;
         const barColor = reached ? Colors.fasting : Colors.warning;
@@ -108,7 +121,7 @@ function WeeklyBars({ data, targetHours, dates }: {
                 { height: `${pct}%`, backgroundColor: barColor, opacity: 0.75 + (pct / 100) * 0.25 }
               ]} />
               {/* Línea de objetivo */}
-              <View style={[weeklyStyles.targetLine, { bottom: `${(targetHours / maxVal) * 100}%` }]} />
+              <View style={[weeklyStyles.targetLine, { bottom: targetOffset }]} />
             </View>
             <Text style={weeklyStyles.dayLabel}>{dayLabel}</Text>
           </View>
@@ -123,7 +136,7 @@ const weeklyStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing[1.5],
     alignItems: 'flex-end',
-    height: 72,
+    height: WEEKLY_BAR_HEIGHT,
   },
   barCol: {
     flex: 1,
@@ -135,7 +148,7 @@ const weeklyStyles = StyleSheet.create({
   barTrack: {
     flex: 1,
     width: '100%',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: 4,
     overflow: 'visible',
     justifyContent: 'flex-end',
@@ -178,7 +191,7 @@ const insightStyles = StyleSheet.create({
     borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderLeftWidth: 3,
+    borderLeftWidth: 5,
     padding: Spacing[4],
   },
   icon: { fontSize: 16, marginTop: 1 },
@@ -195,17 +208,43 @@ export default function FastingAnalysisScreen() {
   const { avgHours, fastingStreakDays, completedFasts, targetHours, history, protocolSuggestion } =
     useFasting();
 
-  // Separate sessions by protocol type to show 5:2 specific insights
+  const analysisHistory = useMemo(
+    () => history.filter((item) => (item.status === 'completed' || item.status === 'interrupted') && Number(item.total_hours ?? 0) > 0),
+    [history],
+  );
   const weeklySessions = useMemo(() => (history ?? []).filter((s) => s.protocol_type === 'weekly'), [history]);
+  const weeklySummaries = useMemo(() => {
+    const grouped = new Map<string, { key: string; label: string; completed: number; target: number }>();
 
-  const score = buildScore(avgHours, fastingStreakDays, targetHours, completedFasts);
+    for (const session of weeklySessions) {
+      const key = `${session.year ?? 'na'}-${session.week_number ?? 'na'}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          label: `Semana ${session.week_number ?? '-'}`,
+          completed: 0,
+          target: 2,
+        });
+      }
+      if (session.status === 'completed') {
+        grouped.get(key)!.completed += 1;
+      }
+    }
+
+    return [...grouped.values()].sort((left, right) => right.key.localeCompare(left.key));
+  }, [weeklySessions]);
+  const weeklyAdherencePct = weeklySummaries.length
+    ? (weeklySummaries.reduce((sum, week) => sum + Math.min(1, week.completed / Math.max(1, week.target)), 0) / weeklySummaries.length) * 100
+    : null;
+
+  const score = buildScore(avgHours, fastingStreakDays, targetHours, completedFasts, weeklyAdherencePct);
   const quality = qualityLabel(score);
 
   // FIX #9: Memoize lastSeven and previousSeven so weeklyHours and insights
   // useMemos actually benefit from caching (plain slice() returns a new reference
   // every render, defeating the purpose of the downstream memos).
-  const lastSeven = useMemo(() => history.slice(0, 7), [history]);
-  const previousSeven = useMemo(() => history.slice(7, 14), [history]);
+  const lastSeven = useMemo(() => analysisHistory.slice(0, 7), [analysisHistory]);
+  const previousSeven = useMemo(() => analysisHistory.slice(7, 14), [analysisHistory]);
 
   const currentAvg = lastSeven.length
     ? lastSeven.reduce((sum, item) => sum + Number(item.total_hours ?? 0), 0) / lastSeven.length
@@ -279,10 +318,10 @@ export default function FastingAnalysisScreen() {
             : 'Sostener una ventana clara vale más que buscar la más extrema.'),
         icon: '💡',
         // FIX #12: use the module-level constant instead of inline ?? fallback
-        color: SLEEP_COLOR,
+        color: FASTING_INSIGHT_COLOR,
       },
     ];
-  }, [delta, isFirstWeek, lastSeven, protocolSuggestion?.reason]);
+  }, [isFirstWeek, lastSeven, protocolSuggestion?.reason, delta]);
 
   return (
     <ModuleScaffold
@@ -302,13 +341,10 @@ export default function FastingAnalysisScreen() {
             </View>
           </View>
           <View style={styles.scoreRight}>
-            {/* FIX #6: FontSize['2xl'] may be undefined in some configs;
-                use a numeric fallback only as a last resort. '2xl' token
-                should ideally be defined in your theme constants. */}
-            <Text style={[styles.scoreAvg, { fontSize: FontSize['2xl'] ?? 28 }]}>
+            <Text style={[styles.scoreAvg, { fontSize: FontSize['2xl'] }]}>
               {Math.round(currentAvg * 10) / 10}h
             </Text>
-            <Text style={styles.scoreAvgLabel}>promedio semanal</Text>
+            <Text style={styles.scoreAvgLabel}>{lastSeven.length === 0 ? 'promedio histórico' : 'promedio semanal'}</Text>
             <View style={[
               styles.deltaBadge,
               { backgroundColor: withOpacity(delta >= 0 || isFirstWeek ? Colors.success : Colors.warning, 0.1) }
@@ -329,7 +365,7 @@ export default function FastingAnalysisScreen() {
             <Text style={styles.factorLabel}>Adherencia</Text>
             <View style={styles.factorBar}>
               <View style={[styles.factorFill, {
-                width: `${Math.min(100, (avgHours / Math.max(targetHours, 1)) * 100)}%`,
+                width: `${Math.min(100, weeklyAdherencePct ?? ((avgHours / Math.max(targetHours, 1)) * 100))}%`,
                 backgroundColor: Colors.fasting
               }]} />
             </View>
@@ -376,36 +412,27 @@ export default function FastingAnalysisScreen() {
       </View>
 
       {/* 5:2 weekly summary (if any weekly sessions present) */}
-      {weeklySessions.length > 0 && (
+      {weeklySummaries.length > 0 && (
         <Card style={styles.weekSummaryCard}>
           <SectionHeader
             eyebrow="Protocolo 5:2"
-            title="Días cumplidos"
+            title="Semanas cumplidas"
             subtitle="Adherencia semanal a tus días de ayuno programados."
           />
           <Text style={styles.weekSummaryMeta}>
-            {weeklySessions.filter((s) => s.status === 'completed').length}/{weeklySessions.length} días completados
+            {weeklySummaries[0]?.completed ?? 0}/{weeklySummaries[0]?.target ?? 2} completados en la semana actual
           </Text>
           <View style={styles.weekDays}>
-            {weeklySessions.slice(0, 7).map((day) => (
-              <View key={day.id} style={styles.weekDayItem}>
-                <Text style={styles.weekDayLabel}>
-                  {new Date((day.scheduled_date ?? day.start_time ?? Date.now()) as string).toLocaleDateString('es-UY', { weekday: 'narrow' })}
-                </Text>
+            {weeklySummaries.slice(0, 4).map((day) => (
+              <View key={day.key} style={styles.weekDayItem}>
+                <Text style={styles.weekDayLabel}>{day.label}</Text>
                 <View style={[
                   styles.weekDayDot,
                   {
-                    backgroundColor:
-                      day.status === 'completed' ? Colors.fasting :
-                      day.status === 'missed' ? Colors.error :
-                      day.status === 'active' ? Colors.warning :
-                      day.status === 'planned' ? withOpacity(Colors.fasting, 0.3) :
-                      Colors.bgElevated,
+                    backgroundColor: day.completed >= day.target ? Colors.fasting : withOpacity(Colors.warning, 0.9),
                   }
                 ]} />
-                {day.total_hours != null && (
-                  <Text style={styles.weekDayHours}>{Number(day.total_hours).toFixed(0)}h</Text>
-                )}
+                <Text style={styles.weekDayHours}>{day.completed}/{day.target}</Text>
               </View>
             ))}
           </View>
@@ -413,7 +440,7 @@ export default function FastingAnalysisScreen() {
       )}
 
       {/* ─── Gráfico semanal ────────────────────────── */}
-      {weeklyHours.length > 0 && (
+      {weeklyHours.length > 0 ? (
         <Card style={styles.card}>
           <SectionHeader
             eyebrow="Esta semana"
@@ -427,6 +454,35 @@ export default function FastingAnalysisScreen() {
             dates={weeklyDates}
           />
         </Card>
+      ) : (
+        <Card style={styles.card}>
+          <SectionHeader
+            eyebrow="Esta semana"
+            title="Horas por día"
+            subtitle="Cuando cierres tu primer ayuno, esta vista mostrará tu ritmo semanal."
+          />
+          <View style={styles.emptyWeekState}>
+            <Text style={styles.emptyWeekTitle}>Todavía no hay una semana para comparar</Text>
+            <Text style={styles.emptyWeekBody}>
+              Completá tu primer ayuno para ver horas por día y una lectura más útil de tu progreso.
+            </Text>
+            <View style={styles.emptyWeekActions}>
+              <Button
+                label="Empezar ahora"
+                onPress={() => router.push(Routes.fasting.index as never)}
+                color={Colors.fasting}
+                fullWidth
+              />
+              <Button
+                label="Ver protocolos"
+                onPress={() => router.push(Routes.fasting.protocols as never)}
+                variant="ghost"
+                color={Colors.fasting}
+                fullWidth
+              />
+            </View>
+          </View>
+        </Card>
       )}
 
       {/* ─── Tres ideas útiles ─────────────────────── */}
@@ -437,9 +493,9 @@ export default function FastingAnalysisScreen() {
           subtitle="Basadas en tus últimos 7 días de registro."
         />
         <View style={styles.insightsColumn}>
-          {insights.map((insight) => (
+          {insights.map((insight, index) => (
             <InsightRow
-              key={insight.text}
+              key={`${insight.icon}-${index}`}
               text={insight.text}
               icon={insight.icon}
               color={insight.color}
@@ -525,7 +581,7 @@ const styles = StyleSheet.create({
   factorBar: {
     flex: 1,
     height: 4,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.full,
     overflow: 'hidden',
   },
@@ -545,6 +601,29 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   card: { gap: Spacing[4] },
+  emptyWeekState: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface2,
+    padding: Spacing[4],
+    gap: Spacing[1],
+  },
+  emptyWeekActions: {
+    gap: Spacing[2],
+    marginTop: Spacing[2],
+  },
+  emptyWeekTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  emptyWeekBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
   insightsColumn: { gap: Spacing[2] },
   weekSummaryCard: { gap: Spacing[2] },
   weekSummaryMeta: {
@@ -578,3 +657,4 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 });
+

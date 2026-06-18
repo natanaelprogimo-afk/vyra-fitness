@@ -1,28 +1,72 @@
+// REDESIGNED: 2026-05-20 - tab bar is calmer, clearer, and less dominant
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { router, usePathname } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import PulseOrb from '@/components/ui/PulseOrb';
 import QuickLogSheet from '@/components/sheets/QuickLogSheet';
-import { useUIStore } from '@/stores/uiStore';
+import { Colors } from '@/constants/colors';
+import { FontFamily, Radius, Spacing } from '@/constants/theme';
+import { TabBarCopy } from '@/constants/strings';
 import { triggerImpactHaptic } from '@/lib/haptics';
+import { resolveSupportedLanguage } from '@/lib/language';
+import { useUIStore } from '@/stores/uiStore';
 
 const TAB_CONFIG: Record<
   string,
   {
-    icon: React.ComponentProps<typeof Ionicons>['name'];
-    label: string;
-    hint: string;
+    activeIcon: React.ComponentProps<typeof Ionicons>['name'];
+    inactiveIcon: React.ComponentProps<typeof Ionicons>['name'];
   }
 > = {
-  index: { icon: 'home', label: 'Inicio', hint: 'Abre tu resumen del dia.' },
-  explore: { icon: 'compass-outline', label: 'Explorar', hint: 'Muestra rutas, programas y siguientes pasos.' },
-  progress: { icon: 'trending-up', label: 'Progreso', hint: 'Abre tus tendencias y consistencia.' },
+  index: { activeIcon: 'home', inactiveIcon: 'home-outline' },
+  explore: { activeIcon: 'compass', inactiveIcon: 'compass-outline' },
+  progress: { activeIcon: 'stats-chart', inactiveIcon: 'stats-chart-outline' },
 };
+
+const TAB_COPY = {
+  es: {
+    tabs: {
+      index: { label: 'Inicio', hint: 'Abre tu resumen del día.' },
+      explore: { label: 'Plan', hint: 'Muestra rutas, programas y siguientes pasos.' },
+      progress: { label: 'Progreso', hint: 'Abre tus tendencias y consistencia.' },
+      profile: { label: 'Perfil', hint: 'Abre tu cuenta, módulos y ajustes.' },
+    },
+    nav: 'Navegacion principal',
+    quickLog: {
+      label: 'Registro rapido',
+      hint: TabBarCopy.quickLogHint,
+    },
+  },
+  en: {
+    tabs: {
+      index: { label: 'Home', hint: 'Opens your daily overview.' },
+      explore: { label: 'Plan', hint: 'Shows paths, programs, and next steps.' },
+      progress: { label: 'Progress', hint: 'Opens your trends and consistency.' },
+      profile: { label: 'Profile', hint: 'Opens your account, modules, and settings.' },
+    },
+    nav: 'Main navigation',
+    quickLog: {
+      label: 'Quick log',
+      hint: TabBarCopy.quickLogHint,
+    },
+  },
+  pt: {
+    tabs: {
+      index: { label: 'Inicio', hint: 'Abre seu resumo diario.' },
+      explore: { label: 'Plano', hint: 'Mostra rotas, programas e proximos passos.' },
+      progress: { label: 'Progresso', hint: 'Abre suas tendencias e constancia.' },
+      profile: { label: 'Perfil', hint: 'Abre sua conta, módulos e ajustes.' },
+    },
+    nav: 'Navegacao principal',
+    quickLog: {
+      label: 'Registro rapido',
+      hint: TabBarCopy.quickLogHint,
+    },
+  },
+} as const;
 
 function TabItem({
   route,
@@ -33,8 +77,12 @@ function TabItem({
   isFocused: boolean;
   onPress: () => void;
 }) {
+  const { i18n } = useTranslation();
+  const copy = TAB_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const config = TAB_CONFIG[route.name];
-  if (!config) return null;
+  const tabMeta = copy.tabs[route.name as keyof typeof copy.tabs];
+
+  if (!config || !tabMeta) return null;
 
   return (
     <Pressable
@@ -42,29 +90,31 @@ function TabItem({
       style={styles.tabItem}
       accessibilityRole="tab"
       accessibilityState={{ selected: isFocused }}
-      accessibilityLabel={config.label}
-      accessibilityHint={config.hint}
+      accessibilityLabel={tabMeta.label}
+      accessibilityHint={tabMeta.hint}
     >
       <Ionicons
-        name={config.icon}
+        name={isFocused ? config.activeIcon : config.inactiveIcon}
         size={22}
-        color={isFocused ? Colors.action : Colors.textMuted}
+        color={isFocused ? Colors.textPrimary : Colors.textMuted}
       />
       <Text
-        style={[
-          styles.label,
-          { color: isFocused ? Colors.action : Colors.textMuted },
-          isFocused && styles.labelActive,
-        ]}
+        style={[styles.label, isFocused ? styles.labelActive : styles.labelInactive]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
         maxFontSizeMultiplier={1.2}
       >
-        {config.label}
+        {tabMeta.label}
       </Text>
+      <View style={[styles.activeDot, isFocused ? styles.activeDotVisible : null]} />
     </Pressable>
   );
 }
 
 export default function TabBar({ state, navigation }: BottomTabBarProps) {
+  const { i18n } = useTranslation();
+  const copy = TAB_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const openQuickLog = useUIStore((store) => store.openQuickLog);
@@ -72,9 +122,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
 
   const buildTab = (route: { name: string; key: string }) => {
     const isFocused =
-      route.name === 'index'
-        ? pathname === '/'
-        : pathname.startsWith(`/${route.name}`);
+      route.name === 'index' ? pathname === '/' : pathname.startsWith(`/${route.name}`);
 
     const onPress = () => {
       void triggerImpactHaptic('light');
@@ -91,6 +139,8 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
     return <TabItem key={route.key} route={route} isFocused={isFocused} onPress={onPress} />;
   };
 
+  const profileFocused = pathname.startsWith('/profile');
+
   return (
     <>
       <View
@@ -98,21 +148,14 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           styles.container,
           {
             paddingBottom: insets.bottom + 8,
-            backgroundColor: Colors.bgBase,
+            backgroundColor: Colors.surface1,
+            borderTopColor: Colors.borderSubtle,
           },
         ]}
         accessibilityRole="tablist"
-        accessibilityLabel="Navegacion principal"
+        accessibilityLabel={copy.nav}
       >
-        <View
-          style={[
-            styles.bar,
-            {
-              backgroundColor: Colors.bgGlass,
-              borderColor: Colors.border,
-            },
-          ]}
-        >
+        <View style={styles.bar}>
           {visibleRoutes.slice(0, 2).map(buildTab)}
 
           <View style={styles.fabSlot}>
@@ -123,11 +166,10 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
               }}
               style={styles.fab}
               accessibilityRole="button"
-              accessibilityLabel="Registro rapido"
-              accessibilityHint="Abre el panel para registrar agua, peso, ayuno o sueño."
+              accessibilityLabel={copy.quickLog.label}
+              accessibilityHint={copy.quickLog.hint}
             >
-              <Ionicons name="add" size={24} color={Colors.white} />
-              <PulseOrb color={Colors.action} size={6} style={styles.fabPulse} />
+              <Ionicons name="add" size={26} color={Colors.black} />
             </Pressable>
           </View>
 
@@ -140,25 +182,25 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             }}
             style={styles.tabItem}
             accessibilityRole="tab"
-            accessibilityState={{ selected: pathname.startsWith('/profile') }}
-            accessibilityLabel="Perfil"
-            accessibilityHint="Abre tu cuenta, modulos y ajustes."
+            accessibilityState={{ selected: profileFocused }}
+            accessibilityLabel={copy.tabs.profile.label}
+            accessibilityHint={copy.tabs.profile.hint}
           >
             <Ionicons
-              name="person-circle-outline"
+              name={profileFocused ? 'person-circle' : 'person-circle-outline'}
               size={22}
-              color={pathname.startsWith('/profile') ? Colors.action : Colors.textMuted}
+              color={profileFocused ? Colors.textPrimary : Colors.textMuted}
             />
             <Text
-              style={[
-                styles.label,
-                { color: pathname.startsWith('/profile') ? Colors.action : Colors.textMuted },
-                pathname.startsWith('/profile') && styles.labelActive,
-              ]}
+              style={[styles.label, profileFocused ? styles.labelActive : styles.labelInactive]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
               maxFontSizeMultiplier={1.2}
             >
-              Perfil
+              {copy.tabs.profile.label}
             </Text>
+            <View style={[styles.activeDot, profileFocused ? styles.activeDotVisible : null]} />
           </Pressable>
         </View>
       </View>
@@ -169,53 +211,69 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: Spacing[4],
-    paddingTop: Spacing[2],
+    paddingHorizontal: Spacing[3],
+    paddingTop: Spacing[1.5],
+    borderTopWidth: 1,
   },
   bar: {
-    minHeight: 76,
-    borderWidth: 1,
-    borderRadius: Radius.full,
+    minHeight: 64,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surface1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing[3],
+    paddingHorizontal: Spacing[1.5],
+    gap: Spacing[1],
   },
   tabItem: {
     flex: 1,
-    minHeight: 44,
+    minWidth: 0,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 2,
+    paddingTop: 2,
   },
   label: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    letterSpacing: 0.2,
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: 'center',
   },
   labelActive: {
+    color: Colors.textPrimary,
     fontFamily: FontFamily.semibold,
   },
+  labelInactive: {
+    color: Colors.textMuted,
+    fontFamily: FontFamily.medium,
+  },
+  activeDot: {
+    width: 4,
+    height: 4,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.textPrimary,
+    opacity: 0,
+    marginTop: 1,
+  },
+  activeDotVisible: {
+    opacity: 1,
+  },
   fabSlot: {
-    width: 82,
+    width: 56,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   fab: {
-    width: 58,
-    height: 58,
+    width: 52,
+    height: 52,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.action,
-    shadowColor: Colors.action,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  fabPulse: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.white,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
   },
 });

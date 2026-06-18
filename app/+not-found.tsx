@@ -5,7 +5,8 @@ import SafeScreen from '@/components/ui/SafeScreen';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, LineHeight, Spacing } from '@/constants/theme';
 
 export default function NotFound() {
   return (
@@ -17,7 +18,7 @@ export default function NotFound() {
           </View>
           <Text style={styles.title}>Esto no existe.</Text>
           <Text style={styles.subtitle}>La ruta que buscabas no está aquí, pero puedes volver al inicio.</Text>
-          <Button onPress={() => router.replace('/(tabs)/' as never)} variant="ghost" fullWidth>
+          <Button onPress={() => router.replace(Routes.tabs.home as never)} variant="ghost" fullWidth>
             Volver al inicio
           </Button>
         </Card>
@@ -48,14 +49,14 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 34,
+    fontSize: FontSize['3.5xl'],
     color: Colors.textPrimary,
     textAlign: 'center',
   },
   subtitle: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
-    lineHeight: 24,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
     textAlign: 'center',
     marginBottom: Spacing[1],

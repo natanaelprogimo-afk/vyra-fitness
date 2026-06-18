@@ -99,7 +99,7 @@ function buildProgramJourney(
   return Array.from({ length: end - start + 1 }, (_, offset) => {
     const sessionIndex = start + offset;
     const routineId = program.routine_ids[(sessionIndex - 1) % Math.max(1, program.routine_ids.length)];
-    const routineName = routineNameById.get(routineId) ?? `Dia ${sessionIndex}`;
+    const routineName = routineNameById.get(routineId) ?? `Día ${sessionIndex}`;
     const status =
       sessionIndex <= completedSessions
         ? 'completed'
@@ -297,7 +297,7 @@ export default function WorkoutProgramsScreen() {
                 />
               </View>
               <Text style={styles.progressHint}>
-                Dia {Math.min(activeTotalSessions, activeCompletedSessions + 1)} de {activeTotalSessions} · {activeCompletedSessions} sesiones ya hechas
+                Día {Math.min(activeTotalSessions, activeCompletedSessions + 1)} de {activeTotalSessions} · {activeCompletedSessions} sesiones ya hechas
               </Text>
             </Card>
 
@@ -329,7 +329,7 @@ export default function WorkoutProgramsScreen() {
                     <View key={`${activeProgram.id}_${item.sessionIndex}`} style={styles.journeyRow}>
                       <Ionicons name={iconName} size={18} color={iconColor} />
                       <View style={styles.journeyCopy}>
-                        <Text style={styles.journeyDay}>Dia {item.sessionIndex}</Text>
+                        <Text style={styles.journeyDay}>Día {item.sessionIndex}</Text>
                         <Text style={styles.journeyRoutine}>{item.routineName}</Text>
                       </View>
                       <Text style={styles.journeyState}>
@@ -364,7 +364,7 @@ export default function WorkoutProgramsScreen() {
             <Text style={styles.recommendedEyebrow}>Recomendado para ti</Text>
             <Text style={styles.recommendedTitle}>{recommendedProgram.name}</Text>
             <Text style={styles.recommendedBody}>
-              {recommendedProgram.objective ?? 'Empieza aqui si quieres un camino claro desde el primer dia.'}
+              {recommendedProgram.objective ?? 'Empieza aquí si quieres un camino claro desde el primer día.'}
             </Text>
             <View style={styles.metaWrap}>
               <StatChip icon="calendar-outline" label={`${recommendedProgram.days_per_week} d/sem`} />

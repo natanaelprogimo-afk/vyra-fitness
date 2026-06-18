@@ -30,17 +30,17 @@ const TONE_CONFIG: Record<
   success: {
     icon: 'checkmark-circle-outline',
     accent: Colors.success,
-    background: Colors.successBg,
+    background: Colors.success,
   },
   warning: {
     icon: 'alert-circle-outline',
     accent: Colors.warning,
-    background: Colors.warningBg,
+    background: Colors.warning,
   },
   error: {
     icon: 'warning-outline',
     accent: Colors.error,
-    background: Colors.errorBg,
+    background: Colors.error,
   },
 };
 

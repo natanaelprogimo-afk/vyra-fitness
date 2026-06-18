@@ -10,38 +10,38 @@ export type VyraMessageContext =
 
 export const VYRA_MESSAGES_ES: Record<VyraMessageContext, string[]> = {
   celebration_pr: [
-    'Nuevo record. Eso es progreso real.',
+    'Nuevo récord. Eso es progreso real.',
     'Nuevo PR. Se nota que vienes empujando bien.',
-    'Eso fue mas fuerte que la ultima vez. Seguimos.',
+    'Eso fue más fuerte que la última vez. Seguimos.',
   ],
   streak_hit: [
-    'Otro dia dentro. La racha sigue viva.',
-    'Sumaste otro dia de constancia.',
+    'Otro día dentro. La racha sigue viva.',
+    'Sumaste otro día de constancia.',
     'Buen cierre de hoy. La racha sigue.',
   ],
   streak_lost: [
     'No pasa nada. Mañana volvemos.',
-    'Un dia no borra lo que construiste.',
-    'Cerramos este dia y retomamos.',
+    'Un día no borra lo que construiste.',
+    'Cerramos este día y retomamos.',
   ],
   streak_danger: [
-    'Tu racha esta en riesgo. Una accion corta hoy la sostiene.',
-    'Todavia llegamos. Haz algo simple y protege lo que ya sumaste.',
+    'Tu racha está en riesgo. Una acción corta hoy la sostiene.',
+    'Todavía llegamos. Haz algo simple y protege lo que ya sumaste.',
     'No tiene que ser perfecto. Tiene que pasar hoy.',
   ],
   inactive_nudge: [
-    'Llevamos unos dias flojos. Volvamos con algo facil.',
+    'Llevamos unos días flojos. Volvamos con algo fácil.',
     'No hace falta recuperar todo hoy. Solo volver.',
-    'Retomar con una accion pequeña ya cuenta.',
+    'Retomar con una acción pequeña ya cuenta.',
   ],
   recovery_low: [
     'Hoy toca control. Mejor una victoria simple.',
-    'Dia suave. Prioriza sueño, agua y una sesion ligera.',
-    'No fuerces. Ordena lo basico y mañana empujamos mejor.',
+    'Día suave. Prioriza sueño, agua y una sesión ligera.',
+    'No fuerces. Ordena lo básico y mañana empujamos mejor.',
   ],
   good_morning: [
-    'Buen dia. Vamos paso a paso.',
-    'Buen dia. Hoy tambien cuenta.',
+    'Buen día. Vamos paso a paso.',
+    'Buen día. Hoy también cuenta.',
     'Listo para hoy. Vamos.',
   ],
   general: [

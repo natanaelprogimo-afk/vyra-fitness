@@ -19,12 +19,13 @@ import {
   readTodayStepsFromHealthConnect,
   type HealthConnectStepsResult,
 } from '@/lib/health-connect-steps';
+import { trackStepsSourceConnected } from '@/lib/analytics';
 
 const PRESETS = [
   { label: '6.000',  value: 6000,  desc: 'Base realista'   },
   { label: '7.500',  value: 7500,  desc: 'Buen ritmo'      },
   { label: '9.000',  value: 9000,  desc: 'Activo'          },
-  { label: '10.500', value: 10500, desc: 'Muy activo'      },
+  { label: '10.000', value: 10000, desc: 'Meta clásica'    },
   { label: '12.000', value: 12000, desc: 'Reto fuerte'     },
   { label: '15.000', value: 15000, desc: 'Nivel atleta'    },
 ];
@@ -43,6 +44,11 @@ export default function StepsSettingsScreen() {
   const latestHealthRefreshRef = useRef(0);
   const activeHealthRefreshRef = useRef<number | null>(null);
   const queuedHealthRetryRef = useRef(false);
+  const goalNumber = parseInt(goal, 10) || 0;
+
+  useEffect(() => {
+    setGoal((profile?.step_goal ?? 10000).toString());
+  }, [profile?.step_goal]);
 
   const refreshHealthConnect = useCallback(async (promptForPermissions: boolean) => {
     if (Platform.OS !== 'android') return;
@@ -77,6 +83,10 @@ export default function StepsSettingsScreen() {
 
       if (promptForPermissions) {
         if (result.status === 'ready') {
+          trackStepsSourceConnected({
+            source: result.dataOrigins,
+            status: result.status,
+          });
           showToast(
             `Health Connect conectado. Hoy encontramos ${result.steps.toLocaleString('es')} pasos.`,
             'success',
@@ -142,14 +152,14 @@ export default function StepsSettingsScreen() {
           <Pressable
             key={p.value}
             onPress={() => setGoal(p.value.toString())}
-            style={[styles.preset, parseInt(goal) === p.value && styles.presetActive]}
+            style={[styles.preset, goalNumber === p.value && styles.presetActive]}
             accessibilityRole="radio"
             accessibilityLabel={p.label}
             accessibilityHint={p.desc}
-            accessibilityState={{ selected: parseInt(goal) === p.value }}
+            accessibilityState={{ selected: goalNumber === p.value }}
             hitSlop={8}
           >
-            <Text style={[styles.presetLabel, parseInt(goal) === p.value && { color: Colors.steps }]}>{p.label}</Text>
+            <Text style={[styles.presetLabel, goalNumber === p.value && { color: Colors.steps }]}>{p.label}</Text>
             <Text style={styles.presetDesc}>{p.desc}</Text>
           </Pressable>
         ))}
@@ -169,7 +179,7 @@ export default function StepsSettingsScreen() {
         <View style={styles.healthCard}>
           <Text style={styles.healthTitle}>Health Connect</Text>
           <Text style={styles.healthBody}>
-            Recupera pasos aunque cierres la app y usa datos de Google Fit, Fitbit y apps compatibles.
+            El sensor del teléfono sigue contando pasos aunque no conectes Health Connect. Si lo activas, Vyra también puede recuperar datos de Google Fit, Fitbit y apps compatibles.
           </Text>
 
           <View style={styles.healthStatusRow}>
@@ -225,7 +235,7 @@ export default function StepsSettingsScreen() {
         </View>
       ) : null}
 
-      <Button onPress={handleSave} variant="primary" fullWidth size="lg" loading={isLoading}>
+      <Button onPress={handleSave} variant="primary" color={Colors.steps} fullWidth size="lg" loading={isLoading}>
         Guardar
       </Button>
     </SafeScreen>
@@ -235,7 +245,7 @@ export default function StepsSettingsScreen() {
 const styles = StyleSheet.create({
   sub:         { fontFamily: FontFamily.regular, fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: Spacing[2], marginBottom: Spacing[5] },
   presets:     { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing[2], marginBottom: Spacing[5] },
-  preset:      { width: '30%', alignItems: 'center', paddingVertical: Spacing[3], backgroundColor: Colors.bgSurface, borderRadius: Radius.xl, borderWidth: 1.5, borderColor: Colors.border },
+  preset:      { flexGrow: 1, flexBasis: '30%', minWidth: 96, alignItems: 'center', paddingVertical: Spacing[3], backgroundColor: Colors.bgSurface, borderRadius: Radius.xl, borderWidth: 1.5, borderColor: Colors.border },
   presetActive:{ borderColor: Colors.steps, backgroundColor: `${Colors.steps}12` },
   presetLabel: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
   presetDesc:  { fontFamily: FontFamily.regular, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2, textAlign: 'center' },
@@ -278,7 +288,7 @@ const styles = StyleSheet.create({
     borderColor: `${Colors.steps}3C`,
   },
   statusBadgeMuted: {
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderColor: Colors.border,
   },
   statusBadgeText: {

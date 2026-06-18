@@ -1,0 +1,188 @@
+import React, { useEffect } from 'react';
+import { View, ScrollView, Pressable, Text, StyleSheet } from 'react-native';
+import { router, Stack } from 'expo-router';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors } from '@/constants/colors';
+import { FontFamily, FontSize, Spacing, Radius } from '@/constants/theme';
+import { Routes } from '@/constants/routes';
+import { useNutrition } from '@/hooks/useNutrition';
+import { useFasting } from '@/hooks/useFasting';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+
+export default function NutritionScreen() {
+  const { meals, totalCalories, targetCalories, remainingCalories } = useNutrition();
+  const { activeSession } = useFasting();
+
+  return (
+    <SafeScreen>
+      <Stack.Screen options={{ title: 'Nutrición' }} />
+
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Hero: Calorías restantes */}
+        <Card style={styles.hero}>
+          <Text style={styles.heroLabel}>Calorías restantes hoy</Text>
+          <Text style={styles.heroValue}>{remainingCalories}</Text>
+          <Text style={styles.heroMeta}>
+            {totalCalories} / {targetCalories} kcal
+          </Text>
+        </Card>
+
+        {/* Primary CTA */}
+        <Button
+          onPress={() => router.push(Routes.nutrition.log as never)}
+          variant="primary"
+          size="large"
+          style={styles.ctaButton}
+        >
+          Registrar comida
+        </Button>
+
+        {/* Meals today - compact */}
+        {meals.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Comidas de hoy</Text>
+            <View style={styles.mealsList}>
+              {meals.map((meal, idx) => (
+                <View key={idx} style={styles.mealItem}>
+                  <View>
+                    <Text style={styles.mealName}>{meal.name}</Text>
+                    <Text style={styles.mealMeta}>{meal.calories} cal</Text>
+                  </View>
+                  <Pressable style={styles.removeButton}>
+                    <Text style={styles.removeText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Nutritional feedback */}
+        {meals.length > 0 && (
+          <Card style={styles.feedback}>
+            <Text style={styles.feedbackLabel}>Feedback nutricional</Text>
+            <Text style={styles.feedbackText}>
+              {remainingCalories > 500
+                ? '✓ Espacio disponible para snack o cena'
+                : remainingCalories > 0
+                  ? '✓ Estás dentro del objetivo'
+                  : '⚠️ Has superado tu objetivo hoy'}
+            </Text>
+          </Card>
+        )}
+
+        {/* History link */}
+        <Pressable
+          style={styles.historyButton}
+          onPress={() => router.push(Routes.nutrition.history as never)}
+        >
+          <Text style={styles.historyButtonText}>Ver historial</Text>
+        </Pressable>
+      </ScrollView>
+    </SafeScreen>
+  );
+}
+
+const styles = StyleSheet.create({
+  scroll: {
+    paddingVertical: Spacing[4],
+    gap: Spacing[4],
+  },
+  hero: {
+    alignItems: 'center',
+    paddingVertical: Spacing[5],
+  },
+  heroLabel: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textSecondary,
+    marginBottom: Spacing[2],
+  },
+  heroValue: {
+    fontSize: FontSize['3xl'],
+    fontFamily: FontFamily.bold,
+    color: Colors.primary,
+  },
+  heroMeta: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textTertiary,
+    marginTop: Spacing[1],
+  },
+  ctaButton: {
+    marginHorizontal: Spacing[4],
+  },
+  section: {
+    paddingHorizontal: Spacing[4],
+  },
+  sectionTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing[2],
+  },
+  mealsList: {
+    gap: Spacing[2],
+  },
+  mealItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.md,
+  },
+  mealName: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.medium,
+    color: Colors.textPrimary,
+  },
+  mealMeta: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textSecondary,
+    marginTop: Spacing[1],
+  },
+  removeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.bgSurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeText: {
+    fontSize: FontSize.lg,
+    color: Colors.textSecondary,
+  },
+  feedback: {
+    marginHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+  },
+  feedbackLabel: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textSecondary,
+    marginBottom: Spacing[2],
+  },
+  feedbackText: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.regular,
+    color: Colors.textPrimary,
+  },
+  historyButton: {
+    marginHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderColor,
+  },
+  historyButtonText: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.medium,
+    color: Colors.textPrimary,
+  },
+});

@@ -1,14 +1,14 @@
-import { useState } from 'react';
+// REDESIGNED: 2026-05-21 - register is lighter, lower-friction, and onboarding-first
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { useAuth } from '@/hooks/useAuth';
-import { validateEmail, validateName, validatePassword } from '@/utils/validators';
-import { useLocalizedStrings } from '@/constants/strings';
+import { validateEmail, validatePassword } from '@/utils/validators';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { Routes } from '@/constants/routes';
@@ -16,103 +16,124 @@ import { resolveSupportedLanguage } from '@/lib/language';
 
 const SCREEN_COPY = {
   es: {
-    subtitle: 'Empieza con Google o email; el resto lo ajustas despues.',
-    google: 'Continuar con Google',
-    googleHint: 'Abre el flujo seguro de Google para crear o vincular tu cuenta.',
-    apple: 'Continuar con Apple',
-    appleHint: 'Abre el flujo seguro de Apple para crear o vincular tu cuenta.',
+    eyebrow: 'Cuenta nueva',
+    title: 'Crea tu cuenta',
+    subtitle: 'Entras en segundos. Nombre, objetivos y módulos se definen después.',
+    email: 'Email',
+    password: 'Contrasena',
+    cta: 'Seguir al onboarding',
     separator: 'o',
-    passwordHint: 'Minimo 8 caracteres',
+    google: 'Google',
+    googleHint: 'Abre el flujo seguro de Google.',
+    apple: 'Apple',
+    appleHint: 'Abre el flujo seguro de Apple.',
+    footerPrefix: 'Ya tienes cuenta?',
+    footerAction: 'Inicia sesion',
+    footerHint: 'Abre la pantalla para entrar.',
+    backLabel: 'Volver',
+    backHint: 'Regresa a la pantalla anterior.',
+    consentPrefix: 'Al continuar aceptas ',
     terms: 'Terminos',
     privacy: 'Privacidad',
-    termsA11yLabel: 'Abrir terminos',
-    termsA11yHint: 'Muestra los terminos del servicio antes de crear tu cuenta.',
-    privacyA11yLabel: 'Abrir privacidad',
-    privacyA11yHint: 'Muestra la politica de privacidad antes de crear tu cuenta.',
-    consentLabel: 'Acepto los terminos y entiendo el aviso medico de la app.',
-    consentA11yLabel: 'Aceptar terminos y aviso medico',
-    consentA11yHint: 'Marca esta casilla para continuar con la creacion de la cuenta.',
-    consentError: 'Necesitas aceptar este paso para crear tu cuenta.',
+    passwordRuleReady: 'Minimo 8 caracteres',
+    passwordRuleSupport: 'Puedes cambiarla despues si lo necesitas.',
     submitFallback: 'No pudimos crear tu cuenta.',
-    guest: 'Continuar sin cuenta',
-    guestHint: 'Puedes guardar tu progreso con Google o Apple despues.',
-    footerPrefix: 'Ya tienes cuenta? ',
-    footerLabel: 'Ya tengo cuenta',
-    footerHint: 'Abre la pantalla para iniciar sesion.',
+    registeredTitle: 'Ese email ya existe',
+    registeredBody: 'Puedes entrar con esa cuenta en lugar de crear otra.',
+    goToLogin: 'Ir a iniciar sesion',
   },
   en: {
-    subtitle: 'Start with Google or email; you can tune the rest later.',
-    google: 'Continue with Google',
-    googleHint: 'Open the secure Google flow to create or link your account.',
-    apple: 'Continue with Apple',
-    appleHint: 'Open the secure Apple flow to create or link your account.',
+    eyebrow: 'New account',
+    title: 'Create your account',
+    subtitle: 'You are in within seconds. Name, goals and modules come right after this.',
+    email: 'Email',
+    password: 'Password',
+    cta: 'Continue to onboarding',
     separator: 'or',
-    passwordHint: 'Minimum 8 characters',
+    google: 'Google',
+    googleHint: 'Open the secure Google flow.',
+    apple: 'Apple',
+    appleHint: 'Open the secure Apple flow.',
+    footerPrefix: 'Already have an account?',
+    footerAction: 'Sign in',
+    footerHint: 'Open the sign in screen.',
+    backLabel: 'Back',
+    backHint: 'Go back to the previous screen.',
+    consentPrefix: 'By continuing you accept ',
     terms: 'Terms',
     privacy: 'Privacy',
-    termsA11yLabel: 'Open terms',
-    termsA11yHint: 'Show the terms of service before creating your account.',
-    privacyA11yLabel: 'Open privacy',
-    privacyA11yHint: 'Show the privacy policy before creating your account.',
-    consentLabel: 'I accept the terms and understand the app medical notice.',
-    consentA11yLabel: 'Accept terms and medical notice',
-    consentA11yHint: 'Check this box to continue creating your account.',
-    consentError: 'You need to accept this step to create your account.',
+    passwordRuleReady: 'At least 8 characters',
+    passwordRuleSupport: 'You can change it later if needed.',
     submitFallback: 'We could not create your account.',
-    guest: 'Continue without account',
-    guestHint: 'You can save your progress with Google or Apple later.',
-    footerPrefix: 'Already have an account? ',
-    footerLabel: 'I already have an account',
-    footerHint: 'Open the screen to sign in.',
+    registeredTitle: 'That email already exists',
+    registeredBody: 'You can sign in with that account instead of creating another one.',
+    goToLogin: 'Go to sign in',
   },
   pt: {
-    subtitle: 'Comece com Google ou email; o resto voce ajusta depois.',
-    google: 'Continuar com Google',
-    googleHint: 'Abre o fluxo seguro do Google para criar ou vincular sua conta.',
-    apple: 'Continuar com Apple',
-    appleHint: 'Abre o fluxo seguro da Apple para criar ou vincular sua conta.',
+    eyebrow: 'Conta nova',
+    title: 'Crie sua conta',
+    subtitle: 'Voce entra em segundos. Nome, objetivos e modulos vem logo depois.',
+    email: 'Email',
+    password: 'Senha',
+    cta: 'Seguir para o onboarding',
     separator: 'ou',
-    passwordHint: 'Minimo de 8 caracteres',
+    google: 'Google',
+    googleHint: 'Abre o fluxo seguro do Google.',
+    apple: 'Apple',
+    appleHint: 'Abre o fluxo seguro da Apple.',
+    footerPrefix: 'Ja tem conta?',
+    footerAction: 'Entrar',
+    footerHint: 'Abre a tela para entrar.',
+    backLabel: 'Voltar',
+    backHint: 'Volta para a tela anterior.',
+    consentPrefix: 'Ao continuar voce aceita ',
     terms: 'Termos',
     privacy: 'Privacidade',
-    termsA11yLabel: 'Abrir termos',
-    termsA11yHint: 'Mostra os termos de servico antes de criar sua conta.',
-    privacyA11yLabel: 'Abrir privacidade',
-    privacyA11yHint: 'Mostra a politica de privacidade antes de criar sua conta.',
-    consentLabel: 'Aceito os termos e entendo o aviso medico do app.',
-    consentA11yLabel: 'Aceitar termos e aviso medico',
-    consentA11yHint: 'Marque esta caixa para continuar criando sua conta.',
-    consentError: 'Voce precisa aceitar esta etapa para criar sua conta.',
+    passwordRuleReady: 'Minimo de 8 caracteres',
+    passwordRuleSupport: 'Voce pode mudar depois se precisar.',
     submitFallback: 'Nao conseguimos criar sua conta.',
-    guest: 'Continuar sem conta',
-    guestHint: 'Voce pode salvar seu progresso com Google ou Apple depois.',
-    footerPrefix: 'Ja tem conta? ',
-    footerLabel: 'Ja tenho conta',
-    footerHint: 'Abre a tela para entrar.',
+    registeredTitle: 'Esse email ja existe',
+    registeredBody: 'Voce pode entrar com essa conta em vez de criar outra.',
+    goToLogin: 'Ir para entrar',
   },
 } as const;
 
 export default function RegisterScreen() {
-  const { AuthStrings: authStrings } = useLocalizedStrings();
   const { i18n } = useTranslation();
-  const { register, continueAsGuest, isLoading } = useAuth();
+  const { register, isLoading } = useAuth();
   const copy = SCREEN_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [consentAccepted, setConsentAccepted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const passwordChecklist = useMemo(
+    () => [
+      {
+        key: 'length',
+        label: copy.passwordRuleReady,
+        met: password.length >= 8,
+      },
+      {
+        key: 'support',
+        label: copy.passwordRuleSupport,
+        met: password.length > 0,
+      },
+    ],
+    [copy.passwordRuleReady, copy.passwordRuleSupport, password.length],
+  );
+
+  const emailAlreadyRegistered =
+    submitError?.toLowerCase().includes('registrado') ||
+    submitError?.toLowerCase().includes('registered') ||
+    false;
+
   const validateForm = () => {
     const nextErrors: Record<string, string> = {};
-    const nameErr = validateName(name);
     const emailErr = validateEmail(email);
     const passwordErr = validatePassword(password);
-    if (nameErr) nextErrors.name = nameErr;
     if (emailErr) nextErrors.email = emailErr;
     if (passwordErr) nextErrors.password = passwordErr;
-    if (!consentAccepted) nextErrors.consent = copy.consentError;
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -121,126 +142,123 @@ export default function RegisterScreen() {
     setSubmitError(null);
     if (!validateForm()) return;
 
-    const result = await register(email.trim().toLowerCase(), password, name.trim());
+    const normalizedEmail = email.trim().toLowerCase();
+    const derivedName = normalizedEmail.split('@')[0]?.trim() || 'Vyra';
+    const result = await register(normalizedEmail, password, derivedName);
     if (!result.ok) {
       setSubmitError(result.error ?? copy.submitFallback);
     }
   };
 
   return (
-    <SafeScreen scrollable padBottom>
+    <SafeScreen scrollable disableAtmosphere contentStyle={styles.container}>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+          accessibilityRole="button"
+          accessibilityLabel={copy.backLabel}
+          accessibilityHint={copy.backHint}
+        >
+          <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
+        </Pressable>
+      </View>
+
       <View style={styles.hero}>
-        <Text style={styles.title}>{authStrings.register.title}</Text>
+        <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+        <Text style={styles.title}>{copy.title}</Text>
         <Text style={styles.subtitle}>{copy.subtitle}</Text>
       </View>
 
-      <View style={styles.form}>
-        <Pressable
-          onPress={() => router.push(Routes.auth.google as never)}
-          style={styles.googleButton}
-          accessibilityRole="button"
-          accessibilityLabel={copy.google}
-          accessibilityHint={copy.googleHint}
-        >
-          <Text style={styles.googleBadge}>G</Text>
-          <Text style={styles.googleText}>{copy.google}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push(Routes.auth.apple as never)}
-          style={styles.googleButton}
-          accessibilityRole="button"
-          accessibilityLabel={copy.apple}
-          accessibilityHint={copy.appleHint}
-        >
-          <FontAwesome name="apple" size={20} color={Colors.textPrimary} />
-          <Text style={styles.googleText}>{copy.apple}</Text>
-        </Pressable>
-
-        <View style={styles.separatorRow}>
-          <View style={styles.separatorLine} />
-          <Text style={styles.separatorText}>{copy.separator}</Text>
-          <View style={styles.separatorLine} />
-        </View>
-
-        <Input
-          label={authStrings.register.name}
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="words"
-          autoComplete="name"
-          error={errors.name}
-        />
-        <Input
-          label={authStrings.register.email}
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          error={errors.email}
-        />
-        <Input
-          label={authStrings.register.password}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="new-password"
-          error={errors.password}
-          hint={copy.passwordHint}
-        />
-
-        <View style={styles.linksRow}>
-          <Pressable
-            onPress={() => router.push(Routes.legal.terms as never)}
-            style={styles.legalPill}
-            accessibilityRole="button"
-            accessibilityLabel={copy.termsA11yLabel}
-            accessibilityHint={copy.termsA11yHint}
-          >
-            <Text style={styles.legalPillText}>{copy.terms}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push(Routes.legal.privacy as never)}
-            style={styles.legalPill}
-            accessibilityRole="button"
-            accessibilityLabel={copy.privacyA11yLabel}
-            accessibilityHint={copy.privacyA11yHint}
-          >
-            <Text style={styles.legalPillText}>{copy.privacy}</Text>
-          </Pressable>
-        </View>
-
-        <Pressable
-          style={styles.checkRow}
-          onPress={() => setConsentAccepted((value) => !value)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: consentAccepted }}
-          accessibilityLabel={copy.consentA11yLabel}
-          accessibilityHint={copy.consentA11yHint}
-        >
-          <View style={[styles.checkbox, consentAccepted && styles.checkboxChecked]}>
-            {consentAccepted ? <MaterialIcons name="check" size={14} color={Colors.black} /> : null}
+      <View style={styles.formBlock}>
+        {submitError ? (
+          <View style={[styles.notice, emailAlreadyRegistered ? styles.noticeWarning : null]}>
+            <Text style={styles.noticeTitle}>
+              {emailAlreadyRegistered ? copy.registeredTitle : copy.submitFallback}
+            </Text>
+            <Text style={styles.noticeBody}>
+              {emailAlreadyRegistered ? copy.registeredBody : submitError}
+            </Text>
+            {emailAlreadyRegistered ? (
+              <Pressable
+                onPress={() => router.replace(Routes.auth.login as never)}
+                style={styles.noticeLinkWrap}
+                accessibilityRole="button"
+                accessibilityLabel={copy.goToLogin}
+              >
+                <Text style={styles.noticeLink}>{copy.goToLogin}</Text>
+              </Pressable>
+            ) : null}
           </View>
-          <Text style={styles.checkText}>{copy.consentLabel}</Text>
-        </Pressable>
+        ) : null}
 
-        {errors.consent ? <Text style={styles.errorText}>{errors.consent}</Text> : null}
-        {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+        <View style={styles.form}>
+          <Input
+            label={copy.email}
+            value={email}
+            size="md"
+            autoFocus
+            onChangeText={(value) => {
+              setEmail(value);
+              if (submitError) setSubmitError(null);
+            }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+            error={errors.email}
+          />
 
-        <Button onPress={handleRegister} fullWidth size="md" loading={isLoading}>
-          {authStrings.register.cta}
-        </Button>
-        <Button
-          onPress={() => {
-            void continueAsGuest();
-          }}
-          fullWidth
-          variant="secondary"
-          loading={isLoading}
-        >
-          {copy.guest}
-        </Button>
-        <Text style={styles.guestHint}>{copy.guestHint}</Text>
+          <Input
+            label={copy.password}
+            value={password}
+            size="md"
+            onChangeText={(value) => {
+              setPassword(value);
+              if (submitError) setSubmitError(null);
+            }}
+            secureTextEntry
+            autoComplete="new-password"
+            textContentType="newPassword"
+            returnKeyType="done"
+            onSubmitEditing={handleRegister}
+            error={errors.password}
+          />
+
+          {password.length > 0 ? (
+            <View style={styles.passwordChecklist}>
+              {passwordChecklist.map((rule) => (
+                <View key={rule.key} style={styles.passwordRule}>
+                  <View style={[styles.ruleDot, rule.met ? styles.ruleDotMet : null]}>
+                    {rule.met ? (
+                      <Ionicons name="checkmark" size={12} color={Colors.black} />
+                    ) : null}
+                  </View>
+                  <Text style={[styles.ruleText, rule.met ? styles.ruleTextMet : null]}>
+                    {rule.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <Button onPress={handleRegister} fullWidth size="md" loading={isLoading} haptic="medium">
+            {copy.cta}
+          </Button>
+
+          <Text style={styles.consentText}>
+            {copy.consentPrefix}
+            <Text onPress={() => router.push(Routes.legal.terms as never)} style={styles.inlineLink}>
+              {copy.terms}
+            </Text>
+            {' y '}
+            <Text onPress={() => router.push(Routes.legal.privacy as never)} style={styles.inlineLink}>
+              {copy.privacy}
+            </Text>
+            .
+          </Text>
+        </View>
       </View>
 
       <View style={styles.footer}>
@@ -248,10 +266,10 @@ export default function RegisterScreen() {
         <Pressable
           onPress={() => router.replace(Routes.auth.login as never)}
           accessibilityRole="button"
-          accessibilityLabel={copy.footerLabel}
+          accessibilityLabel={copy.footerAction}
           accessibilityHint={copy.footerHint}
         >
-          <Text style={styles.footerLink}>{authStrings.register.login}</Text>
+          <Text style={styles.footerLink}>{copy.footerAction}</Text>
         </Pressable>
       </View>
     </SafeScreen>
@@ -259,140 +277,153 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flexGrow: 1,
+    paddingBottom: Spacing[6],
+  },
+  topBar: {
+    paddingTop: Spacing[1],
+    marginBottom: Spacing[4],
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    backgroundColor: withOpacity(Colors.white, 0.03),
+  },
+  backButtonPressed: {
+    opacity: 0.88,
+  },
   hero: {
     gap: Spacing[2],
-    marginTop: Spacing[1],
-    marginBottom: Spacing[3],
+    marginBottom: Spacing[4],
+  },
+  eyebrow: {
+    color: Colors.textMuted,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   title: {
-    fontFamily: FontFamily.display,
-    fontSize: 34,
-    lineHeight: 34,
     color: Colors.textPrimary,
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xl,
+    lineHeight: 30,
+    letterSpacing: -0.6,
   },
   subtitle: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    lineHeight: 20,
     color: Colors.textSecondary,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.md,
+    lineHeight: 22,
+    maxWidth: 330,
   },
-  form: {
+  formBlock: {
+    gap: Spacing[4],
+  },
+  notice: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.error, 0.22),
+    backgroundColor: withOpacity(Colors.error, 0.08),
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[4],
     gap: Spacing[1.5],
   },
-  googleButton: {
-    height: 52,
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.surface2,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: Spacing[3],
+  noticeWarning: {
+    borderColor: withOpacity(Colors.warning, 0.22),
+    backgroundColor: withOpacity(Colors.warning, 0.08),
   },
-  googleBadge: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
-    color: '#4285F4',
-    backgroundColor: Colors.white,
-    width: 22,
-    height: 22,
-    lineHeight: 22,
-    textAlign: 'center',
-    borderRadius: 11,
-  },
-  googleText: {
+  noticeTitle: {
+    color: Colors.textPrimary,
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.textPrimary,
+    lineHeight: 18,
   },
-  separatorRow: {
+  noticeBody: {
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+  },
+  noticeLinkWrap: {
+    paddingTop: Spacing[0.5],
+  },
+  noticeLink: {
+    color: Colors.textPrimary,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+  },
+  form: {
+    gap: Spacing[3],
+  },
+  passwordChecklist: {
+    gap: Spacing[2],
+    paddingHorizontal: Spacing[1],
+  },
+  passwordRule: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing[3],
-    marginVertical: Spacing[0.5],
+    gap: Spacing[2],
   },
-  separatorLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: withOpacity(Colors.white, 0.08),
-  },
-  separatorText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
-  linksRow: {
-    flexDirection: 'row',
-    gap: Spacing[1],
-  },
-  legalPill: {
+  ruleDot: {
+    width: 18,
+    height: 18,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: Colors.surface2,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[1],
-  },
-  legalPillText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-  },
-  checkRow: {
-    flexDirection: 'row',
-    gap: Spacing[3],
-    alignItems: 'flex-start',
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: withOpacity(Colors.white, 0.14),
+    borderColor: Colors.border,
     backgroundColor: Colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
   },
-  checkboxChecked: {
-    backgroundColor: Colors.brand,
-    borderColor: Colors.brand,
+  ruleDotMet: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
-  checkText: {
+  ruleText: {
     flex: 1,
+    color: Colors.textMuted,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+  },
+  ruleTextMet: {
+    color: Colors.textSecondary,
+  },
+  consentText: {
+    color: Colors.textMuted,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+  },
+  inlineLink: {
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.semibold,
+  },
+  footer: {
+    marginTop: 'auto',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing[1],
+    paddingTop: Spacing[4],
+  },
+  footerText: {
+    color: Colors.textSecondary,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     lineHeight: 18,
-    color: Colors.textSecondary,
-  },
-  errorText: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.error,
-  },
-  guestHint: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    lineHeight: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: Spacing[3],
-  },
-  footerText: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
   },
   footerLink: {
+    color: Colors.textPrimary,
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.brand,
+    lineHeight: 18,
   },
 });

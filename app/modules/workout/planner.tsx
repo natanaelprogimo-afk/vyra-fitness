@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.workoutBg,
+    backgroundColor: Colors.workout,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

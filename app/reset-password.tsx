@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 34,
+    fontSize: FontSize['3.5xl'],
     lineHeight: 34,
     color: Colors.textPrimary,
   },
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontFamily: FontFamily.display,
-    fontSize: 30,
+    fontSize: FontSize['3.97xl'],
     lineHeight: 34,
     color: Colors.textPrimary,
     textAlign: 'center',

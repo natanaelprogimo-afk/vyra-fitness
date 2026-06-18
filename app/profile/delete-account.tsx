@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 28,
+    fontSize: FontSize['2xl'],
     lineHeight: 30,
     color: Colors.textPrimary,
     marginBottom: 6,

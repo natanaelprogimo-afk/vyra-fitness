@@ -97,12 +97,12 @@ export default function SupplementsSettingsScreen() {
             </Text>
           </View>
 
-          <Button
-            label={
-              supplementsDisclaimerAccepted
-                ? 'Volver a mostrar en primer uso'
+            <Button
+              label={
+                supplementsDisclaimerAccepted
+                ? 'Mostrar aviso de nuevo'
                 : 'Marcar como entendido'
-            }
+              }
             onPress={() => setSupplementsDisclaimerAccepted(!supplementsDisclaimerAccepted)}
             variant="secondary"
             color={Colors.supplements}

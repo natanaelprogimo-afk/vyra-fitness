@@ -3,7 +3,7 @@
 // Native pedometer + Health Connect + local background snapshot.
 // ============================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { Pedometer } from 'expo-sensors';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,6 @@ import { todayISO, daysAgoISO } from '@/utils/dates';
 import {
   calculateStepsCalories,
   calculateStepsDistance,
-  metersToKm,
 } from '@/utils/calculations';
 import {
   readTodayStepsFromHealthConnect,
@@ -59,6 +58,39 @@ function getActivityZone(totalSteps: number): ActivityZone {
     return { key: 'active', label: 'Activo', range: '4.000-7.999', color: '#F59E0B' };
   }
   return { key: 'very_active', label: 'Muy activo', range: '8.000+', color: '#10B981' };
+}
+
+// NEW: Validate steps for "fake steps" (e.g., vibration, arm movement in car)
+function validateStepsForAnomalies(
+  steps: number,
+  elapsedMinutes: number,
+): { isValid: boolean; anomalyMessage: string | null } {
+  if (elapsedMinutes <= 0) {
+    return { isValid: true, anomalyMessage: null };
+  }
+
+  const stepsPerMinute = steps / elapsedMinutes;
+
+  // Real walking: 100-130 steps/min
+  // Running: 160-180 steps/min
+  // Anomalies:
+  // - <20 steps/min: probably not actual walking (car vibration, arm shaking)
+  // - >200 steps/min: impossible (super fast running only)
+  if (stepsPerMinute < 20) {
+    return {
+      isValid: false,
+      anomalyMessage: `⚠️ Solo ${Math.round(stepsPerMinute)} pasos/min detectados. Posible conteo falso.`,
+    };
+  }
+
+  if (stepsPerMinute > 220) {
+    return {
+      isValid: false,
+      anomalyMessage: `⚠️ ${Math.round(stepsPerMinute)} pasos/min: velocidad imposible.`,
+    };
+  }
+
+  return { isValid: true, anomalyMessage: null };
 }
 
 export function useSteps() {
@@ -120,7 +152,12 @@ export function useSteps() {
     return result;
   }, [userId]);
 
-  const { data: todayLog, isLoading, refetch } = useQuery<StepLogRow | null>({
+  const {
+    data: todayLog,
+    isLoading,
+    refetch,
+    error: todayLogError,
+  } = useQuery<StepLogRow | null>({
     queryKey: ['step_logs', userId, todayISO()],
     queryFn: async () => {
       if (!userId) return null;
@@ -159,7 +196,8 @@ export function useSteps() {
   const activityZone = getActivityZone(totalSteps);
   const activeRatio = totalSteps > 0 ? Math.round((activeSteps / totalSteps) * 100) : 0;
   const progressPct = Math.min(100, (totalSteps / goal) * 100);
-  const distanceKm = metersToKm(calculateStepsDistance(totalSteps, height));
+  const distanceMeters = calculateStepsDistance(totalSteps, height);
+  const distanceKm = Math.round((distanceMeters / 1000) * 100) / 100;
   const calories = calculateStepsCalories(totalSteps, weight);
   const remaining = Math.max(0, goal - totalSteps);
 
@@ -323,11 +361,14 @@ export function useSteps() {
     passiveLiveRef.current = 0;
     lastTickMsRef.current = null;
     lastReportedStepsRef.current = 0;
-    showToast(`Pasos guardados: ${totalToSave.toLocaleString('es')}`, 'success');
+    showToast(`Pasos guardados: ${totalToSave.toLocaleString('es-UY')}`, 'success');
     trackLogCreated('steps', healthConnectSteps > sensorTotalSteps ? 'health_connect' : 'sensor', Date.now());
   }, [externalBaselineSteps, healthConnectSteps, liveSteps, saveSteps, savedSteps, sensorTotalSteps, showToast]);
 
-  const { data: weeklyData = [] } = useQuery<WeeklyStepRow[]>({
+  const {
+    data: weeklyData = [],
+    error: weeklyDataError,
+  } = useQuery<WeeklyStepRow[]>({
     queryKey: ['steps_history', userId],
     queryFn: async () => {
       if (!userId) return [];
@@ -335,21 +376,42 @@ export function useSteps() {
         .from('step_logs')
         .select('logged_date, steps, distance_m, calories')
         .eq('user_id', userId)
-        .gte('logged_date', daysAgoISO(6))
+        .gte('logged_date', daysAgoISO(13))
         .order('logged_date');
 
       if (error) throw error;
-      return (data ?? []) as WeeklyStepRow[];
+      const rows = ((data ?? []) as WeeklyStepRow[]).map((row) => ({
+        logged_date: row.logged_date,
+        steps: Number(row.steps ?? 0),
+        distance_m: row.distance_m === null ? null : Number(row.distance_m ?? 0),
+        calories: row.calories === null ? null : Number(row.calories ?? 0),
+      }));
+
+      const byDate = new Map(rows.map((row) => [row.logged_date, row]));
+
+      return Array.from({ length: 14 }, (_, index) => {
+        const date = daysAgoISO(13 - index);
+        return (
+          byDate.get(date) ?? {
+            logged_date: date,
+            steps: 0,
+            distance_m: 0,
+            calories: 0,
+          }
+        );
+      });
     },
     enabled: !!userId && isOnline,
     staleTime: 5 * 60 * 1000,
   });
 
-  const weeklyAvg = weeklyData.length
-    ? Math.round(weeklyData.reduce((sum, day) => sum + day.steps, 0) / weeklyData.length)
+  const currentWeekData = useMemo(() => weeklyData.slice(-7), [weeklyData]);
+  const weeklyAvg = currentWeekData.length
+    ? Math.round(currentWeekData.reduce((sum, day) => sum + day.steps, 0) / currentWeekData.length)
     : 0;
-  const bestDaySteps = weeklyData.length ? Math.max(...weeklyData.map((day) => day.steps)) : 0;
-  const daysMetGoal = weeklyData.filter((day) => day.steps >= goal).length;
+  const bestDaySteps = currentWeekData.length ? Math.max(...currentWeekData.map((day) => day.steps)) : 0;
+  const daysMetGoal = currentWeekData.filter((day) => day.steps >= goal).length;
+  const loadError = todayLogError ?? weeklyDataError ?? null;
 
   return {
     isAvailable,
@@ -369,9 +431,11 @@ export function useSteps() {
     sessionStart,
     isLoading,
     weeklyData,
+    currentWeekData,
     weeklyAvg,
     bestDaySteps,
     daysMetGoal,
+    loadError,
     manualSave,
     refetch,
     healthConnectStatus,

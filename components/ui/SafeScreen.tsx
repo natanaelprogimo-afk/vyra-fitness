@@ -1,8 +1,4 @@
-// ============================================================
-// VYRA FITNESS - SafeScreen
-// Wrapper base para todas las pantallas. Safe area + scroll opcional.
-// ============================================================
-
+// REDESIGNED: 2026-05-20 - safe shell is calmer and more instrument-like
 import React from 'react';
 import {
   KeyboardAvoidingView,
@@ -12,6 +8,8 @@ import {
   StyleSheet,
   View,
   useColorScheme,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,7 +27,7 @@ interface SafeScreenProps {
   backgroundColor?: string;
   style?: ViewStyle;
   contentStyle?: ViewStyle;
-  onScroll?: () => void;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   stickyHeaderIndices?: number[] | undefined;
 }
 
@@ -40,7 +38,7 @@ export function SafeScreen({
   padTop = true,
   padBottom = true,
   disableAtmosphere = false,
-  backgroundColor = Colors.bgBase,
+  backgroundColor = Colors.base,
   style,
   contentStyle,
   onScroll,
@@ -68,7 +66,8 @@ export function SafeScreen({
       contentContainerStyle={[styles.scrollContent, contentStyle]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      onScrollBeginDrag={onScroll}
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       stickyHeaderIndices={stickyHeaderIndices}
     >
       {children}
@@ -90,12 +89,30 @@ export function SafeScreen({
       {!disableAtmosphere ? (
         <>
           <View pointerEvents="none" style={styles.atmosphereLayer}>
-            <View style={[styles.glow, styles.topGlow, { backgroundColor: withOpacity(Colors.action, 0.12) }]} />
-            <View style={[styles.glow, styles.bottomGlow, { backgroundColor: withOpacity(Colors.sleep, 0.08) }]} />
+            <View
+              style={[
+                styles.topGlow,
+                { backgroundColor: withOpacity(Colors.info, resolvedColorScheme === 'dark' ? 0.045 : 0.03) },
+              ]}
+            />
+            <View
+              style={[
+                styles.cornerGlow,
+                { backgroundColor: withOpacity(Colors.action, resolvedColorScheme === 'dark' ? 0.035 : 0.02) },
+              ]}
+            />
           </View>
           <View
             pointerEvents="none"
-            style={[styles.overlayWash, { backgroundColor: withOpacity(Colors.bgBase, 0.18) }]}
+            style={[
+              styles.overlayWash,
+              {
+                backgroundColor:
+                  resolvedColorScheme === 'dark'
+                    ? withOpacity(Colors.base, 0.02)
+                    : withOpacity(Colors.white, 0.18),
+              },
+            ]}
           />
         </>
       ) : null}
@@ -112,20 +129,21 @@ const styles = StyleSheet.create({
   atmosphereLayer: {
     ...StyleSheet.absoluteFillObject,
   },
-  glow: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 220,
-    opacity: 0.9,
-  },
   topGlow: {
-    top: -92,
-    right: -60,
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 280,
+    top: -180,
+    right: -140,
   },
-  bottomGlow: {
-    bottom: 40,
-    left: -90,
+  cornerGlow: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 180,
+    bottom: -120,
+    left: -110,
   },
   overlayWash: {
     ...StyleSheet.absoluteFillObject,

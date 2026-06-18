@@ -3,7 +3,8 @@ import { buildProfileContextUpdate } from '@/lib/profile-context';
 
 let ignoreNextSignedOutEvent = false;
 let qaBridgeRuntimeMode = false;
-type QaBridgePayload = {
+
+export type QaBridgePayload = {
   access_token?: string;
   refresh_token?: string;
   email?: string;
@@ -11,6 +12,7 @@ type QaBridgePayload = {
   next?: string;
   hold?: string;
 };
+
 let qaBridgePayload: QaBridgePayload | null = null;
 
 function normalizeQaBridgePath(url: URL) {

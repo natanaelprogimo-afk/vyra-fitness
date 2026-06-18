@@ -9,7 +9,17 @@ export type RootStackParamList = {
   '(auth)/login':                      undefined;
   '(auth)/register':                   undefined;
   '(auth)/onboarding/setup-transition':undefined;
-  '(auth)/onboarding/step-goals':      undefined;
+  '(auth)/onboarding/step-sex':        undefined;
+  '(auth)/onboarding/step-name':       undefined;
+  '(auth)/onboarding/step-goal':       undefined;
+  '(auth)/onboarding/step-age':        undefined;
+  '(auth)/onboarding/step-height':     undefined;
+  '(auth)/onboarding/step-weight':     undefined;
+  '(auth)/onboarding/step-activity':   undefined;
+  '(auth)/onboarding/step-composition':undefined;
+  '(auth)/onboarding/step-equipment':  undefined;
+  '(auth)/onboarding/step-equipment-inventory': undefined;
+  '(auth)/onboarding/step-ready':      undefined;
   // Tabs
   '(tabs)/':        undefined;
   '(tabs)/progress':undefined;

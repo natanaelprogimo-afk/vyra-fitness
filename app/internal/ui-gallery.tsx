@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Redirect } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -13,9 +14,21 @@ import LinkRow from '@/components/ui/LinkRow';
 import MetricCard from '@/components/ui/MetricCard';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Colors } from '@/constants/colors';
+import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Spacing } from '@/constants/theme';
 
 export default function InternalUiGalleryScreen() {
+  if (!INTERNAL_ROUTES_ENABLED) {
+    return <Redirect href={Routes.settings.index as never} />;
+  }
+
+  return <InternalUiGalleryContent />;
+}
+
+const INTERNAL_ROUTES_ENABLED =
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_INTERNAL_ROUTES === 'true';
+
+function InternalUiGalleryContent() {
   const [segment, setSegment] = useState<'system' | 'manual' | 'hybrid'>('system');
   const [toggleValue, setToggleValue] = useState(true);
   const [fieldValue, setFieldValue] = useState('');
@@ -143,8 +156,8 @@ export default function InternalUiGalleryScreen() {
             subtitle="Una sola gramatica para help center, settings y accesos de soporte."
           />
           <LinkRow
-            label="Centro del sistema"
-            description="Backend, sync, widgets, notificaciones y resumen IA semanal."
+            label="Soporte tecnico"
+            description="Diagnostico interno minimo para QA, fuera del flujo normal."
             hint="Nuevo"
             onPress={() => {}}
           />

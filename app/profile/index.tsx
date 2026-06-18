@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
@@ -7,14 +7,19 @@ import Card from '@/components/ui/Card';
 import ConfirmationSheet from '@/components/ui/ConfirmationSheet';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
-import { MODULES } from '@/constants/modules';
+import { MODULES, type ModuleId } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
+import { useLocalizedStrings } from '@/constants/strings';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useWeight } from '@/hooks/useWeight';
 import { useWorkout } from '@/hooks/useWorkout';
-import { getActiveModules } from '@/lib/active-modules';
+import { buildProfileContextUpdate } from '@/lib/profile-context';
+import { buildProfileContextWithActiveModules, getActiveModules } from '@/lib/active-modules';
+import { supabase } from '@/lib/supabase';
+import { trackModuleDisabled, trackModuleEnabled } from '@/lib/analytics';
+import { isGuestAuthUser, MANAGED_GUEST_NAME, normalizeManagedGuestName } from '@/lib/guest-auth';
 import { triggerImpactHaptic } from '@/lib/haptics';
 
 type ProfileRowItem = {
@@ -27,18 +32,47 @@ type ProfileRowItem = {
   onPress?: () => void;
 };
 
-function goalLabel(goal?: string | null) {
+function goalLabel(
+  goal: string | null | undefined,
+  profileStrings: ReturnType<typeof useLocalizedStrings>['ShellStrings']['profile'],
+) {
   switch (goal) {
     case 'gain_muscle':
-      return 'Modo ganar musculo';
+      return profileStrings.modes.gainMuscle;
     case 'lose_fat':
-      return 'Modo perder peso';
+      return profileStrings.modes.loseFat;
     case 'sport_performance':
     case 'performance':
-      return 'Modo rendimiento';
+      return profileStrings.modes.performance;
     default:
-      return 'Modo constancia';
+      return profileStrings.modes.consistency;
   }
+}
+
+const MODULE_SETUP_ROUTES: Partial<Record<ModuleId, string>> = {
+  workout: Routes.workout.settings,
+  nutrition: Routes.nutrition.settings,
+  water: Routes.water.settings,
+  sleep: Routes.sleep.settings,
+  steps: Routes.steps.settings,
+  fasting: Routes.fasting.settings,
+  female: Routes.female.settings,
+  supplements: Routes.supplements.settings,
+};
+
+const MODULE_ICONS: Partial<Record<ModuleId, React.ComponentProps<typeof Ionicons>['name']>> = {
+  workout: 'barbell-outline',
+  nutrition: 'restaurant-outline',
+  water: 'water-outline',
+  sleep: 'moon-outline',
+  steps: 'footsteps-outline',
+  fasting: 'timer-outline',
+  female: 'flower-outline',
+  supplements: 'medical-outline',
+};
+
+function getModuleSetupRoute(moduleId: ModuleId): string | null {
+  return MODULE_SETUP_ROUTES[moduleId] ?? null;
 }
 
 function QuickStat({
@@ -115,17 +149,25 @@ function Section({ title, items }: { title: string; items: ProfileRowItem[] }) {
 
 export default function ProfileSheetScreen() {
   const { width } = useWindowDimensions();
-  const { profile, signOut } = useAuthStore();
+  const { profile, signOut, setProfile, user } = useAuthStore();
   const showToast = useUIStore((state) => state.showToast);
   const { stats } = useWeight();
   const { history, getConsistencyStats } = useWorkout();
+  const { ShellStrings: shellStrings, ModuleNames: moduleNames } = useLocalizedStrings();
+  const profileStrings = shellStrings.profile;
   const activeModules = getActiveModules(profile);
+  const activeModuleSet = useMemo(() => new Set(activeModules), [activeModules]);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [modulePendingDisable, setModulePendingDisable] = useState<ModuleId | null>(null);
+  const [moduleSaving, setModuleSaving] = useState<ModuleId | null>(null);
 
   const consistency = getConsistencyStats();
   const isCompactWidth = width <= 390;
-  const name = profile?.name?.trim() || 'Usuario';
+  const name = isGuestAuthUser(user)
+    ? MANAGED_GUEST_NAME
+    : normalizeManagedGuestName(profile?.name) || 'Usuario';
+  const email = profile?.email?.trim() || profileStrings.membership.emailFallback;
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -136,115 +178,214 @@ export default function ProfileSheetScreen() {
   const currentWeight = stats.current != null ? `${stats.current.toFixed(1)} kg` : '--';
   const lastSession = history[0];
   const lastSessionLabel = lastSession?.started_at
-    ? `Hace ${Math.max(0, Math.round((Date.now() - new Date(lastSession.started_at).getTime()) / 86400000))} días`
-    : 'Sin sesiones';
+    ? profileStrings.stats.daysAgo.replace(
+        '{{days}}',
+        String(Math.max(0, Math.round((Date.now() - new Date(lastSession.started_at).getTime()) / 86400000))),
+      )
+    : profileStrings.stats.noSessions;
 
   const activityItems: ProfileRowItem[] = [
     {
       icon: 'barbell-outline',
-      label: 'Entrenamiento y bloque activo',
-      value: 'Rutina de hoy, programas y sesiones',
+      label: profileStrings.rows.workout.label,
+      value: profileStrings.rows.workout.value,
       route: Routes.workout.index,
     },
     {
       icon: 'analytics-outline',
-      label: 'Progreso completo',
-      value: 'Rachas, peso y sesiones recientes',
+      label: profileStrings.rows.progress.label,
+      value: profileStrings.rows.progress.value,
       route: Routes.tabs.progress,
     },
   ];
 
-  const moduleFallbackIcons: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-    workout: 'barbell-outline',
-    nutrition: 'restaurant-outline',
-    water: 'water-outline',
-    sleep: 'moon-outline',
-    steps: 'footsteps-outline',
-    fasting: 'timer-outline',
-    female: 'flower-outline',
-    supplements: 'medical-outline',
-  };
+  const moduleCards = useMemo(
+    () =>
+      MODULES.map((module) => {
+        const moduleId = module.id as ModuleId;
+        return {
+          ...module,
+          moduleId,
+          label: module.shortName ?? moduleNames[moduleId as keyof typeof moduleNames] ?? module.name,
+          active: activeModuleSet.has(moduleId),
+        };
+      }),
+    [activeModuleSet, moduleNames],
+  );
+  const activeModuleCount = moduleCards.filter((module) => module.active).length;
+  const inactiveModuleCount = moduleCards.length - activeModuleCount;
 
-  const moduleDescriptions: Record<string, string> = {
-    workout: 'Plan y sesiones',
-    nutrition: 'Comidas y macros',
-    water: 'Hidratación y meta',
-    sleep: 'Última noche y registro',
-    steps: 'Pasos y caminatas',
-    fasting: 'Timer y protocolo',
-    female: 'Ciclo y síntomas',
-    supplements: 'Stack y adherencia',
-  };
+  const resolvedGoalLabel = goalLabel(profile?.goal, profileStrings);
+  const localizedLastSessionLabel = lastSession?.started_at
+    ? profileStrings.stats.daysAgo.replace(
+        '{{days}}',
+        String(Math.max(0, Math.round((Date.now() - new Date(lastSession.started_at).getTime()) / 86400000))),
+      )
+    : lastSessionLabel;
+  const localizedActivityItems = activityItems.map((item, index) =>
+    index === 0
+      ? { ...item, label: profileStrings.rows.workout.label, value: profileStrings.rows.workout.value }
+      : { ...item, label: profileStrings.rows.progress.label, value: profileStrings.rows.progress.value },
+  );
+  const isPremium =
+    Boolean(profile?.founding_member) ||
+    Boolean(profile?.paypal_subscription_id) ||
+    Boolean(profile?.premium_until && new Date(profile.premium_until).getTime() > Date.now());
+  const membershipLabel = profile?.founding_member
+    ? profileStrings.membership.founding
+    : isPremium
+      ? profileStrings.membership.premium
+      : profileStrings.membership.free;
+  const modulesSummary = profileStrings.membership.modulesSummary.replace(
+    '{{count}}',
+    String(activeModuleCount),
+  );
 
-  const moduleItems = activeModules.reduce<Array<{ tier: 'core' | 'contextual'; item: ProfileRowItem }>>((items, moduleId) => {
-      const meta = MODULES.find((item) => item.id === moduleId);
-      if (!meta) return items;
-      items.push({
-        tier: meta.tier,
-        item: {
-          icon: moduleFallbackIcons[moduleId] ?? 'grid-outline',
-          label: meta.name,
-          value: moduleDescriptions[moduleId] ?? meta.description,
-          route: meta.route,
-          iconColor: meta.color,
-        },
-      });
-      return items;
-    }, []);
-  const coreModuleItems = moduleItems
-    .filter((entry) => entry.tier === 'core')
-    .map((entry) => entry.item);
-  const contextualModuleItems = moduleItems
-    .filter((entry) => entry.tier === 'contextual')
-    .map((entry) => entry.item);
+  const preferenceItems: ProfileRowItem[] = [
+    {
+      icon: 'settings-outline',
+      label: profileStrings.rows.settings.label,
+      value: profileStrings.rows.settings.value,
+      route: Routes.settings.index,
+    },
+  ];
 
   const accountItems: ProfileRowItem[] = [
     {
-      icon: 'sparkles-outline',
-      label: 'Todo incluido',
-      value: 'Las funciones siguen abiertas y parte del soporte del producto ahora vive en anuncios discretos fuera de los flujos sensibles.',
-      route: Routes.premium.manage,
-      iconColor: Colors.action,
-    },
-    {
-      icon: 'settings-outline',
-      label: 'Ajustes',
-      value: 'Apariencia, widgets, notificaciones y privacidad',
-      route: Routes.settings.index,
-    },
-    {
       icon: 'create-outline',
-      label: 'Editar perfil',
+      label: profileStrings.rows.editProfile,
       route: Routes.profile.edit,
     },
     {
       icon: 'shield-checkmark-outline',
-      label: 'Cuenta y seguridad',
+      label: profileStrings.rows.security,
       route: Routes.settings.account,
     },
     {
       icon: 'download-outline',
-      label: 'Exportar datos',
+      label: profileStrings.rows.exportData,
       route: Routes.profile.exportData,
     },
-    {
-      icon: 'gift-outline',
-      label: 'Invitar a alguien',
-      value: 'Comparte tu codigo y suma gente a tu red',
-      route: Routes.profile.referral,
-    },
+  ];
+
+  const supportItems: ProfileRowItem[] = [
     {
       icon: 'help-circle-outline',
-      label: 'Soporte',
+      label: profileStrings.rows.support,
       route: Routes.profile.support,
     },
+  ];
+
+  const legalItems: ProfileRowItem[] = [
+    {
+      icon: 'document-text-outline',
+      label: profileStrings.rows.terms,
+      route: Routes.legal.terms,
+    },
+    {
+      icon: 'shield-outline',
+      label: profileStrings.rows.privacy,
+      route: Routes.legal.privacy,
+    },
+  ];
+
+  const dangerItems: ProfileRowItem[] = [
     {
       icon: 'trash-outline',
-      label: 'Eliminar cuenta',
+      label: profileStrings.rows.deleteAccount,
       route: Routes.profile.deleteAccount,
       destructive: true,
     },
   ];
+
+  const getModuleLabel = (moduleId: ModuleId) =>
+    moduleCards.find((module) => module.moduleId === moduleId)?.label ??
+    MODULES.find((module) => module.id === moduleId)?.name ??
+    'Módulo';
+
+  const persistModuleSelection = async (
+    nextModules: ModuleId[],
+    moduleId: ModuleId,
+    mode: 'enable' | 'disable',
+  ) => {
+    if (!profile?.id) return false;
+
+    setModuleSaving(moduleId);
+    try {
+      const nextContextMemory = buildProfileContextWithActiveModules(profile, nextModules);
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          ...buildProfileContextUpdate({ memory: nextContextMemory }),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profile.id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      setProfile(data);
+
+      if (mode === 'enable') {
+        trackModuleEnabled(moduleId, 'profile');
+      } else {
+        trackModuleDisabled(moduleId, 'profile');
+      }
+
+      showToast(
+        mode === 'enable'
+          ? `${getModuleLabel(moduleId)} activado.`
+          : `${getModuleLabel(moduleId)} desactivado.`,
+        'success',
+      );
+
+      return true;
+    } catch {
+      showToast('No se pudieron guardar los módulos.', 'error');
+      return false;
+    } finally {
+      setModuleSaving(null);
+    }
+  };
+
+  const handleModulePress = async (moduleId: ModuleId) => {
+    if (moduleSaving) return;
+
+    const isActive = activeModuleSet.has(moduleId);
+    if (isActive) {
+      if (activeModules.length <= 1) {
+        showToast('Mantén al menos 1 módulo activo.', 'warning');
+        return;
+      }
+
+      setModulePendingDisable(moduleId);
+      return;
+    }
+
+    const saved = await persistModuleSelection([...activeModules, moduleId], moduleId, 'enable');
+    if (!saved) return;
+
+    const setupRoute = getModuleSetupRoute(moduleId);
+    if (setupRoute) {
+      router.push(setupRoute as never);
+    }
+  };
+
+  const confirmModuleDisable = async () => {
+    if (!modulePendingDisable) return;
+
+    const moduleId = modulePendingDisable;
+    if (activeModules.length <= 1) {
+      setModulePendingDisable(null);
+      showToast('Mantén al menos 1 módulo activo.', 'warning');
+      return;
+    }
+
+    const nextModules = activeModules.filter((item) => item !== moduleId);
+    await persistModuleSelection(nextModules, moduleId, 'disable');
+    setModulePendingDisable(null);
+  };
 
   const handleLogout = () => {
     setSignOutOpen(true);
@@ -257,7 +398,7 @@ export default function ProfileSheetScreen() {
       await signOut();
       router.replace(Routes.auth.welcome as never);
     } catch {
-      showToast('No pudimos cerrar la sesion en este momento.', 'error');
+      showToast(profileStrings.closeSessionError, 'error');
     } finally {
       setSigningOut(false);
       setSignOutOpen(false);
@@ -279,6 +420,22 @@ export default function ProfileSheetScreen() {
 
         <View style={styles.headerRow}>
           <View style={styles.identityRow}>
+            <Text style={styles.sheetTitle}>Mi perfil</Text>
+          </View>
+
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel={profileStrings.closeProfile}
+            accessibilityHint={profileStrings.closeProfileHint}
+          >
+            <Ionicons name="close" size={18} color={Colors.textPrimary} />
+          </Pressable>
+        </View>
+
+        <Card style={styles.identityCard} accentColor={isPremium ? Colors.action : Colors.workout} shadow={false}>
+          <View style={styles.identityHeroRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initials || 'V'}</Text>
             </View>
@@ -286,81 +443,183 @@ export default function ProfileSheetScreen() {
             <View style={styles.identityCopy}>
               <View style={styles.nameRow}>
                 <Text style={styles.name}>{name}</Text>
+                <View
+                  style={[
+                    styles.membershipBadge,
+                    {
+                      backgroundColor: withOpacity(isPremium ? Colors.action : Colors.textMuted, 0.12),
+                      borderColor: withOpacity(isPremium ? Colors.action : Colors.textMuted, 0.18),
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.membershipBadgeText,
+                      { color: isPremium ? Colors.action : Colors.textSecondary },
+                    ]}
+                  >
+                    {membershipLabel}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.goal}>{goalLabel(profile?.goal)}</Text>
+              <Text style={styles.email}>{email}</Text>
+              <Text style={styles.goal}>{resolvedGoalLabel}</Text>
+              <Text style={styles.modulesSummary}>{modulesSummary}</Text>
             </View>
           </View>
 
-          <Pressable
-            style={styles.closeButton}
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Cerrar perfil"
-            accessibilityHint="Vuelve a la pantalla anterior."
-          >
-            <Ionicons name="close" size={18} color={Colors.textPrimary} />
-          </Pressable>
-        </View>
+          <View style={[styles.quickStatsRow, isCompactWidth && styles.quickStatsRowCompact]}>
+            <QuickStat
+              label={profileStrings.stats.currentWeight}
+              value={currentWeight}
+              compact={isCompactWidth}
+              onPress={() => router.push(Routes.tabs.progress as never)}
+            />
+            <QuickStat
+              label={profileStrings.stats.streak}
+              value={profileStrings.stats.streakDays.replace('{{days}}', String(consistency.currentStreak))}
+              compact={isCompactWidth}
+              onPress={() => router.push(Routes.tabs.progress as never)}
+            />
+            <QuickStat
+              label={profileStrings.stats.lastSession}
+              value={localizedLastSessionLabel}
+              compact={isCompactWidth}
+              onPress={() => {
+                if (!lastSession) {
+                  router.push(Routes.tabs.progress as never);
+                  return;
+                }
+                router.push({
+                  pathname: Routes.workout.sessionDetail,
+                  params: { sessionId: lastSession.id },
+                } as never);
+              }}
+            />
+          </View>
+        </Card>
 
-        <View style={[styles.quickStatsRow, isCompactWidth && styles.quickStatsRowCompact]}>
-          <QuickStat
-            label="Peso actual"
-            value={currentWeight}
-            compact={isCompactWidth}
-            onPress={() => router.push(Routes.tabs.progress as never)}
-          />
-          <QuickStat
-            label="Racha"
-            value={`${consistency.currentStreak} días`}
-            compact={isCompactWidth}
-            onPress={() => router.push(Routes.tabs.progress as never)}
-          />
-          <QuickStat
-            label="Última sesión"
-            value={lastSessionLabel}
-            compact={isCompactWidth}
-            onPress={() => {
-              if (!lastSession) {
-                router.push(Routes.tabs.progress as never);
-                return;
-              }
-              router.push({
-                pathname: Routes.workout.sessionDetail,
-                params: { sessionId: lastSession.id },
-              } as never);
-            }}
-          />
+        <Section
+          title={profileStrings.sections.activity}
+          items={localizedActivityItems.map((item) => ({
+            ...item,
+            onPress: item.route ? () => router.push(item.route as never) : item.onPress,
+          }))}
+        />
+
+        <View style={styles.modulesSection}>
+          <View style={styles.modulesSectionHeader}>
+            <View style={styles.modulesSectionCopy}>
+              <Text style={styles.modulesEyebrow}>Módulos activos</Text>
+              <Text style={styles.modulesTitle}>Toca para activar o desactivar</Text>
+            </View>
+            <View style={styles.modulesCountPill}>
+              <Text style={styles.modulesCountText}>{activeModuleCount} activos</Text>
+            </View>
+          </View>
+
+          <Card style={styles.modulesCard} shadow={false}>
+            <View style={styles.moduleGrid}>
+              {moduleCards.map((module) => {
+                const isActive = module.active;
+                const isBusy = moduleSaving === module.moduleId;
+
+                return (
+                  <Pressable
+                    key={module.moduleId}
+                    style={[
+                      styles.moduleChip,
+                      isActive && {
+                        borderColor: module.color,
+                        backgroundColor: withOpacity(module.color, 0.12),
+                      },
+                      isBusy && styles.moduleChipBusy,
+                    ]}
+                    onPress={() => void handleModulePress(module.moduleId)}
+                    disabled={moduleSaving !== null}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isActive, disabled: moduleSaving !== null }}
+                    accessibilityLabel={module.label}
+                    accessibilityHint={
+                      isActive
+                        ? `Desactiva ${module.label} y conserva tus registros.`
+                        : `Activa ${module.label} y abre su configuración si corresponde.`
+                    }
+                  >
+                    <View style={styles.moduleChipTopRow}>
+                      <View
+                        style={[
+                          styles.moduleIconWrap,
+                          {
+                            backgroundColor: withOpacity(module.color, isActive ? 0.16 : 0.08),
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={MODULE_ICONS[module.moduleId] ?? 'grid-outline'}
+                          size={18}
+                          color={isActive ? module.color : Colors.textMuted}
+                        />
+                      </View>
+                      <Ionicons
+                        name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={18}
+                        color={isActive ? module.color : Colors.textMuted}
+                      />
+                    </View>
+                    <Text style={styles.moduleChipName} numberOfLines={1}>
+                      {module.label}
+                    </Text>
+                    <Text style={[styles.moduleChipState, { color: isActive ? module.color : Colors.textMuted }]}>
+                      {isActive ? 'Activo' : 'Inactivo'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.modulesNote}>
+              {inactiveModuleCount > 0
+                ? `Quedan ${inactiveModuleCount} módulos disponibles para explorar.`
+                : 'Ya tienes todos los módulos visibles activos.'}
+            </Text>
+          </Card>
         </View>
 
         <Section
-          title="Actividad"
-          items={activityItems.map((item) => ({
+          title={profileStrings.sections.preferences}
+          items={preferenceItems.map((item) => ({
             ...item,
             onPress: item.route ? () => router.push(item.route as never) : item.onPress,
           }))}
         />
 
         <Section
-          title="Modulos core"
-          items={coreModuleItems.map((item) => ({
-            ...item,
-            onPress: item.route ? () => router.push(item.route as never) : item.onPress,
-          }))}
-        />
-
-        {contextualModuleItems.length ? (
-          <Section
-            title="Modulos contextuales"
-            items={contextualModuleItems.map((item) => ({
-              ...item,
-              onPress: item.route ? () => router.push(item.route as never) : item.onPress,
-            }))}
-          />
-        ) : null}
-
-        <Section
-          title="Cuenta y ajustes"
+          title={profileStrings.sections.account}
           items={accountItems.map((item) => ({
+            ...item,
+            onPress: item.route ? () => router.push(item.route as never) : item.onPress,
+          }))}
+        />
+
+        <Section
+          title={profileStrings.sections.support}
+          items={supportItems.map((item) => ({
+            ...item,
+            onPress: item.route ? () => router.push(item.route as never) : item.onPress,
+          }))}
+        />
+
+        <Section
+          title={profileStrings.sections.legal}
+          items={legalItems.map((item) => ({
+            ...item,
+            onPress: item.route ? () => router.push(item.route as never) : item.onPress,
+          }))}
+        />
+
+        <Section
+          title=""
+          items={dangerItems.map((item) => ({
             ...item,
             onPress: item.route ? () => router.push(item.route as never) : item.onPress,
           }))}
@@ -370,10 +629,10 @@ export default function ProfileSheetScreen() {
           style={styles.logoutButton}
           onPress={handleLogout}
           accessibilityRole="button"
-          accessibilityLabel="Cerrar sesión"
-          accessibilityHint="Cierra tu sesión en este dispositivo."
+          accessibilityLabel={profileStrings.rows.logout}
+          accessibilityHint={profileStrings.logout.accessibilityHint}
         >
-          <Text style={styles.logoutText}>Cerrar sesión</Text>
+          <Text style={styles.logoutText}>{profileStrings.rows.logout}</Text>
         </Pressable>
 
         <ScreenFooterSpacer />
@@ -382,14 +641,35 @@ export default function ProfileSheetScreen() {
       <ConfirmationSheet
         visible={signOutOpen}
         onClose={() => setSignOutOpen(false)}
-        title="Cerrar sesion"
-        body="Se cerrara tu sesion en este dispositivo. Tu cuenta y tu historial seguiran disponibles cuando vuelvas a entrar."
-        confirmLabel={signingOut ? 'Cerrando sesion...' : 'Cerrar sesion'}
+        title={profileStrings.logout.title}
+        body={profileStrings.logout.body}
+        confirmLabel={signingOut ? profileStrings.logout.loading : profileStrings.logout.confirm}
         onConfirm={() => {
           void confirmLogout();
         }}
         confirmVariant="danger"
         loading={signingOut}
+      />
+
+      <ConfirmationSheet
+        visible={modulePendingDisable !== null}
+        onClose={() => setModulePendingDisable(null)}
+        title={
+          modulePendingDisable
+            ? `Desactivar ${getModuleLabel(modulePendingDisable)}`
+            : 'Desactivar módulo'
+        }
+        body={
+          modulePendingDisable
+            ? `Tus registros se guardan. Puedes volver a activarlo cuando quieras.`
+            : 'Tus registros se guardan. Puedes volver a activarlo cuando quieras.'
+        }
+        confirmLabel="Desactivar"
+        confirmVariant="danger"
+        onConfirm={() => {
+          void confirmModuleDisable();
+        }}
+        loading={moduleSaving !== null}
       />
     </SafeScreen>
   );
@@ -406,18 +686,29 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: Spacing[3],
   },
   identityRow: {
+    flex: 1,
+  },
+  sheetTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.lg,
+    color: Colors.textPrimary,
+  },
+  identityCard: {
+    gap: Spacing[4],
+  },
+  identityHeroRow: {
     flexDirection: 'row',
     gap: Spacing[3],
-    flex: 1,
+    alignItems: 'center',
   },
   avatar: {
     width: 72,
@@ -425,19 +716,18 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.action, 0.12),
+    backgroundColor: withOpacity(Colors.secondary, 0.12),
     borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.22),
+    borderColor: withOpacity(Colors.secondary, 0.22),
   },
   avatarText: {
     fontFamily: FontFamily.display,
-    fontSize: 24,
-    color: Colors.action,
+    fontSize: FontSize['2.75xl'],
+    color: Colors.secondary,
   },
   identityCopy: {
     flex: 1,
     gap: 6,
-    justifyContent: 'center',
   },
   nameRow: {
     flexDirection: 'row',
@@ -447,7 +737,7 @@ const styles = StyleSheet.create({
   },
   name: {
     fontFamily: FontFamily.bold,
-    fontSize: 20,
+    fontSize: FontSize['lg+'],
     color: Colors.textPrimary,
   },
   goal: {
@@ -455,17 +745,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.textSecondary,
   },
-  premiumChip: {
-    alignSelf: 'flex-start',
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing[2.5],
-    paddingVertical: Spacing[1],
-    backgroundColor: withOpacity(Colors.action, 0.14),
+  email: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
   },
-  premiumChipText: {
+  modulesSummary: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    color: Colors.action,
+    color: Colors.textSecondary,
+  },
+  membershipBadge: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: Spacing[2.5],
+    paddingVertical: Spacing[1],
+  },
+  membershipBadgeText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
   },
   closeButton: {
     width: 40,
@@ -500,15 +798,104 @@ const styles = StyleSheet.create({
   },
   quickStatValue: {
     fontFamily: FontFamily.bold,
-    fontSize: 20,
+    fontSize: FontSize['lg+'],
     color: Colors.textPrimary,
     flexShrink: 1,
   },
   quickStatLabel: {
     fontFamily: FontFamily.regular,
-    fontSize: 12,
+    fontSize: FontSize['sm'],
     color: Colors.textMuted,
     flexShrink: 1,
+  },
+  modulesSection: {
+    gap: Spacing[2],
+  },
+  modulesSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: Spacing[3],
+  },
+  modulesSectionCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  modulesEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+  },
+  modulesTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  modulesCountPill: {
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.5],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.08),
+    backgroundColor: Colors.bgSurface,
+  },
+  modulesCountText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  modulesCard: {
+    gap: Spacing[3],
+  },
+  moduleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2.5],
+  },
+  moduleChip: {
+    flexGrow: 1,
+    flexBasis: '49%',
+    minWidth: 104,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+    backgroundColor: Colors.bgSurface,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    gap: Spacing[2],
+  },
+  moduleChipBusy: {
+    opacity: 0.72,
+  },
+  moduleChipTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
+  moduleIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moduleChipName: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  moduleChipState: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+  },
+  modulesNote: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
   },
   section: {
     gap: Spacing[2],
@@ -560,13 +947,13 @@ const styles = StyleSheet.create({
   premiumUpsell: {
     gap: Spacing[2],
     borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.18),
-    backgroundColor: withOpacity(Colors.action, 0.06),
+    borderColor: withOpacity(Colors.secondary, 0.18),
+    backgroundColor: withOpacity(Colors.secondary, 0.06),
   },
   premiumUpsellEyebrow: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
-    color: Colors.action,
+    color: Colors.secondary,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
   },
@@ -591,3 +978,4 @@ const styles = StyleSheet.create({
     color: Colors.error,
   },
 });
+

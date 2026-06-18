@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
@@ -11,10 +11,12 @@ import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { asRecord, getAuthHeaders, requestJson } from '@/services/backend/client';
+import { getActiveModules } from '@/lib/active-modules';
 import { supabase } from '@/lib/supabase';
-import { isGuestAuthUser, MANAGED_GUEST_NAME } from '@/lib/guest-auth';
+import { isGuestAuthUser, MANAGED_GUEST_NAME, normalizeManagedGuestName } from '@/lib/guest-auth';
+import { useWorkout } from '@/hooks/useWorkout';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 
@@ -34,9 +36,10 @@ export default function ClaimAccountScreen() {
   const setUser = useAuthStore((state) => state.setUser);
   const setProfile = useAuthStore((state) => state.setProfile);
   const showToast = useUIStore((state) => state.showToast);
+  const { history } = useWorkout();
 
   const [name, setName] = useState(
-    profile?.name && profile.name !== MANAGED_GUEST_NAME ? profile.name : '',
+    normalizeManagedGuestName(profile?.name) === MANAGED_GUEST_NAME ? '' : profile?.name ?? '',
   );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,6 +50,7 @@ export default function ClaimAccountScreen() {
 
   const isGuest = isGuestAuthUser(user);
   const normalizedEmail = useMemo(() => normalizeEmail(email), [email]);
+  const activeModules = useMemo(() => getActiveModules(profile), [profile]);
 
   const validationError = useMemo(() => {
     if (!isGuest) return null;
@@ -161,6 +165,33 @@ export default function ClaimAccountScreen() {
 
         <Card style={styles.card}>
           <SectionHeader
+            eyebrow="Se conserva"
+            title="Este invitado no se reinicia"
+            subtitle="Solo agregas un email y una contraseña. Tu progreso visible y tu configuración local se quedan contigo."
+          />
+
+          <View style={styles.preserveGrid}>
+            <View style={styles.preserveTile}>
+              <Text style={styles.preserveValue}>{activeModules.length}</Text>
+              <Text style={styles.preserveLabel}>modulos activos</Text>
+            </View>
+            <View style={styles.preserveTile}>
+              <Text style={styles.preserveValue}>{history.length}</Text>
+              <Text style={styles.preserveLabel}>sesiones workout</Text>
+            </View>
+            <View style={styles.preserveTile}>
+              <Text style={styles.preserveValue}>1</Text>
+              <Text style={styles.preserveLabel}>mismo dispositivo</Text>
+            </View>
+          </View>
+
+          <Text style={styles.preserveBody}>
+            Tambien se mantienen ajustes, idioma, unidades y el resto del contexto local de esta cuenta temporal.
+          </Text>
+        </Card>
+
+        <Card style={styles.card}>
+          <SectionHeader
             eyebrow="Cuenta temporal"
             title="Convierte este invitado en una cuenta fija"
             subtitle="Mantienes el mismo perfil y el mismo historial en este dispositivo. Solo agregas un email y una contrasena para volver cuando quieras."
@@ -256,5 +287,32 @@ const styles = StyleSheet.create({
   },
   card: {
     gap: Spacing[4],
+  },
+  preserveGrid: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  preserveTile: {
+    flex: 1,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surface2,
+    padding: Spacing[3],
+    gap: 4,
+  },
+  preserveValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
+    color: Colors.brand,
+  },
+  preserveLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  preserveBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
   },
 });

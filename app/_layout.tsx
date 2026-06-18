@@ -1,9 +1,10 @@
+// REDESIGNED: 2026-05-21 - partial sync banner now collapses into a lighter global status pill
 // ============================================================
 // VYRA FITNESS - Root Layout
 // Auth guard, providers, servicios globales y bootstrap
 // ============================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -15,15 +16,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import NetInfo from '@react-native-community/netinfo';
+import { Ionicons } from '@expo/vector-icons';
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-  Inter_900Black,
-} from '@expo-google-fonts/inter';
-import { JetBrainsMono_600SemiBold } from '@expo-google-fonts/jetbrains-mono';
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_600SemiBold,
+  DMSans_700Bold,
+  DMSans_800ExtraBold,
+} from '@expo-google-fonts/dm-sans';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { getPersistedSupabaseSessionSnapshot, supabase } from '@/lib/supabase';
@@ -34,8 +34,9 @@ import {
   setSentryUser,
 } from '@/lib/sentry';
 import { identifyUser, resetUser } from '@/lib/analytics';
-import { applyRuntimeColorScheme, Colors, resolveColorSchemePreference } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { applyRuntimeColorScheme, Colors, resolveColorSchemePreference, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, LineHeight, Radius, Spacing } from '@/constants/theme';
+import { BiometricLabels } from '@/constants/strings';
 import { setI18nLanguage } from '@/lib/i18n';
 import { getTextScaleMultiplier } from '@/lib/text-scale';
 import { buildOfflineProfileSeed, ensureProfileExists } from '@/lib/auth-session';
@@ -44,7 +45,6 @@ import Toast from '@/components/ui/Toast';
 import NotificationsBootstrap from '@/components/system/NotificationsBootstrap';
 import StreakBootstrap from '@/components/system/StreakBootstrap';
 import BackendHealthGate from '@/components/system/BackendHealthGate';
-import AdsBootstrap from '@/components/system/AdsBootstrap';
 import { queryClient } from '@/lib/query-client';
 import {
   armQaBridgeRuntimeMode,
@@ -71,7 +71,7 @@ const FONT_LOAD_TIMEOUT_MS = 8000;
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
 const PROFILE_HYDRATION_TIMEOUT_MS = 12000;
 const QA_BRIDGE_ENABLED =
-  __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
 const REMOTE_AUTH_USER_MISSING = 'remote_auth_user_missing';
 
 function applyGlobalTextScaling(multiplier: number) {
@@ -145,6 +145,19 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
   });
 }
 
+function isProtectedAppRoute(route: string) {
+  const pathOnly = route.split('?')[0] ?? route;
+  return (
+    pathOnly === Routes.tabs.home ||
+    pathOnly.startsWith('/(tabs)/') ||
+    pathOnly.startsWith('/modules/') ||
+    pathOnly.startsWith('/profile') ||
+    pathOnly.startsWith('/settings') ||
+    pathOnly.startsWith('/premium/') ||
+    pathOnly === Routes.readiness
+  );
+}
+
 export default function RootLayout() {
   const currentSession = useAuthStore((s) => s.session);
   const isInitialized = useAuthStore((s) => s.isInitialized);
@@ -159,6 +172,7 @@ export default function RootLayout() {
     signOut,
   } = useAuthStore();
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapBannerExpanded, setBootstrapBannerExpanded] = useState(false);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
   const [biometricLocked, setBiometricLocked] = useState(false);
@@ -168,13 +182,11 @@ export default function RootLayout() {
   const appStateRef = useRef(AppState.currentState);
   const bootRestoredSessionRef = useRef(false);
   const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-    Inter_900Black,
-    JetBrainsMono_600SemiBold,
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
+    DMSans_700Bold,
+    DMSans_800ExtraBold,
   });
 
   const setIsOnline = useUIStore((s) => s.setIsOnline);
@@ -186,6 +198,7 @@ export default function RootLayout() {
   const systemColorScheme = useColorScheme();
   const resolvedColorScheme = resolveColorSchemePreference(colorSchemePreference, systemColorScheme);
   const canRenderApp = fontsLoaded || fontLoadTimedOut;
+  const shouldMountSessionBootstraps = Boolean(isInitialized && currentSession?.user);
   const shouldGatePublicStackWithBackendHealth =
     isInitialized &&
     !currentSession?.user;
@@ -216,9 +229,9 @@ export default function RootLayout() {
     }
 
     const incomingRoute = extractRouteFromIncomingUrl(url);
-    if (incomingRoute) {
-      if (
-        incomingRoute === Routes.auth.resetPassword ||
+      if (incomingRoute) {
+        if (
+          incomingRoute === Routes.auth.resetPassword ||
         incomingRoute.startsWith(`${Routes.auth.resetPassword}?`)
       ) {
         armPasswordRecoveryFlow();
@@ -240,6 +253,43 @@ export default function RootLayout() {
         }
         return;
       }
+
+      // Handle sleep quick log deep link
+      if (incomingRoute.startsWith('/sleep-quick-log')) {
+        const authState = useAuthStore.getState();
+        if (
+          authState.isInitialized &&
+          authState.session?.user &&
+          authState.hasResolvedProfile &&
+          authState.profile?.onboarding_completed
+        ) {
+          router.push({
+            pathname: '/modules/sleep/log',
+            params: {
+              source: 'notification',
+              quick: '1',
+            },
+          } as never);
+        }
+        return;
+      }
+
+      const authState = useAuthStore.getState();
+      if (isProtectedAppRoute(incomingRoute)) {
+        useNavigationStore.getState().setPostAuthRoute(incomingRoute);
+        if (
+          authState.isInitialized &&
+          authState.session?.user &&
+          authState.hasResolvedProfile &&
+          authState.profile?.onboarding_completed
+        ) {
+          router.replace(incomingRoute as never);
+        }
+        return;
+      }
+
+      router.replace(incomingRoute as never);
+      return;
     }
 
     try {
@@ -422,9 +472,9 @@ export default function RootLayout() {
       }
 
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Desbloquear Vyra',
-        cancelLabel: 'Cancelar',
-        fallbackLabel: 'Usar bloqueo del dispositivo',
+        promptMessage: BiometricLabels.promptMessage,
+        cancelLabel: BiometricLabels.cancelLabel,
+        fallbackLabel: BiometricLabels.fallbackLabel,
         disableDeviceFallback: false,
       });
 
@@ -851,28 +901,66 @@ export default function RootLayout() {
             </Stack>
           )}
 
-          <NotificationsBootstrap />
-          <AdsBootstrap />
-          <StreakBootstrap />
+          {shouldMountSessionBootstraps ? <NotificationsBootstrap /> : null}
+          {shouldMountSessionBootstraps ? <StreakBootstrap /> : null}
           <Toast />
 
-          {bootstrapError ? (
+          {__DEV__ ? (
             <View pointerEvents="box-none" style={styles.bootstrapBannerWrap}>
-              <View style={styles.bootstrapBanner}>
-                <View style={styles.bootstrapCopy}>
-                  <Text style={styles.bootstrapTitle}>Sesión con sincronización parcial</Text>
-                  <Text style={styles.bootstrapBody}>{bootstrapError}</Text>
-                </View>
+              <View style={styles.bootstrapBannerStack}>
                 <Pressable
-                  onPress={() => setBootstrapAttempt((value) => value + 1)}
-                  style={styles.bootstrapButton}
+                  onPress={() => setBootstrapBannerExpanded((value) => !value)}
+                  style={styles.bootstrapBanner}
                   accessibilityRole="button"
-                  accessibilityLabel="Reintentar sincronizacion parcial"
-                  accessibilityHint="Intenta recuperar la sesion o los datos remotos pendientes."
+                  accessibilityLabel="Estado de sincronizacion parcial"
+                  accessibilityHint={
+                    bootstrapBannerExpanded
+                      ? 'Oculta los detalles del estado parcial.'
+                      : 'Muestra los detalles del estado parcial.'
+                  }
+                  accessibilityState={{ expanded: bootstrapBannerExpanded }}
                   hitSlop={10}
                 >
-                  <Text style={styles.bootstrapButtonText}>Reintentar</Text>
+                  <View style={styles.bootstrapLeading}>
+                    <View style={styles.bootstrapStatusDot} />
+                    <View style={styles.bootstrapCopy}>
+                      <Text style={styles.bootstrapTitle}>Sincronización parcial</Text>
+                      <Text numberOfLines={1} style={styles.bootstrapBody}>
+                        {bootstrapBannerExpanded
+                          ? 'VYRA sigue usable, pero algunos datos remotos todavía no entraron.'
+                          : 'Algunos datos remotos todavía no entraron.'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.bootstrapTrailing}>
+                    <Text style={styles.bootstrapToggleText}>
+                      {bootstrapBannerExpanded ? 'Ocultar' : 'Ver'}
+                    </Text>
+                    <Ionicons
+                      name={bootstrapBannerExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={Colors.warning}
+                    />
+                  </View>
                 </Pressable>
+
+                {bootstrapBannerExpanded ? (
+                  <View style={styles.bootstrapDetailCard}>
+                    <Text style={styles.bootstrapDetailLabel}>Detalle</Text>
+                    <Text style={styles.bootstrapDetailBody}>{bootstrapError}</Text>
+                    <Pressable
+                      onPress={() => setBootstrapAttempt((value) => value + 1)}
+                      style={styles.bootstrapButton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Reintentar sincronizacion parcial"
+                      accessibilityHint="Intenta recuperar la sesion o los datos remotos pendientes."
+                      hitSlop={10}
+                    >
+                      <Text style={styles.bootstrapButtonText}>Reintentar ahora</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             </View>
           ) : null}
@@ -892,13 +980,13 @@ export default function RootLayout() {
                     }}
                     style={styles.biometricPrimaryButton}
                     accessibilityRole="button"
-                    accessibilityLabel="Desbloquear Vyra"
+                    accessibilityLabel={BiometricLabels.accessibilityLabel}
                     accessibilityHint="Pide biometria para volver a mostrar tus datos."
                     accessibilityState={{ busy: biometricPromptRunning }}
                     hitSlop={10}
                   >
                     <Text style={styles.biometricPrimaryText}>
-                      {biometricPromptRunning ? 'Verificando...' : 'Desbloquear'}
+                      {biometricPromptRunning ? BiometricLabels.verifyingButton : BiometricLabels.unlockButton}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -909,7 +997,7 @@ export default function RootLayout() {
                     style={styles.biometricSecondaryButton}
                     accessibilityRole="button"
                     accessibilityLabel="Cerrar sesion protegida"
-                    accessibilityHint="Cierra la sesion actual sin desbloquear la app."
+                    accessibilityHint={BiometricLabels.logoutHint}
                     hitSlop={10}
                   >
                     <Text style={styles.biometricSecondaryText}>Cerrar sesión</Text>
@@ -929,46 +1017,102 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: Spacing[4],
     right: Spacing[4],
-    bottom: Spacing[6],
+    top: Spacing[4],
+    alignItems: 'center',
+  },
+  bootstrapBannerStack: {
+    width: '100%',
+    maxWidth: 560,
+    gap: Spacing[2],
   },
   bootstrapBanner: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: Spacing[3],
-    borderRadius: Radius.xl,
+    minHeight: 44,
+    borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: `${Colors.warning}45`,
-    backgroundColor: Colors.bgSurface,
-    paddingHorizontal: Spacing[4],
-    paddingVertical: Spacing[3],
+    borderColor: withOpacity(Colors.warning, 0.24),
+    backgroundColor: withOpacity(Colors.bgSurface, 0.96),
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.75],
+  },
+  bootstrapLeading: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2.5],
+  },
+  bootstrapStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.warning,
   },
   bootstrapCopy: {
     flex: 1,
+    gap: 1,
   },
   bootstrapTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
     color: Colors.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   bootstrapBody: {
-    marginTop: 2,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: LineHeight.px18,
+    color: Colors.textSecondary,
+  },
+  bootstrapTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+  },
+  bootstrapToggleText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.warning,
+  },
+  bootstrapDetailCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.warning, 0.18),
+    backgroundColor: withOpacity(Colors.bgSurface, 0.98),
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    gap: Spacing[2],
+  },
+  bootstrapDetailLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    color: Colors.warning,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  bootstrapDetailBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: LineHeight.px18,
     color: Colors.textSecondary,
   },
   bootstrapButton: {
+    alignSelf: 'flex-start',
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: `${Colors.brand}35`,
-    backgroundColor: `${Colors.brand}16`,
+    borderColor: withOpacity(Colors.warning, 0.2),
+    backgroundColor: withOpacity(Colors.warning, 0.08),
     paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
+    paddingVertical: Spacing[1.5],
   },
   bootstrapButtonText: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.xs,
-    color: Colors.brand,
+    color: Colors.warning,
   },
   biometricOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1002,7 +1146,7 @@ const styles = StyleSheet.create({
   biometricBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
   },
   biometricActions: {

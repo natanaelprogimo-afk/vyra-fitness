@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { captureError } from '@/lib/sentry';
@@ -9,7 +10,9 @@ import {
   encryptSensitiveText,
 } from '@/lib/sensitive-crypto';
 import { resolveFemalePhaseFromRecord, type FemalePhase } from '@/lib/female-phase';
+import { resolveSupportedLanguage, type SupportedLanguage } from '@/lib/language';
 import { isStrictSensitiveMode } from '@/lib/privacy-settings';
+import { FemaleHealthLabels, FemaleSymptoms } from '@/constants/strings';
 
 export interface FemaleHealthEntry {
   id: string;
@@ -17,6 +20,7 @@ export interface FemaleHealthEntry {
   phase: FemalePhase;
   symptoms?: string[];
   symptomSeverity?: Record<string, number>;
+  mood?: number | null;
   notes?: string;
   logged_at: string;
 }
@@ -32,6 +36,21 @@ interface FemalePhaseGuidance {
 interface CycleIrregularity {
   isIrregular: boolean;
   message: string | null;
+}
+
+export interface FemaleSymptomPrediction {
+  symptom: string;
+  label: string;
+  startDay: number;
+  endDay: number;
+  occurrenceCount: number;
+  avgSeverity: number;
+  confidence: 'media' | 'alta';
+  daysUntilWindow: number;
+  nextDateStart: string;
+  nextDateEnd: string;
+  insight: string;
+  trainingHint: string;
 }
 
 interface FemaleHealthLogRow {
@@ -84,10 +103,109 @@ function decodeSymptomsWithSeverity(encoded: string[]): {
   return { symptoms, symptomSeverity };
 }
 
+function clampMood(value: number | null | undefined): number | null {
+  if (!Number.isFinite(value)) return null;
+  return Math.max(1, Math.min(5, Math.round(value as number)));
+}
+
+function buildSymptomTrainingHint(symptom: string): string {
+  if (symptom === 'fatiga' || symptom === 'migrana') {
+    return 'Conviene bajar intensidad, acortar la sesión o priorizar movilidad si este patrón vuelve a aparecer.';
+  }
+  if (symptom === 'colicos' || symptom === 'hinchazon') {
+    return 'Te puede rendir mejor una sesión corta, respiración, caminata o trabajo técnico sin apilar carga.';
+  }
+  if (symptom === 'cambios_humor') {
+    return 'Ese día suele servir más sostener continuidad con una rutina simple que exigir un pico de rendimiento.';
+  }
+  if (symptom === 'energia_alta') {
+    return 'Si el resto del contexto acompaña, suele ser una buena ventana para meter la sesión más fuerte de la semana.';
+  }
+  return 'Vale la pena ajustar entrenamiento, hidratación y recuperación cuando este patrón se acerque.';
+}
+
+function buildFemaleStoredNotes(
+  notes: string | null | undefined,
+  mood: number | null | undefined,
+): string | null {
+  const safeMood = clampMood(mood);
+  const safeNotes = typeof notes === 'string' ? notes.trim() : '';
+  if (safeMood === null && !safeNotes) return null;
+  if (safeMood === null) return safeNotes;
+  const prefix = `[[mood:${safeMood}]]`;
+  return safeNotes ? `${prefix}\n${safeNotes}` : prefix;
+}
+
+function parseFemaleStoredNotes(value: string | null): {
+  mood: number | null;
+  notes: string | null;
+} {
+  if (!value) {
+    return { mood: null, notes: null };
+  }
+
+  const trimmed = value.trim();
+  const match = trimmed.match(/^\[\[mood:(\d)\]\]\s*/);
+  if (!match) {
+    return { mood: null, notes: trimmed || null };
+  }
+
+  const mood = clampMood(Number(match[1]));
+  const notes = trimmed.slice(match[0].length).trim();
+  return {
+    mood,
+    notes: notes.length ? notes : null,
+  };
+}
+
+function getPhaseGuidance(
+  phase: FemalePhase,
+  _language: SupportedLanguage,
+): FemalePhaseGuidance {
+  // All guidance now comes from i18n labels
+  if (phase === 'menstrual') {
+    return {
+      training: FemaleHealthLabels.menstrualTraining,
+      fasting: FemaleHealthLabels.menstrualFasting,
+      nutrition: FemaleHealthLabels.menstrualNutrition,
+      hydrationBoostMl: 300,
+      weightContext: FemaleHealthLabels.menstrualWeightContext,
+    };
+  }
+  if (phase === 'follicular') {
+    return {
+      training: FemaleHealthLabels.follicularTraining,
+      fasting: FemaleHealthLabels.follicularFasting,
+      nutrition: FemaleHealthLabels.follicularNutrition,
+      hydrationBoostMl: 0,
+      weightContext: null,
+    };
+  }
+  if (phase === 'ovulation') {
+    return {
+      training: FemaleHealthLabels.ovulationTraining,
+      fasting: FemaleHealthLabels.ovulationFasting,
+      nutrition: FemaleHealthLabels.ovulationNutrition,
+      hydrationBoostMl: 150,
+      weightContext: null,
+    };
+  }
+  // Luteal phase (fallback)
+  return {
+    training: FemaleHealthLabels.lutealTraining,
+    fasting: FemaleHealthLabels.lutealFasting,
+    nutrition: FemaleHealthLabels.lutealNutrition,
+    hydrationBoostMl: 250,
+    weightContext: FemaleHealthLabels.lutealWeightContext,
+  };
+}
+
 export function useFemaleHealth() {
+  const { i18n } = useTranslation();
   const { profile } = useAuthStore();
   const userId = profile?.id;
   const strictSensitiveMode = isStrictSensitiveMode(profile);
+  const language = resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language);
 
   const [cycleLength, setCycleLength]       = useState(28);
   const [lastPeriodDate, setLastPeriodDate] = useState<string | null>(null);
@@ -182,12 +300,16 @@ export function useFemaleHealth() {
           );
           const decoded = decodeSymptomsWithSeverity(rawSymptoms);
           const phase = await resolveFemalePhaseFromRecord(entry as Record<string, unknown>);
+          const parsedNotes = parseFemaleStoredNotes(
+            await decryptSensitiveText(entry.notes ?? null),
+          );
           return {
             ...entry,
             phase: phase ?? 'follicular',
             symptoms: decoded.symptoms,
             symptomSeverity: decoded.symptomSeverity,
-            notes: await decryptSensitiveText(entry.notes ?? null),
+            mood: parsedNotes.mood,
+            notes: parsedNotes.notes ?? undefined,
           };
         }),
       );
@@ -204,6 +326,7 @@ export function useFemaleHealth() {
     symptoms?: string[],
     notes?: string,
     symptomSeverity?: Record<string, number>,
+    mood?: number,
   ) => {
     if (!userId) return;
     setIsLogging(true);
@@ -211,7 +334,7 @@ export function useFemaleHealth() {
       const normalizedSymptoms = encodeSymptomsWithSeverity(symptoms || [], symptomSeverity);
       const [encryptedSymptoms, encryptedNotes, encryptedPhase] = await Promise.all([
         encryptSensitiveStringArray(normalizedSymptoms),
-        encryptSensitiveText(notes || null),
+        encryptSensitiveText(buildFemaleStoredNotes(notes || null, mood)),
         encryptSensitiveText(phase),
       ]);
 
@@ -334,49 +457,14 @@ export function useFemaleHealth() {
   }, [strictSensitiveMode, userId]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [fetchData]);
 
   const { phase, daysInPhase, nextPeriodDate } = lastPeriodDate
     ?  calculatePhase(lastPeriodDate)
     : { phase: 'follicular' as const, daysInPhase: 0, nextPeriodDate: null };
 
-  const phaseGuidance: FemalePhaseGuidance = (() => {
-    if (phase === 'menstrual') {
-      return {
-        training: 'Recuperación activa, movilidad o fuerza liviana.',
-        fasting: 'Prioriza protocolos cortos (12-14h) o descanso de ayuno.',
-        nutrition: 'Refuerza hierro, omega-3 y alimentos antiinflamatorios.',
-        hydrationBoostMl: 300,
-        weightContext: 'En fase menstrual/lutea puede haber variaciones de 1-3kg por liquidos.',
-      };
-    }
-    if (phase === 'follicular') {
-      return {
-        training: 'Buena fase para progresar carga y volumen.',
-        fasting: 'Mayor tolerancia a protocolos estándar (16:8).',
-        nutrition: 'Sube proteína y zinc para rendimiento y recuperación.',
-        hydrationBoostMl: 0,
-        weightContext: null,
-      };
-    }
-    if (phase === 'ovulation') {
-      return {
-        training: 'Ventana de alta energía: fuerza/intensidad alta.',
-        fasting: 'Puede sostenerse 16:8 o 18:6 si hay buena recuperación.',
-        nutrition: 'Prioriza antioxidantes y carbos de calidad.',
-        hydrationBoostMl: 150,
-        weightContext: null,
-      };
-    }
-    return {
-      training: 'Mantener consistencia con intensidad moderada.',
-      fasting: 'En lutea puede costar más; acorta protocolo si aparece hambre alta.',
-      nutrition: 'Aumenta magnesio y carbos complejos para energía estable.',
-      hydrationBoostMl: 250,
-      weightContext: 'En fase lutea es normal retener liquidos y ver subidas transitorias.',
-    };
-  })();
+  const phaseGuidance: FemalePhaseGuidance = getPhaseGuidance(phase, language);
 
   const imminentPhaseNotice = (() => {
     if (!lastPeriodDate) return null;
@@ -454,6 +542,103 @@ export function useFemaleHealth() {
     return { isIrregular: false, message: null };
   })();
 
+  const symptomPredictions: FemaleSymptomPrediction[] = (() => {
+    if (!lastPeriodDate || history.length < 4) return [];
+
+    const cycleBase = new Date(`${lastPeriodDate}T12:00:00`);
+    const cycleBaseUtc = Date.UTC(
+      cycleBase.getUTCFullYear(),
+      cycleBase.getUTCMonth(),
+      cycleBase.getUTCDate(),
+    );
+    const currentCycleDay = Math.max(1, Math.min(cycleLength, daysInPhase + 1));
+    const symptomMap = new Map<string, { days: number[]; severities: number[] }>();
+
+    for (const entry of history) {
+      if (!entry.symptoms?.length) continue;
+
+      const entryDate = new Date(entry.logged_at);
+      const entryUtc = Date.UTC(
+        entryDate.getUTCFullYear(),
+        entryDate.getUTCMonth(),
+        entryDate.getUTCDate(),
+      );
+      const diffDays = Math.floor((entryUtc - cycleBaseUtc) / (1000 * 60 * 60 * 24));
+      const cycleDay = (((diffDays % cycleLength) + cycleLength) % cycleLength) + 1;
+
+      for (const symptom of entry.symptoms) {
+        const current = symptomMap.get(symptom) ?? { days: [], severities: [] };
+        current.days.push(cycleDay);
+        current.severities.push(Number(entry.symptomSeverity?.[symptom] ?? 3));
+        symptomMap.set(symptom, current);
+      }
+    }
+
+    return [...symptomMap.entries()]
+      .map(([symptom, bucket]) => {
+        if (bucket.days.length < 2) return null;
+
+        const sortedDays = [...bucket.days].sort((left, right) => left - right);
+        const averageDay = sortedDays.reduce((sum, value) => sum + value, 0) / sortedDays.length;
+        const spread = (sortedDays[sortedDays.length - 1] ?? 0) - (sortedDays[0] ?? 0);
+        if (spread > 9) return null;
+
+        const padding = spread <= 2 ? 1 : 2;
+        const centerDay = Math.max(1, Math.min(cycleLength, Math.round(averageDay)));
+        const startDay = Math.max(1, centerDay - padding);
+        const endDay = Math.min(cycleLength, centerDay + padding);
+        const avgSeverity =
+          bucket.severities.reduce((sum, value) => sum + value, 0) / Math.max(1, bucket.severities.length);
+        let daysUntilWindow = startDay - currentCycleDay;
+        if (daysUntilWindow < 0) daysUntilWindow += cycleLength;
+
+        const nextDateStart = new Date();
+        nextDateStart.setDate(nextDateStart.getDate() + daysUntilWindow);
+        const nextDateEnd = new Date(nextDateStart);
+        nextDateEnd.setDate(nextDateStart.getDate() + Math.max(0, endDay - startDay));
+
+        const label = FemaleSymptoms[symptom] ?? symptom;
+        const confidence =
+          bucket.days.length >= 3 && spread <= 4 && avgSeverity >= 2.5
+            ? 'alta'
+            : 'media';
+
+        return {
+          symptom,
+          label,
+          startDay,
+          endDay,
+          occurrenceCount: bucket.days.length,
+          avgSeverity: Math.round(avgSeverity * 10) / 10,
+          confidence,
+          daysUntilWindow,
+          nextDateStart: nextDateStart.toISOString().split('T')[0] ?? nextDateStart.toISOString(),
+          nextDateEnd: nextDateEnd.toISOString().split('T')[0] ?? nextDateEnd.toISOString(),
+          insight:
+            bucket.days.length >= 3
+              ? `Este mes probablemente ${label.toLowerCase()} aparezca entre los días ${startDay}-${endDay} del ciclo.`
+              : `${label} viene repitiéndose cerca de los días ${startDay}-${endDay} del ciclo.`,
+          trainingHint: buildSymptomTrainingHint(symptom),
+        } satisfies FemaleSymptomPrediction;
+      })
+      .filter((item): item is FemaleSymptomPrediction => Boolean(item))
+      .sort((left, right) => {
+        if (left.daysUntilWindow !== right.daysUntilWindow) {
+          return left.daysUntilWindow - right.daysUntilWindow;
+        }
+        if (left.occurrenceCount !== right.occurrenceCount) {
+          return right.occurrenceCount - left.occurrenceCount;
+        }
+        return right.avgSeverity - left.avgSeverity;
+      })
+      .slice(0, 3);
+  })();
+
+  // NEW: Support for irregular cycles and medications
+  const [cycleLengthMin, setCycleLengthMin] = useState(21); // Irregular cycles can be 21-35 days
+  const [cycleLengthMax, setCycleLengthMax] = useState(35);
+  const [hormonalMedicationNotes, setHormonalMedicationNotes] = useState<string | null>(null);
+
   return {
     cycleLength,
     lastPeriodDate,
@@ -466,11 +651,24 @@ export function useFemaleHealth() {
     phaseGuidance,
     imminentPhaseNotice,
     cycleIrregularity,
+    symptomPredictions,
     log,
     updateSymptoms,
     saveCycleSetup,
     isSavingSetup,
     isInCycle: !!lastPeriodDate,
     strictSensitiveMode,
+    // NEW: Irregular cycle support
+    cycleLengthMin,
+    cycleLengthMax,
+    setCycleLengthRange: (min: number, max: number) => {
+      setCycleLengthMin(Math.max(20, Math.min(min, 42)));
+      setCycleLengthMax(Math.max(min + 1, Math.min(max, 45)));
+    },
+    hormonalMedicationNotes,
+    setHormonalMedicationNotes: (notes: string | null) => {
+      setHormonalMedicationNotes(notes?.trim() || null);
+    },
+    hasHormonalMedication: !!hormonalMedicationNotes,
   };
 }

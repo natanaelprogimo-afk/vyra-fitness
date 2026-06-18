@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   },
   breakdownPill: {
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2],
     gap: 2,

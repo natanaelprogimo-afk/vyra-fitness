@@ -1,0 +1,123 @@
+// REDESIGNED: 2026-05-20 - bridge tokens now mirror the exhaustive redesign source
+export const VyraDesignSystem = {
+  meta: {
+    version: '2026.1',
+    source: 'docs/REDISEÑO/VYRA_REDISENO_EXHAUSTIVO_2026.md',
+    mode: 'dark-first',
+  },
+  color: {
+    core: {
+      background: '#0A0A0F',
+      surface1: '#141419',
+      surface2: '#1C1C24',
+      surface3: '#22222C',
+      borderStrong: 'rgba(255,255,255,0.08)',
+      borderSubtle: 'rgba(255,255,255,0.04)',
+      overlay: 'rgba(0,0,0,0.70)',
+    },
+    text: {
+      primary: '#FFFFFF',
+      secondary: 'rgba(255,255,255,0.70)',
+      tertiary: 'rgba(255,255,255,0.45)',
+      disabled: 'rgba(255,255,255,0.25)',
+    },
+    semantic: {
+      success: '#34C759',
+      warning: '#FF9500',
+      danger: '#FF3B30',
+      info: '#007AFF',
+      premium: '#FFD60A',
+    },
+    system: {
+      primaryButton: '#FFFFFF',
+      primaryButtonText: '#0A0A0F',
+      activeTab: '#FFFFFF',
+    },
+    modules: {
+      nutrition: '#FF6B35',
+      workout: '#00D4FF',
+      sleep: '#7B61FF',
+      water: '#00B4D8',
+      fasting: '#FF9500',
+      steps: '#30D158',
+      female: '#FF375F',
+      supplements: '#BF5AF2',
+      progress: '#FFFFFF',
+    },
+  },
+  font: {
+    current: {
+      display: 'DMSans_700Bold',
+      body: 'DMSans_400Regular',
+      mono: 'DMSans_600SemiBold',
+    },
+    target: {
+      display: 'DM Sans / Geist',
+      body: 'DM Sans',
+      mono: 'DM Mono / Space Mono',
+    },
+  },
+  typeScale: {
+    caption: 11,
+    bodySm: 13,
+    bodyMd: 15,
+    bodyLg: 17,
+    headingSm: 15,
+    headingMd: 17,
+    headingLg: 20,
+    headingXl: 24,
+    displayMd: 32,
+    displayLg: 40,
+    displayXl: 56,
+  },
+  spacing: {
+    1: 4,
+    2: 8,
+    3: 12,
+    4: 16,
+    5: 20,
+    6: 24,
+    8: 32,
+    10: 40,
+    12: 48,
+    16: 64,
+  },
+  radius: {
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    '2xl': 24,
+    full: 9999,
+  },
+  motion: {
+    duration: {
+      fast: 150,
+      base: 250,
+      slow: 400,
+      slower: 600,
+    },
+    spring: {
+      damping: 15,
+      stiffness: 150,
+    },
+  },
+  components: {
+    buttonHeight: 52,
+    buttonCompactHeight: 44,
+    inputHeight: 52,
+    cardPadding: 20,
+    metricCardPadding: 16,
+    tabCtaSize: 52,
+    tabBarMinHeight: 64,
+  },
+  guidance: {
+    home: 'One dominant mission card. Quick actions and module summaries support it.',
+    onboarding: 'One primary decision per screen, no optional critical steps.',
+    moduleHub: 'Data first, explanation second, action always visible above the fold.',
+    auth: 'Editorial but direct. CTA visible in the first viewport on Small Phone.',
+    settings: 'Quiet, clear, and list-first. Never theatrical.',
+  },
+} as const;
+
+export type VyraDesignSystemType = typeof VyraDesignSystem;

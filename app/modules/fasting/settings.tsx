@@ -16,6 +16,7 @@ import {
   saveFastingSettings,
   type FastingSettings,
 } from '@/lib/fasting-settings';
+import { cancelNotifsByType, scheduleFastingStartReminder } from '@/lib/notifications';
 import supabase, { getCurrentUserId } from '@/lib/supabase';
 import { useUIStore } from '@/stores/uiStore';
 
@@ -162,7 +163,24 @@ export default function FastingSettingsScreen() {
       return;
     }
 
+    if (payload.fiveTwoAutoStart && !parsedFiveTwoTime) {
+      showToast('Ingresá una hora válida para el auto-inicio 5:2.', 'warning');
+      setSaving(false);
+      return;
+    }
+
     const next = await saveFastingSettings(payload);
+    const eatingHours = Math.max(0, 24 - fastingHoursForPreview);
+    const reminderTotalMinutes = (parsedTime.hour * 60 + parsedTime.minute + eatingHours * 60) % (24 * 60);
+    const reminderHour = Math.floor(reminderTotalMinutes / 60);
+    const reminderMinute = reminderTotalMinutes % 60;
+
+    if (payload.notifyStart) {
+      await scheduleFastingStartReminder(reminderHour, reminderMinute);
+    } else {
+      await cancelNotifsByType('fasting_start');
+    }
+
     setSettings(next);
 
     // Persist 5:2 preferences server-side (profiles)
@@ -230,8 +248,8 @@ export default function FastingSettingsScreen() {
 
   return (
     <ModuleScaffold
-      title="Ajustes de ayuno"
-      subtitle="Timer, fases y avisos"
+      title="Ajustes"
+      subtitle="Ayuno, fases y avisos"
       color={Colors.fasting}
       tabs={<FastingModuleTabs active="settings" />}
     >
@@ -339,7 +357,7 @@ export default function FastingSettingsScreen() {
             />
 
             <Text style={styles.baseHint}>
-              Este valor no dispara una alerta del sistema: queda guardado junto al resto de tus ajustes.
+              Este valor solo deja sugerida tu ventana base. No inicia el ayuno por sí solo.
             </Text>
           </Card>
 
@@ -353,7 +371,7 @@ export default function FastingSettingsScreen() {
 
             <SettingToggleRow
               title="Auto-iniciar 5:2"
-              description="Si está activado, VYRA intentará iniciar el ayuno en los días seleccionados a la hora indicada cuando la app esté activa."
+              description="Si está activado, VYRA usará esta hora como disparador principal del 5:2 y te lo sugerirá apenas vuelvas a la app si el sistema no puede arrancarlo solo."
               value={settings.fiveTwoAutoStart}
               onValueChange={(v) => {
                 // Require at least one selected day when enabling auto-start
@@ -366,7 +384,7 @@ export default function FastingSettingsScreen() {
               accentColor={Colors.fasting}
             />
 
-            <View style={{ height: 8 }} />
+            <View style={styles.sectionSpacer} />
 
             <Text style={[previewStyles.title, { marginBottom: 8 }]}>Días de ayuno</Text>
             <View style={styles.daysRow}>
@@ -390,7 +408,7 @@ export default function FastingSettingsScreen() {
                     }}
                     variant={active ? 'primary' : 'ghost'}
                     color={Colors.fasting}
-                    style={active ? styles.dayBtnActive : styles.dayBtn}
+                    style={styles.dayBtn}
                   />
                 );
               })}
@@ -400,7 +418,7 @@ export default function FastingSettingsScreen() {
               {settings.fiveTwoDays.length}/2 días seleccionados{settings.fiveTwoDays.length === 2 ? ' ✓' : ''}
             </Text>
 
-            <View style={{ height: 8 }} />
+            <View style={styles.sectionSpacer} />
 
             <TimePicker
               label="Hora de inicio 5:2"
@@ -410,6 +428,7 @@ export default function FastingSettingsScreen() {
               error={fiveTwoTimeValue.length > 0 && !parsedFiveTwoTime ? 'Usá formato HH:MM' : null}
               inputStyle={styles.timeInput}
             />
+            <Text style={styles.baseHint}>Si el sistema no puede arrancarlo solo, te lo vamos a sugerir apenas vuelvas a abrir la app.</Text>
             <Text style={styles.baseHint}>VYRA intentará iniciar el ayuno en los días seleccionados a esta hora.</Text>
           </Card>
 
@@ -424,7 +443,7 @@ export default function FastingSettingsScreen() {
             label={saving ? 'Guardando...' : 'Guardar ajustes'}
             onPress={() => void handleSave()}
             color={Colors.fasting}
-            disabled={saving || !parsedTime}
+            disabled={saving || !parsedTime || (fiveTwoTimeValue.length > 0 && !parsedFiveTwoTime)}
             loading={saving}
             fullWidth
           />
@@ -486,16 +505,16 @@ const styles = StyleSheet.create({
   },
   daysRow: {
     flexDirection: 'row',
-    gap: Spacing[2],
+    gap: Spacing[1.5],
     flexWrap: 'wrap',
   },
-  dayBtn: {
-    marginRight: Spacing[2],
-    minWidth: 44,
+  sectionSpacer: {
+    height: Spacing[2],
   },
-  dayBtnActive: {
-    marginRight: Spacing[2],
-    minWidth: 44,
+  dayBtn: {
+    marginRight: 0,
+    minWidth: 0,
+    paddingHorizontal: Spacing[2],
   },
   daysCount: {
     fontFamily: FontFamily.medium,

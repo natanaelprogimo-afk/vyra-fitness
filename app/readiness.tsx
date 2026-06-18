@@ -1,10 +1,9 @@
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Header from '@/components/layout/Header';
 import VyraBalanceCard from '@/components/home/VyraBalanceCard';
 import BottomSheet from '@/components/ui/BottomSheet';
 import Card from '@/components/ui/Card';
-import NoticeCard from '@/components/ui/NoticeCard';
 import SafeScreen from '@/components/ui/SafeScreen';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import { Colors, withOpacity } from '@/constants/colors';
@@ -19,7 +18,6 @@ import { useSupplements } from '@/hooks/useSupplements';
 import { useWater } from '@/hooks/useWater';
 import { useWorkout } from '@/hooks/useWorkout';
 import { buildVyraBalanceContributions, getVyraBalanceCoachLine } from '@/lib/vyra-balance';
-import { useSettingsStore } from '@/stores/settingsStore';
 
 function formatSleepHours(hours: number) {
   if (!hours) return 'Sin dato';
@@ -90,8 +88,6 @@ function SectionCard({
 
 export default function ReadinessScreen() {
   const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
-  const hasSeenGuide = useSettingsStore((state) => Boolean(state.moduleIntroSeen.readiness));
-  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
   const { dailyScore } = useReadiness();
   const { lastDurationHours, lastScore } = useSleep();
   const { totals, simpleTargets } = useNutrition();
@@ -127,20 +123,10 @@ export default function ReadinessScreen() {
         title="VYRA Balance de hoy"
         subtitle={formatDateLabel(dailyScore?.date)}
         showBack
-        color={Colors.action}
+        color={Colors.secondary}
       />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {!hasSeenGuide ? (
-          <NoticeCard
-            title="Como usar VYRA Balance"
-            body="Este score sirve para orientar el dia, no para juzgarlo. Miralo como una mezcla de sueno, actividad, nutricion, hidratacion y recuperacion."
-            tone="info"
-            actionLabel="Entendido"
-            onAction={() => markModuleIntroSeen('readiness')}
-          />
-        ) : null}
-
         <VyraBalanceCard score={dailyScore} stepsPct={stepProgress} />
 
         <Card style={styles.heroCard} shadow={false}>
@@ -216,14 +202,14 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
     alignItems: 'flex-start',
     borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.14),
-    backgroundColor: withOpacity(Colors.action, 0.04),
+    borderColor: withOpacity(Colors.secondary, 0.14),
+    backgroundColor: withOpacity(Colors.secondary, 0.04),
   },
   heroNumber: {
     fontFamily: FontFamily.black,
     fontSize: FontSize['4xl'],
     lineHeight: FontSize['4xl'],
-    color: Colors.action,
+    color: Colors.secondary,
     letterSpacing: -3,
   },
   heroBody: {
@@ -254,7 +240,7 @@ const styles = StyleSheet.create({
   formulaLink: {
     alignSelf: 'flex-start',
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2],
   },
@@ -279,4 +265,5 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
+
 

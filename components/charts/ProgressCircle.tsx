@@ -35,7 +35,7 @@ export default function ProgressCircle({
   size        = 120,
   strokeWidth = 10,
   color       = Colors.brand,
-  trackColor  = Colors.bgElevated,
+  trackColor  = Colors.elevated,
   children,
   style,
   animated    = true,

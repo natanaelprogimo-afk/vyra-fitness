@@ -125,7 +125,7 @@ export default function Modal({
                   onPress={onClose}
                   style={[
                     styles.closeBtn,
-                    { backgroundColor: Colors.bgElevated },
+                    { backgroundColor: Colors.elevated },
                   ]}
                   hitSlop={12}
                   accessibilityRole="button"

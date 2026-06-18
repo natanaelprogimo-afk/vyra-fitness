@@ -16,6 +16,8 @@ import { Colors } from '@/constants/colors';
 import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { Supplement } from '@/hooks/useSupplements';
 
+const SUPPLEMENTS_ACCENT = Colors.supplements;
+
 type Unit = Supplement['unit'];
 type Freq = Supplement['frequency'];
 
@@ -30,7 +32,7 @@ const UNITS: Array<{ value: Unit; label: string }> = [
 const FREQS: Array<{ value: Freq; label: string }> = [
   { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
-  { value: 'as_needed', label: 'Segun necesidad' },
+  { value: 'as_needed', label: 'Según necesidad' },
 ];
 
 const SHEET_HEIGHT = Math.min(Dimensions.get('window').height * 0.82, 720);
@@ -169,7 +171,7 @@ export function AddSupplementSheet({
             label={saving ? 'Guardando...' : 'Agregar suplemento'}
             onPress={handleSave}
             disabled={!isValid || saving}
-            color={Colors.brand}
+            color={SUPPLEMENTS_ACCENT}
             style={styles.saveBtn}
           />
         </ScrollView>
@@ -192,7 +194,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   input: {
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing[4],
     paddingVertical: Spacing[3],
@@ -213,13 +215,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   unitPill: {
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.full,
     paddingHorizontal: Spacing[3],
     paddingVertical: 6,
   },
   unitPillActive: {
-    backgroundColor: Colors.brand,
+    backgroundColor: SUPPLEMENTS_ACCENT,
   },
   unitPillText: {
     fontFamily: FontFamily.medium,
@@ -235,13 +237,13 @@ const styles = StyleSheet.create({
   },
   freqBtn: {
     flex: 1,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.lg,
     paddingVertical: Spacing[3],
     alignItems: 'center',
   },
   freqBtnActive: {
-    backgroundColor: Colors.brand,
+    backgroundColor: SUPPLEMENTS_ACCENT,
   },
   freqBtnText: {
     fontFamily: FontFamily.medium,
@@ -262,3 +264,4 @@ const styles = StyleSheet.create({
 });
 
 export default AddSupplementSheet;
+

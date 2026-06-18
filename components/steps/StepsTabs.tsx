@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
+    backgroundColor: withOpacity(Colors.base, 0.9),
   },
   tabActive: {
     borderColor: withOpacity(Colors.steps, 0.36),

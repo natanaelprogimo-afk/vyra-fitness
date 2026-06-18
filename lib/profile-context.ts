@@ -26,10 +26,7 @@ export function getProfileContextName(
   profile: ProfileLike,
   fallback: string | null = null,
 ): string | null {
-  const candidates = [
-    profile?.context_name_preference,
-    profile?.coach_name_preference,
-  ];
+  const candidates = [profile?.context_name_preference, profile?.coach_name_preference];
 
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim().length > 0) {
@@ -47,19 +44,14 @@ export function buildProfileContextUpdate(input: {
   const updates: Record<string, unknown> = {};
 
   if (Object.prototype.hasOwnProperty.call(input, 'memory')) {
-    const nextMemory =
-      input.memory && typeof input.memory === 'object'
-        ? input.memory
-        : {};
+    const nextMemory = input.memory && typeof input.memory === 'object' ? input.memory : {};
     updates.context_memory_json = nextMemory;
     updates.coach_memory_json = nextMemory;
   }
 
   if (Object.prototype.hasOwnProperty.call(input, 'name')) {
     const nextName =
-      typeof input.name === 'string' && input.name.trim().length > 0
-        ? input.name.trim()
-        : null;
+      typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : null;
     updates.context_name_preference = nextName;
     updates.coach_name_preference = nextName;
   }
@@ -74,18 +66,13 @@ export function buildLegacyProfileContextUpdate(input: {
   const updates: Record<string, unknown> = {};
 
   if (Object.prototype.hasOwnProperty.call(input, 'memory')) {
-    const nextMemory =
-      input.memory && typeof input.memory === 'object'
-        ? input.memory
-        : {};
+    const nextMemory = input.memory && typeof input.memory === 'object' ? input.memory : {};
     updates.coach_memory_json = nextMemory;
   }
 
   if (Object.prototype.hasOwnProperty.call(input, 'name')) {
     const nextName =
-      typeof input.name === 'string' && input.name.trim().length > 0
-        ? input.name.trim()
-        : null;
+      typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : null;
     updates.coach_name_preference = nextName;
   }
 

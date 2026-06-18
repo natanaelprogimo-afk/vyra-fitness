@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { isGuestAuthUser } from '@/lib/guest-auth';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 
@@ -14,6 +15,7 @@ export default function StreakBootstrap() {
 
   useEffect(() => {
     if (!BACKEND_URL || !session?.access_token || !profile?.id || !isOnline) return;
+    if (isGuestAuthUser(session.user)) return;
 
     let active = true;
 

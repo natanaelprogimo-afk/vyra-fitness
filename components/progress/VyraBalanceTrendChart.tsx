@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   chartBody: {
     flex: 1,
     borderRadius: Radius.xl,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[2],
     paddingTop: Spacing[2],
     paddingBottom: Spacing[3],

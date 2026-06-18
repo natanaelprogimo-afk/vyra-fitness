@@ -1,18 +1,15 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { router } from 'expo-router';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import LinkRow from '@/components/ui/LinkRow';
 import NoticeCard from '@/components/ui/NoticeCard';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import SectionHeader from '@/components/ui/SectionHeader';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import SettingToggleRow from '@/components/ui/SettingToggleRow';
 import { Colors } from '@/constants/colors';
-import { Routes } from '@/constants/routes';
 import { Spacing } from '@/constants/theme';
 import { resolveSupportedLanguage } from '@/lib/language';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -29,9 +26,6 @@ const SCREEN_COPY = {
     system: 'Sistema',
     light: 'Claro',
     dark: 'Oscuro',
-    widgets: 'Widgets de inicio',
-    widgetsDescription:
-      'Configura el dato prioritario fuera de la app usando la misma gramatica visual.',
     accessibilityEyebrow: 'Accesibilidad',
     accessibilityTitle: 'Preferencias sensoriales',
     accessibilitySubtitle:
@@ -45,11 +39,11 @@ const SCREEN_COPY = {
     reduceMotionDescription: 'Desactiva pulsos y escalas decorativas cuando no son esenciales.',
     screenReaderTitle: 'Modo screen reader',
     screenReaderDescription:
-      'Hace mas explicitos labels y anuncios importantes en feedback compartido.',
+      'Hace mas explicitos labels y avisos importantes en feedback compartido.',
     unitsEyebrow: 'Unidades',
     unitsTitle: 'Base de lectura',
     unitsSubtitle:
-      'Los modulos ya no deberian reinterpretar a mano tus unidades principales.',
+      'Los módulos ya no deberían reinterpretar a mano tus unidades principales.',
     languageSystem: 'Sistema',
     languageEs: 'Español',
     languageEn: 'English',
@@ -66,9 +60,6 @@ const SCREEN_COPY = {
     system: 'System',
     light: 'Light',
     dark: 'Dark',
-    widgets: 'Home widgets',
-    widgetsDescription:
-      'Choose the priority metric outside the app with the same visual grammar.',
     accessibilityEyebrow: 'Accessibility',
     accessibilityTitle: 'Sensory preferences',
     accessibilitySubtitle:
@@ -103,9 +94,6 @@ const SCREEN_COPY = {
     system: 'Sistema',
     light: 'Claro',
     dark: 'Escuro',
-    widgets: 'Widgets iniciais',
-    widgetsDescription:
-      'Configure a metrica prioritaria fora do app usando a mesma gramatica visual.',
     accessibilityEyebrow: 'Acessibilidade',
     accessibilityTitle: 'Preferencias sensoriais',
     accessibilitySubtitle:
@@ -123,7 +111,7 @@ const SCREEN_COPY = {
     unitsEyebrow: 'Unidades',
     unitsTitle: 'Base de leitura',
     unitsSubtitle:
-      'Os modulos nao deveriam reinterpretar manualmente suas unidades principais.',
+      'Os módulos não deveriam reinterpretar manualmente suas unidades principais.',
     languageSystem: 'Sistema',
     languageEs: 'Español',
     languageEn: 'English',
@@ -154,11 +142,46 @@ export default function SettingsAppearanceScreen() {
   const setHighContrast = useSettingsStore((state) => state.setHighContrast);
   const setReduceMotion = useSettingsStore((state) => state.setReduceMotion);
   const setScreenReaderMode = useSettingsStore((state) => state.setScreenReaderMode);
+  const themeSummary =
+    colorScheme === 'system' ? copy.system : colorScheme === 'light' ? copy.light : copy.dark;
+  const languageSummary =
+    language === 'system'
+      ? copy.languageSystem
+      : language === 'es'
+        ? copy.languageEs
+        : language === 'en'
+          ? copy.languageEn
+          : copy.languagePt;
+  const textSummary =
+    textScale === 'normal' ? copy.textNormal : textScale === 'large' ? copy.textLarge : copy.textExtraLarge;
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header title={copy.header} showBack color={Colors.brand} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <Card style={styles.heroCard} accentColor={Colors.brand} shadow={false}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroEyebrow}>{copy.visualEyebrow}</Text>
+            <Text style={styles.heroTitle}>{copy.visualTitle}</Text>
+            <Text style={styles.heroBody}>{copy.visualSubtitle}</Text>
+          </View>
+
+          <View style={styles.snapshotRow}>
+            <View style={styles.snapshotCard}>
+              <Text style={styles.snapshotLabel}>Tema</Text>
+              <Text style={styles.snapshotValue}>{themeSummary}</Text>
+            </View>
+            <View style={styles.snapshotCard}>
+              <Text style={styles.snapshotLabel}>Idioma</Text>
+              <Text style={styles.snapshotValue}>{languageSummary}</Text>
+            </View>
+            <View style={styles.snapshotCard}>
+              <Text style={styles.snapshotLabel}>Lectura</Text>
+              <Text style={styles.snapshotValue}>{textSummary}</Text>
+            </View>
+          </View>
+        </Card>
+
         <NoticeCard title={copy.noticeTitle} body={copy.noticeBody} tone="info" />
 
         <Card style={styles.card}>
@@ -191,12 +214,6 @@ export default function SettingsAppearanceScreen() {
             ]}
           />
 
-          <LinkRow
-            label={copy.widgets}
-            description={copy.widgetsDescription}
-            onPress={() => router.push(Routes.settings.widgets as never)}
-            accentColor={Colors.steps}
-          />
         </Card>
 
         <Card style={styles.card}>
@@ -295,6 +312,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[4],
     gap: Spacing[4],
+  },
+  heroCard: {
+    gap: Spacing[4],
+  },
+  heroCopy: {
+    gap: 6,
+  },
+  heroEyebrow: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  heroTitle: {
+    color: Colors.textPrimary,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  heroBody: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  snapshotRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  snapshotCard: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    gap: 4,
+  },
+  snapshotLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  snapshotValue: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   card: {
     gap: Spacing[4],

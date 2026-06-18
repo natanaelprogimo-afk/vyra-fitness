@@ -4,6 +4,7 @@ import { usePathname } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWorkoutStore } from '@/stores/workoutStore';
+import { useFemaleSymptomPrediction } from '@/hooks/useFemaleSymptomPrediction';
 import { supabase } from '@/lib/supabase';
 import {
   buildProfileContextUpdate,
@@ -22,18 +23,27 @@ import {
   registerNotificationCategories,
   scheduleWaterReminders,
   scheduleSleepReminder,
+  scheduleSleepSmartAlarm,
+  scheduleSleepMorningLog,
   scheduleMentalCheckinReminder,
   scheduleDailySummaryReminder,
   scheduleWorkoutReminder,
   scheduleStreakAtRisk,
   scheduleOnboardingWelcomeReminder,
+  scheduleFemalePredictionAlerts,
   cancelAllNotifs,
+  cancelNotifsByType,
   scheduleNotif,
   getCombinedLowEngagementHours,
   getBackendTodayScheduledCount,
   type NotifType,
 } from '@/lib/notifications';
 import { captureError } from '@/lib/sentry';
+import { NotificationMessages } from '@/constants/strings';
+import {
+  trackNotificationPermissionGranted,
+  trackNotificationPermissionRequested,
+} from '@/lib/analytics';
 
 export interface NotifPreferences {
   water: boolean;
@@ -58,14 +68,14 @@ export type SmartNotificationScheduleResult =
   | { scheduled: true; id: string }
   | { scheduled: false; reason: SmartNotificationBlockReason };
 
-const GLOBAL_MAX_NOTIFS_PER_DAY = 2;
+const GLOBAL_MAX_NOTIFS_PER_DAY = 1;
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 const DEFAULT_PREFS: NotifPreferences = {
   water: true,
   sleep: true,
-  mental: true,
+  mental: false,
   dailySummary: true,
-  streakAtRisk: true,
+  streakAtRisk: false,
   supplements: true,
   workout: false,
 };
@@ -149,6 +159,8 @@ export function useNotifications() {
   const pathname = usePathname();
   const { profile, updateProfile, user } = useAuthStore();
   const settings = useSettingsStore();
+  const femalePredictionAlertsEnabled = useSettingsStore((state) => state.femalePredictionAlertsEnabled);
+  const { upcomingAlerts: femaleUpcomingAlerts } = useFemaleSymptomPrediction();
 
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [permissionResolved, setPermissionResolved] = useState(false);
@@ -164,9 +176,13 @@ export function useNotifications() {
   const isMentalCheckin = pathname.includes('/readiness');
 
   const requestPermissions = useCallback(async () => {
+    trackNotificationPermissionRequested('notifications_settings');
     const granted = await requestNotificationPermissions();
     setPermissionGranted(granted);
     setPermissionResolved(true);
+    if (granted) {
+      trackNotificationPermissionGranted('notifications_settings');
+    }
     return granted;
   }, []);
 
@@ -327,8 +343,8 @@ export function useNotifications() {
       return {
         hour,
         minute,
-        title: 'Tu rutina sigue abierta',
-        body: `Te quedó ${activeSession.name}. Puedes volver o marcarla rápido desde la notificacion.`,
+        title: NotificationMessages.routineStillOpen,
+        body: NotificationMessages.routineStillOpenDesc.replace('${name}', activeSession.name),
       };
     }
 
@@ -336,16 +352,16 @@ export function useNotifications() {
       return {
         hour,
         minute,
-        title: 'Tu rutina de hoy está lista',
-        body: `${recommended.name} encaja bien hoy. La abres o la marcas sin perder tiempo.`,
+        title: NotificationMessages.recommendedRoutineReady,
+        body: NotificationMessages.recommendedRoutineDesc.replace('${name}', recommended.name),
       };
     }
 
     return {
       hour,
       minute,
-      title: 'Tu bloque de movimiento está listo',
-      body: 'Abre Vyra y deja un bloque corto hecho hoy. Mantener el ritmo vale más que hacerlo perfecto.',
+      title: NotificationMessages.movementBlockReady,
+      body: NotificationMessages.movementBlockCta,
     };
   }, []);
 
@@ -355,10 +371,10 @@ export function useNotifications() {
 
     if (!profile?.id) {
       return {
-        waterTitle: '💧 Hora de hidratarte',
-        waterBody: `${displayName}, hoy todavía podés acercarte a tu meta.`,
-        streakTitle: '🔥 Tu racha está en peligro',
-        streakBody: `${displayName}, hacé 1 log rápido hoy y la mantenés viva.`,
+        waterTitle: NotificationMessages.hydrationReminder,
+        waterBody: NotificationMessages.hydrationReminderDesc.replace('${name}', displayName),
+        streakTitle: NotificationMessages.streakAtRisk,
+        streakBody: NotificationMessages.streakAtRiskDesc.replace('${name}', displayName),
       };
     }
 
@@ -514,12 +530,27 @@ export function useNotifications() {
         const sleepMinute = Number.isFinite(serverSleepMinute)
           ?  toMinute(serverSleepMinute, sleepMinutes % 60)
           : sleepMinutes % 60;
+        const wakeReminderTotalMinutes = Math.max(6 * 60, Math.min(10 * 60 + 30, wakeMinutes + 30));
+        const wakeReminderHour = Math.floor(wakeReminderTotalMinutes / 60);
+        const wakeReminderMinute = wakeReminderTotalMinutes % 60;
         plans.push({
           priority: 92,
           run: () =>
             remoteDeliveryEnabled
               ? Promise.resolve()
-              : scheduleSleepReminder(sleepHour, sleepMinute),
+              : Promise.all([
+                  scheduleSleepReminder(sleepHour, sleepMinute),
+                  ...(settings.sleepSmartAlarmEnabled
+                    ? [
+                        scheduleSleepSmartAlarm({
+                          bedtimeMinute: sleepMinutes,
+                          windowStartMinute: settings.sleepSmartAlarmWindowStart,
+                          windowEndMinute: settings.sleepSmartAlarmWindowEnd,
+                        }),
+                      ]
+                    : []),
+                  scheduleSleepMorningLog(wakeReminderHour, wakeReminderMinute),
+                ]).then(() => undefined),
         });
       }
 
@@ -580,6 +611,28 @@ export function useNotifications() {
           }
         }
       }
+
+      if (profile?.female_health_enabled && femalePredictionAlertsEnabled && femaleUpcomingAlerts.length) {
+        const wakeMinutesForFemale = profile?.wake_time_minutes ?? 420;
+        const preferredHour = Math.max(8, Math.min(20, Math.floor(wakeMinutesForFemale / 60) + 1));
+        const preferredMinute = wakeMinutesForFemale % 60;
+        await scheduleFemalePredictionAlerts(
+          femaleUpcomingAlerts.map((alert) => {
+            const triggerDate = new Date(alert.notifyAt);
+            triggerDate.setHours(preferredHour, preferredMinute, 0, 0);
+            return {
+              id: alert.id,
+              title: alert.title,
+              body: alert.body,
+              triggerDate,
+              symptom: alert.symptom,
+              nextDateStart: alert.prediction.nextDateStart,
+            };
+          }),
+        );
+      } else {
+        await cancelNotifsByType('female_prediction');
+      }
     } catch (err) {
       captureError(err instanceof Error ? err : new Error(String(err)), {
         action: 'useNotifications.setupAll',
@@ -600,11 +653,18 @@ export function useNotifications() {
     prefs.sleep,
     prefs.streakAtRisk,
     prefs.water,
+    profile?.female_health_enabled,
     profile?.id,
+    profile?.wake_time_minutes,
     profile?.sleep_time_minutes,
     profile?.wake_time_minutes,
     settings.maxNotifsPerDay,
+    femalePredictionAlertsEnabled,
+    femaleUpcomingAlerts,
     settings.notificationsEnabled,
+    settings.sleepSmartAlarmEnabled,
+    settings.sleepSmartAlarmWindowStart,
+    settings.sleepSmartAlarmWindowEnd,
   ]);
 
   const scheduleSmartNotificationDetailed = useCallback(
@@ -805,4 +865,3 @@ export function useNotifications() {
     deliveryMode,
   };
 }
-

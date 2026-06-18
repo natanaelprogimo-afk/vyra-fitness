@@ -14,10 +14,14 @@ import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { NutritionModule } from '@/constants/strings';
+import { useResponsiveLayout } from '@/constants/useResponsiveLayout';
+import { useFasting } from '@/hooks/useFasting';
 import {
   MEAL_TYPES,
   useNutrition,
@@ -28,6 +32,7 @@ import {
 } from '@/hooks/useNutrition';
 import { analyzeNutritionPhoto, type NutritionAIResult } from '@/lib/ai-assist';
 import { triggerNotificationHaptic } from '@/lib/haptics';
+import { trackNutritionSearchStarted } from '@/lib/analytics';
 import {
   calculateNutritionPreview,
   canSubmitManualNutrition,
@@ -39,6 +44,11 @@ import {
 type LogMode = 'search' | 'photo' | 'barcode' | 'manual';
 type LibraryTab = 'frequent' | 'recent';
 type SearchUnit = 'g' | 'ml' | 'porciones';
+type SearchSuggestion = {
+  key: string;
+  sourceLabel: 'Frecuente' | 'Reciente';
+  meal: FrequentMeal | RecentMeal;
+};
 
 type PhotoComponentDraft = {
   id: string;
@@ -117,7 +127,7 @@ function buildAdjustedPhotoDraft(
     note:
       ratio === 1
         ? draft.note
-        : 'Ajustamos porciones según los items que dejaste marcados antes de confirmar.',
+        : NutritionModule.portionAdjustmentNote,
     components: selected.map((item) => ({
       name: item.name,
       amount_g: normalizeNutritionAmount(item.amount, 0),
@@ -139,6 +149,10 @@ function scalePresetPreview(
   };
 }
 
+function matchesFoodQuery(name: string, query: string) {
+  return name.trim().toLowerCase().includes(query.trim().toLowerCase());
+}
+
 function MacroStat({
   label,
   value,
@@ -157,6 +171,7 @@ function MacroStat({
 }
 
 export default function NutritionLogScreen() {
+  const layout = useResponsiveLayout();
   const params = useLocalSearchParams<{ mealType?: MealType; mode?: LogMode; library?: LibraryTab; mealId?: string }>();
   const mealType = params.mealType ?? 'snack';
   const mealMeta = MEAL_TYPES[mealType];
@@ -171,17 +186,29 @@ export default function NutritionLogScreen() {
   const initialLibraryTab: LibraryTab = params.library === 'recent' ? 'recent' : 'frequent';
 
   const { logMealAsync, updateMealAsync, isLogging, searchFoods, frequentMeals, recentMeals, todayMeals } = useNutrition();
+  const {
+    isActive: fastingActive,
+    isComplete: fastingReadyToClose,
+    completeFastAsync,
+    abandonFastAsync,
+    isCompleting,
+    isAbandoning,
+  } = useFasting();
   const editingMeal = useMemo(
     () => todayMeals.find((meal) => meal.id === editingMealId) ?? null,
     [editingMealId, todayMeals],
   );
   const hydratedMealIdRef = useRef<string | null>(null);
+  const searchRequestIdRef = useRef(0);
+  const pendingMealActionRef = useRef<null | (() => Promise<void>)>(null);
+  const searchStartedRef = useRef(false);
 
   const [mode, setMode] = useState<LogMode>(initialMode);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>(initialLibraryTab);
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<FoodItem[]>([]);
+  const [searchLimit, setSearchLimit] = useState(20);
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
   const [selectedPresetMeal, setSelectedPresetMeal] = useState<FrequentMeal | RecentMeal | null>(null);
   const [amountValue, setAmountValue] = useState('100');
@@ -193,6 +220,17 @@ export default function NutritionLogScreen() {
   const [manualCarbs, setManualCarbs] = useState('');
   const [manualFat, setManualFat] = useState('');
   const [manualFiber, setManualFiber] = useState('');
+
+  useEffect(() => {
+    if (mode !== 'search') return;
+    if (searchStartedRef.current) return;
+
+    trackNutritionSearchStarted({
+      source: isEditingFlow ? 'edit' : 'log',
+      query_length: query.trim().length,
+    });
+    searchStartedRef.current = true;
+  }, [isEditingFlow, mode, query]);
   const [manualGrams, setManualGrams] = useState('100');
   const [isSubmittingEntry, setIsSubmittingEntry] = useState(false);
 
@@ -201,6 +239,8 @@ export default function NutritionLogScreen() {
   const [showPhotoPortions, setShowPhotoPortions] = useState(false);
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
+  const [showFastingMealConfirm, setShowFastingMealConfirm] = useState(false);
+  const [isResolvingFastForMeal, setIsResolvingFastForMeal] = useState(false);
 
   const quickAmounts = useMemo(() => getNutritionQuickAmounts(mealType), [mealType]);
   const frequentByMeal = useMemo(() => {
@@ -214,6 +254,7 @@ export default function NutritionLogScreen() {
   const browseMeals = libraryTab === 'recent' ? recentByMeal : frequentByMeal;
   const normalizedAmount = normalizeSearchAmount(amountValue, amountUnit);
   const isSubmittingMeal = isLogging || isSubmittingEntry;
+  const normalizedQuery = query.trim().toLowerCase();
 
   const selectedPreview = useMemo(() => {
     if (selectedFood) {
@@ -232,6 +273,44 @@ export default function NutritionLogScreen() {
   );
 
   const selectedPhotoCount = photoItems.filter((item) => item.selected).length;
+
+  const matchingLibrarySuggestions = useMemo(() => {
+    if (normalizedQuery.length < 2) return [];
+
+    const orderedEntries: Array<{ sourceLabel: 'Frecuente' | 'Reciente'; meal: FrequentMeal | RecentMeal }> = [
+      ...frequentMeals
+        .filter((item) => item.meal_type === mealType)
+        .map((meal) => ({ sourceLabel: 'Frecuente' as const, meal })),
+      ...recentMeals
+        .filter((item) => item.meal_type === mealType)
+        .map((meal) => ({ sourceLabel: 'Reciente' as const, meal })),
+      ...frequentMeals
+        .filter((item) => item.meal_type !== mealType)
+        .map((meal) => ({ sourceLabel: 'Frecuente' as const, meal })),
+      ...recentMeals
+        .filter((item) => item.meal_type !== mealType)
+        .map((meal) => ({ sourceLabel: 'Reciente' as const, meal })),
+    ];
+
+    const deduped = new Map<string, SearchSuggestion>();
+
+    for (const entry of orderedEntries) {
+      if (!matchesFoodQuery(entry.meal.food_name, normalizedQuery)) continue;
+      const baseKey = entry.meal.food_id ?? entry.meal.food_name.trim().toLowerCase();
+      if (deduped.has(baseKey)) continue;
+      deduped.set(baseKey, {
+        key: `${entry.sourceLabel}-${baseKey}`,
+        sourceLabel: entry.sourceLabel,
+        meal: entry.meal,
+      });
+      if (deduped.size >= 6) break;
+    }
+
+    return [...deduped.values()];
+  }, [frequentMeals, mealType, normalizedQuery, recentMeals]);
+
+  const canLoadMoreResults =
+    normalizedQuery.length >= 2 && !isSearching && results.length >= searchLimit && searchLimit < 50;
 
   useEffect(() => {
     if (!editingMealId) {
@@ -275,24 +354,92 @@ export default function NutritionLogScreen() {
     setSelectedPresetMeal(null);
   }, []);
 
-  const handleSearch = useCallback(
-    async (value: string) => {
-      setQuery(value);
+  const runSearch = useCallback(
+    async (value: string, limit: number) => {
       resetSelectionPreview();
       if (value.trim().length < 2) {
+        searchRequestIdRef.current += 1;
         setResults([]);
+        setIsSearching(false);
         return;
       }
+      const requestId = searchRequestIdRef.current + 1;
+      searchRequestIdRef.current = requestId;
       setIsSearching(true);
       try {
-        const found = await searchFoods(value.trim());
-        setResults(found);
+        const found = await searchFoods(value.trim(), { limit });
+        if (requestId === searchRequestIdRef.current) {
+          setResults(found);
+        }
       } finally {
-        setIsSearching(false);
+        if (requestId === searchRequestIdRef.current) {
+          setIsSearching(false);
+        }
       }
     },
     [resetSelectionPreview, searchFoods],
   );
+
+  const handleSearch = useCallback(
+    (value: string) => {
+      setQuery(value);
+      setSearchLimit(20);
+      void runSearch(value, 20);
+    },
+    [runSearch],
+  );
+
+  const handleLoadMoreResults = useCallback(() => {
+    if (!canLoadMoreResults) return;
+    const nextLimit = Math.min(50, searchLimit + 15);
+    setSearchLimit(nextLimit);
+    void runSearch(query, nextLimit);
+  }, [canLoadMoreResults, query, runSearch, searchLimit]);
+
+  const closeFastingMealConfirm = useCallback(() => {
+    pendingMealActionRef.current = null;
+    setShowFastingMealConfirm(false);
+  }, []);
+
+  const submitMealWithFastingGuard = useCallback(
+    async (action: () => Promise<void>) => {
+      if (!fastingActive || isEditingFlow) {
+        await action();
+        return;
+      }
+
+      pendingMealActionRef.current = action;
+      setShowFastingMealConfirm(true);
+    },
+    [fastingActive, isEditingFlow],
+  );
+
+  const handleConfirmFastBreak = useCallback(async () => {
+    const pendingAction = pendingMealActionRef.current;
+    if (!pendingAction || isResolvingFastForMeal) return;
+
+    setIsResolvingFastForMeal(true);
+    try {
+      if (fastingReadyToClose) {
+        await completeFastAsync();
+      } else {
+        await abandonFastAsync('meal_logged_from_nutrition');
+      }
+
+      pendingMealActionRef.current = null;
+      setShowFastingMealConfirm(false);
+      await pendingAction();
+    } catch {
+      // useFasting already shows the relevant feedback.
+    } finally {
+      setIsResolvingFastForMeal(false);
+    }
+  }, [
+    abandonFastAsync,
+    completeFastAsync,
+    fastingReadyToClose,
+    isResolvingFastForMeal,
+  ]);
 
   const handleAnalyzePhoto = useCallback(
     async (source: 'camera' | 'library') => {
@@ -305,7 +452,7 @@ export default function NutritionLogScreen() {
             : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
         if (!permission.granted) {
-          setPhotoError(source === 'camera' ? 'Hace falta permiso de cámara.' : 'Hace falta permiso de galería.');
+          setPhotoError(source === 'camera' ? NutritionModule.photo.cameraMissingPermission : NutritionModule.photo.galleryMissingPermission);
           return;
         }
 
@@ -360,44 +507,47 @@ export default function NutritionLogScreen() {
 
   const handleAddSelectedFood = useCallback(async () => {
     if (!selectedPreview || isSubmittingEntry) return;
-    setIsSubmittingEntry(true);
 
-    try {
-      if (selectedFood) {
-        await logMealAsync({
-          meal_type: mealType,
-          food_name: selectedFood.name,
-          food_id: selectedFood.id,
-          amount_g: normalizedAmount,
-          calories: selectedPreview.calories,
-          protein_g: selectedPreview.protein,
-          carbs_g: selectedPreview.carbs,
-          fat_g: selectedPreview.fat,
-          fiber_g: selectedPreview.fiber,
-        });
-        router.back();
-        return;
-      }
+    await submitMealWithFastingGuard(async () => {
+      setIsSubmittingEntry(true);
 
-      if (selectedPresetMeal) {
-        await logMealAsync({
-          meal_type: mealType,
-          food_name: selectedPresetMeal.food_name,
-          food_id: selectedPresetMeal.food_id ?? undefined,
-          amount_g: normalizedAmount,
-          calories: selectedPreview.calories,
-          protein_g: selectedPreview.protein,
-          carbs_g: selectedPreview.carbs,
-          fat_g: selectedPreview.fat,
-          fiber_g: selectedPreview.fiber,
-        });
-        router.back();
+      try {
+        if (selectedFood) {
+          await logMealAsync({
+            meal_type: mealType,
+            food_name: selectedFood.name,
+            food_id: selectedFood.id,
+            amount_g: normalizedAmount,
+            calories: selectedPreview.calories,
+            protein_g: selectedPreview.protein,
+            carbs_g: selectedPreview.carbs,
+            fat_g: selectedPreview.fat,
+            fiber_g: selectedPreview.fiber,
+          });
+          router.back();
+          return;
+        }
+
+        if (selectedPresetMeal) {
+          await logMealAsync({
+            meal_type: mealType,
+            food_name: selectedPresetMeal.food_name,
+            food_id: selectedPresetMeal.food_id ?? undefined,
+            amount_g: normalizedAmount,
+            calories: selectedPreview.calories,
+            protein_g: selectedPreview.protein,
+            carbs_g: selectedPreview.carbs,
+            fat_g: selectedPreview.fat,
+            fiber_g: selectedPreview.fiber,
+          });
+          router.back();
+        }
+      } catch {
+        // Toast/error handling already lives in the mutation hook.
+      } finally {
+        setIsSubmittingEntry(false);
       }
-    } catch {
-      // Toast/error handling already lives in the mutation hook.
-    } finally {
-      setIsSubmittingEntry(false);
-    }
+    });
   }, [
     isSubmittingEntry,
     logMealAsync,
@@ -406,47 +556,51 @@ export default function NutritionLogScreen() {
     selectedFood,
     selectedPresetMeal,
     selectedPreview,
+    submitMealWithFastingGuard,
   ]);
 
   const handleAddManual = useCallback(async () => {
     const trimmed = manualName.trim();
     if (isSubmittingEntry || !canSubmitManualNutrition({ name: trimmed, calories: manualCalories })) return;
-    setIsSubmittingEntry(true);
 
-    try {
-      const preservedFoodId =
-        editingMeal?.food_id && editingMeal.food_name.trim().toLowerCase() === trimmed.toLowerCase()
-          ? editingMeal.food_id
-          : undefined;
-      const payload = {
-        meal_type: editingMeal?.meal_type ?? mealType,
-        food_name: trimmed,
-        food_id: preservedFoodId ?? undefined,
-        amount_g: normalizeNutritionAmount(manualGrams, 100),
-        calories: parseNutritionNumber(manualCalories) ?? 0,
-        protein_g: parseNutritionNumber(manualProtein) ?? 0,
-        carbs_g: parseNutritionNumber(manualCarbs) ?? 0,
-        fat_g: parseNutritionNumber(manualFat) ?? 0,
-        fiber_g: parseNutritionNumber(manualFiber) ?? 0,
-        source: editingMeal?.source ?? (photoDraft ? 'photo_ai' : 'manual'),
-      };
+    await submitMealWithFastingGuard(async () => {
+      setIsSubmittingEntry(true);
 
-      if (editingMeal) {
-        await updateMealAsync({
-          mealId: editingMeal.id,
-          logged_at: editingMeal.logged_at,
-          ...payload,
-        });
-      } else {
-        await logMealAsync(payload);
+      try {
+        const preservedFoodId =
+          editingMeal?.food_id && editingMeal.food_name.trim().toLowerCase() === trimmed.toLowerCase()
+            ? editingMeal.food_id
+            : undefined;
+        const payload = {
+          meal_type: editingMeal?.meal_type ?? mealType,
+          food_name: trimmed,
+          food_id: preservedFoodId ?? undefined,
+          amount_g: normalizeNutritionAmount(manualGrams, 100),
+          calories: parseNutritionNumber(manualCalories) ?? 0,
+          protein_g: parseNutritionNumber(manualProtein) ?? 0,
+          carbs_g: parseNutritionNumber(manualCarbs) ?? 0,
+          fat_g: parseNutritionNumber(manualFat) ?? 0,
+          fiber_g: parseNutritionNumber(manualFiber) ?? 0,
+          source: editingMeal?.source ?? (photoDraft ? 'photo_ai' : 'manual'),
+        };
+
+        if (editingMeal) {
+          await updateMealAsync({
+            mealId: editingMeal.id,
+            logged_at: editingMeal.logged_at,
+            ...payload,
+          });
+        } else {
+          await logMealAsync(payload);
+        }
+
+        router.back();
+      } catch {
+        // Toast/error handling already lives in the mutation hook.
+      } finally {
+        setIsSubmittingEntry(false);
       }
-
-      router.back();
-    } catch {
-      // Toast/error handling already lives in the mutation hook.
-    } finally {
-      setIsSubmittingEntry(false);
-    }
+    });
   }, [
     isSubmittingEntry,
     logMealAsync,
@@ -461,57 +615,83 @@ export default function NutritionLogScreen() {
     mealType,
     editingMeal,
     photoDraft,
+    submitMealWithFastingGuard,
   ]);
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title={isEditingFlow ? `Editar ${mealMeta.label}` : `Agregar a ${mealMeta.label}`} showBack />
+      <Header title={isEditingFlow ? `${NutritionModule.headerEditPrefix} ${mealMeta.label}` : `${NutritionModule.headerAddPrefix} ${mealMeta.label}`} showBack />
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          {
+            maxWidth: layout.maxWidth,
+            alignSelf: 'center',
+            paddingHorizontal: layout.paddingHorizontal,
+          }
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {isEditingFlow ? (
-          <Card style={styles.sectionCard} shadow={false}>
-            <Text style={styles.sectionTitle}>Editando registro</Text>
-            <Text style={styles.sectionBody}>
-              Ajusta nombre, gramos o macros y guarda el cambio sin borrar el registro original.
+        {fastingActive && !isEditingFlow ? (
+          <Card style={styles.fastingGuardCard} shadow={false}>
+            <Text style={styles.fastingGuardTitle}>Ayuno activo</Text>
+            <Text style={styles.fastingGuardBody}>
+              Registrar {mealMeta.label.toLowerCase()} cerrará tu ayuno actual.
+              {fastingReadyToClose
+                ? ' Si ya llegaste a la meta, lo vamos a marcar como completado.'
+                : ' Si todavía no llegaste a la meta, lo vamos a cortar como interrupción.'}
             </Text>
           </Card>
+        ) : null}
+
+        {isEditingFlow ? (
+          <Card style={styles.sectionCard} shadow={false}>
+            <Text style={styles.sectionTitle}>{NutritionModule.editingMode.title}</Text>
+            <Text style={styles.sectionBody}>{NutritionModule.editingMode.description}</Text>
+          </Card>
         ) : (
-          <View style={styles.modeRow}>
-          {(['search', 'photo', 'barcode', 'manual'] as LogMode[]).map((item) => {
-            const isActive = mode === item;
-            return (
+          <Card style={styles.quickActionsCard} shadow={false}>
+            <View style={styles.quickActionsHeader}>
+              <Text style={styles.sectionTitle}>Atajos</Text>
+              <Text style={styles.sectionBody}>Buscar es la via rapida. Lo demas queda como apoyo.</Text>
+            </View>
+            <View style={styles.quickActionsRow}>
               <Pressable
-                key={item}
-                style={[styles.modePill, isActive && styles.modePillActive]}
-                onPress={() => {
-                  if (item === 'barcode') {
-                    router.push(Routes.nutrition.barcode as never);
-                    return;
-                  }
-                  setMode(item);
-                }}
-                accessibilityRole="radio"
-                accessibilityLabel={`Modo ${item === 'search' ? 'buscar' : item === 'photo' ? 'foto' : item === 'barcode' ? 'codigo' : 'manual'}`}
-                accessibilityState={{ selected: isActive }}
-                hitSlop={8}
+                style={[styles.quickActionChip, mode === 'photo' && styles.quickActionChipActive]}
+                onPress={() => setMode('photo')}
+                accessibilityRole="button"
+                accessibilityLabel="Abrir foto IA"
               >
-                <Text style={[styles.modePillText, isActive && styles.modePillTextActive]}>
-                  {item === 'search'
-                        ? 'Buscar'
-                      : item === 'photo'
-                        ? 'Foto'
-                        : item === 'barcode'
-                        ? 'Código'
-                        : 'Manual'}
-                </Text>
+                <Ionicons name="camera-outline" size={16} color={mode === 'photo' ? Colors.action : Colors.textSecondary} />
+                <Text style={[styles.quickActionChipText, mode === 'photo' && styles.quickActionChipTextActive]}>Foto</Text>
               </Pressable>
-            );
-          })}
-          </View>
+              <Pressable
+                style={[styles.quickActionChip, mode === 'manual' && styles.quickActionChipActive]}
+                onPress={() => setMode('manual')}
+                accessibilityRole="button"
+                accessibilityLabel="Abrir carga manual"
+              >
+                <Ionicons name="create-outline" size={16} color={mode === 'manual' ? Colors.action : Colors.textSecondary} />
+                <Text style={[styles.quickActionChipText, mode === 'manual' && styles.quickActionChipTextActive]}>Manual</Text>
+              </Pressable>
+              <Pressable
+                style={styles.quickActionChip}
+                onPress={() =>
+                  router.push({
+                    pathname: Routes.nutrition.barcode,
+                    params: { mealType },
+                  } as never)
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Escanear codigo de barras"
+              >
+                <Ionicons name="barcode-outline" size={16} color={Colors.textSecondary} />
+                <Text style={styles.quickActionChipText}>Scanner</Text>
+              </Pressable>
+            </View>
+          </Card>
         )}
 
         {mode === 'search' ? (
@@ -519,49 +699,49 @@ export default function NutritionLogScreen() {
             <Card style={styles.sectionCard} shadow={false}>
               <View style={styles.cardHeaderRow}>
                 <View>
-                  <Text style={styles.sectionTitle}>Biblioteca rápida</Text>
-                  <Text style={styles.sectionBody}>Abre algo frecuente o recupera un registro reciente antes de buscar.</Text>
-                </View>
-                <View style={styles.libraryTabs}>
-                  {(['frequent', 'recent'] as LibraryTab[]).map((item) => {
-                    const active = libraryTab === item;
-                    return (
-                      <Pressable
-                        key={item}
-                        style={[styles.libraryTab, active && styles.libraryTabActive]}
-                        onPress={() => setLibraryTab(item)}
-                        accessibilityRole="tab"
-                        accessibilityLabel={item === 'frequent' ? 'Frecuentes' : 'Recientes'}
-                        accessibilityState={{ selected: active }}
-                        hitSlop={8}
-                      >
-                        <Text style={[styles.libraryTabText, active && styles.libraryTabTextActive]}>
-                          {item === 'frequent' ? 'Frecuentes' : 'Recientes'}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <Text style={styles.sectionTitle}>{NutritionModule.library.title}</Text>
+                <Text style={styles.sectionBody}>{NutritionModule.library.description}</Text>
               </View>
+              <View style={styles.libraryTabs}>
+                {(['frequent', 'recent'] as LibraryTab[]).map((item) => {
+                  const active = libraryTab === item;
+                  return (
+                    <Pressable
+                      key={item}
+                      style={[styles.libraryTab, active && styles.libraryTabActive]}
+                      onPress={() => setLibraryTab(item)}
+                      accessibilityRole="tab"
+                      accessibilityLabel={item === 'frequent' ? NutritionModule.library.tabs.frequent : NutritionModule.library.tabs.recent}
+                      accessibilityState={{ selected: active }}
+                      hitSlop={8}
+                    >
+                      <Text style={[styles.libraryTabText, active && styles.libraryTabTextActive]}>
+                        {item === 'frequent' ? NutritionModule.library.tabs.frequent : NutritionModule.library.tabs.recent}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
-              <View style={styles.libraryList}>
-                {browseMeals.length ? (
-                  browseMeals.map((meal) => {
-                    const isRecent = 'logged_at' in meal;
-                    return (
-                      <Pressable
-                        key={meal.key}
-                        style={styles.libraryRow}
-                        onPress={() => {
-                          setSelectedFood(null);
-                          setSelectedPresetMeal(meal);
-                          setAmountUnit('g');
-                          setAmountValue(String(Math.round(meal.amount_g)));
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Usar ${meal.food_name}`}
-                        accessibilityHint="Carga esta comida para confirmar cantidad y macros."
-                      >
+            <View style={styles.libraryList}>
+              {browseMeals.length ? (
+                browseMeals.map((meal) => {
+                  const isRecent = 'logged_at' in meal;
+                  return (
+                    <Pressable
+                      key={meal.key}
+                      style={styles.libraryRow}
+                      onPress={() => {
+                        setSelectedFood(null);
+                        setSelectedPresetMeal(meal);
+                        setAmountUnit('g');
+                        setAmountValue(String(Math.round(meal.amount_g)));
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Usar ${meal.food_name}`}
+                      accessibilityHint="Carga esta comida para confirmar cantidad y macros."
+                    >
                         <View style={styles.libraryCopy}>
                           <Text style={styles.libraryName}>{meal.food_name}</Text>
                           <Text style={styles.libraryMeta}>
@@ -576,31 +756,89 @@ export default function NutritionLogScreen() {
                 ) : (
                   <Text style={styles.emptyHint}>
                     {libraryTab === 'frequent'
-                      ? 'Todavía no hay alimentos frecuentes para esta comida.'
-                      : 'Todavía no hay alimentos recientes para mostrar.'}
+                      ? NutritionModule.library.emptyFrequent
+                      : NutritionModule.library.emptyRecent}
                   </Text>
                 )}
               </View>
             </Card>
 
             <Input
-              label="Buscar alimento"
-              placeholder="Ej: arroz, yogur, pollo..."
+              label={NutritionModule.search.label}
+              placeholder={NutritionModule.search.placeholder}
               value={query}
-              onChangeText={(value) => void handleSearch(value)}
+              onChangeText={handleSearch}
               autoFocus
+              iconRight={<Ionicons name="barcode-outline" size={18} color={Colors.textMuted} />}
+              onPressRight={() =>
+                router.push({
+                  pathname: Routes.nutrition.barcode,
+                  params: { mealType },
+                } as never)
+              }
+              rightAccessibilityLabel="Escanear código de barras"
+              hint="También puedes escanear un código sin salir de esta búsqueda."
             />
 
             {isSearching ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={Colors.textSecondary} />
-                <Text style={styles.loadingText}>Buscando alimentos...</Text>
+                <Text style={styles.loadingText}>{NutritionModule.search.searching}</Text>
               </View>
+            ) : null}
+
+            {normalizedQuery.length >= 2 && matchingLibrarySuggestions.length ? (
+              <Card style={styles.sectionCard} shadow={false}>
+                <Text style={styles.sectionTitle}>Ya en tu biblioteca</Text>
+                <Text style={styles.sectionBody}>
+                  Antes de abrir una lista larga, te muestro primero coincidencias que ya usaste.
+                </Text>
+                <View style={styles.libraryList}>
+                  {matchingLibrarySuggestions.map((item) => {
+                    const meal = item.meal;
+                    const isRecent = 'logged_at' in meal;
+                    return (
+                      <Pressable
+                        key={item.key}
+                        style={styles.libraryRow}
+                        onPress={() => {
+                          setSelectedFood(null);
+                          setSelectedPresetMeal(meal);
+                          setAmountUnit('g');
+                          setAmountValue(String(Math.round(meal.amount_g)));
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Usar ${meal.food_name}`}
+                        accessibilityHint="Carga una coincidencia que ya usaste para confirmar cantidad y macros."
+                      >
+                        <View style={styles.libraryCopy}>
+                          <Text style={styles.libraryName}>{meal.food_name}</Text>
+                          <View style={styles.suggestionMetaRow}>
+                            <Text style={styles.libraryMeta}>
+                              {Math.round(meal.calories)} kcal | {Math.round(meal.amount_g)} g
+                              {isRecent ? ` | ${formatRecentStamp((meal as RecentMeal).logged_at)}` : ''}
+                            </Text>
+                            <View style={styles.sourceBadge}>
+                              <Text style={styles.sourceBadgeText}>{item.sourceLabel}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Card>
             ) : null}
 
             {results.length ? (
               <Card style={styles.sectionCard} shadow={false}>
-                <Text style={styles.sectionTitle}>Resultados</Text>
+                <Text style={styles.sectionTitle}>Resultados generales</Text>
+                <Text style={styles.sectionBody}>
+                  {results.length >= searchLimit
+                    ? `Mostrando los primeros ${results.length} resultados. Si no aparece lo que buscas, abre mas resultados o usa carga manual.`
+                    : `Encontramos ${results.length} coincidencia${results.length === 1 ? '' : 's'} para esta busqueda.`}
+                </Text>
                 <View style={styles.resultsList}>
                   {results.map((item) => (
                     <Pressable
@@ -627,6 +865,34 @@ export default function NutritionLogScreen() {
                     </Pressable>
                   ))}
                 </View>
+                {canLoadMoreResults ? (
+                  <View style={styles.resultsFooter}>
+                    <Button onPress={handleLoadMoreResults} variant="ghost" fullWidth>
+                      Ver mas resultados
+                    </Button>
+                  </View>
+                ) : null}
+              </Card>
+            ) : null}
+
+            {!results.length && query.trim().length >= 2 && !isSearching ? (
+              <Card style={styles.sectionCard} shadow={false}>
+                <Text style={styles.sectionTitle}>Sin resultados</Text>
+                <Text style={styles.emptyHint}>
+                  {matchingLibrarySuggestions.length
+                    ? `No encontre resultados generales para "${query.trim()}". Si ya lo usaste antes, tienes coincidencias arriba o puedes cargarlo manualmente.`
+                    : `No encontre alimentos para "${query.trim()}". Puedes volver a intentar o cargarlo manualmente.`}
+                </Text>
+                <Button
+                  onPress={() => {
+                    setManualName(query.trim());
+                    setMode('manual');
+                  }}
+                  variant="ghost"
+                  fullWidth
+                >
+                  Cargar manualmente
+                </Button>
               </Card>
             ) : null}
 
@@ -640,12 +906,12 @@ export default function NutritionLogScreen() {
                 </View>
 
                 <View style={styles.macroGrid}>
-                  <MacroStat label="Kcal" value={formatMacroValue(selectedPreview.calories)} accent={Colors.action} />
-                  <MacroStat label="Prot" value={`${formatMacroValue(selectedPreview.protein)}g`} accent={Colors.success} />
-                  <MacroStat label="Carb" value={`${formatMacroValue(selectedPreview.carbs)}g`} accent={Colors.warning} />
-                  <MacroStat label="Grasa" value={`${formatMacroValue(selectedPreview.fat)}g`} accent={Colors.error} />
+                  <MacroStat label={NutritionModule.preview.macros.kcal} value={formatMacroValue(selectedPreview.calories)} accent={Colors.action} />
+                  <MacroStat label={NutritionModule.preview.macros.protein} value={`${formatMacroValue(selectedPreview.protein)}g`} accent={Colors.success} />
+                  <MacroStat label={NutritionModule.preview.macros.carbs} value={`${formatMacroValue(selectedPreview.carbs)}g`} accent={Colors.warning} />
+                  <MacroStat label={NutritionModule.preview.macros.fat} value={`${formatMacroValue(selectedPreview.fat)}g`} accent={Colors.error} />
                 </View>
-                <MacroStat label="Fibra" value={`${formatMacroValue(selectedPreview.fiber)}g`} accent={Colors.textPrimary} />
+                <MacroStat label={NutritionModule.preview.macros.fiber} value={`${formatMacroValue(selectedPreview.fiber)}g`} accent={Colors.textPrimary} />
 
                 <Input
                   label="Cantidad"
@@ -665,7 +931,7 @@ export default function NutritionLogScreen() {
                           style={[styles.unitChip, active && styles.unitChipActive]}
                           onPress={() => setAmountUnit(unit)}
                           accessibilityRole="radio"
-                          accessibilityLabel={`Unidad ${unit}`}
+                          accessibilityLabel={NutritionModule.unitA11y(unit)}
                           accessibilityState={{ selected: active }}
                           hitSlop={8}
                         >
@@ -675,7 +941,7 @@ export default function NutritionLogScreen() {
                   })}
                 </View>
                 {amountUnit === 'porciones' ? (
-                  <Text style={styles.portionHint}>1 porción se estima como 100g para está confirmación.</Text>
+                  <Text style={styles.portionHint}>{NutritionModule.preview.portionHint}</Text>
                 ) : null}
 
                 <View style={styles.amountRow}>
@@ -691,7 +957,7 @@ export default function NutritionLogScreen() {
                         setAmountValue(String(value));
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Cantidad rápida ${value} gramos`}
+                      accessibilityLabel={NutritionModule.quickAmountA11y(value)}
                       accessibilityState={{ selected: normalizedAmount === value && amountUnit === 'g' }}
                       hitSlop={8}
                     >
@@ -708,7 +974,7 @@ export default function NutritionLogScreen() {
                 </View>
 
                 <Button onPress={() => void handleAddSelectedFood()} loading={isSubmittingMeal} fullWidth>
-                  Agregar a {mealMeta.label}
+                  {NutritionModule.preview.addButton(mealMeta.label)}
                 </Button>
               </Card>
             ) : null}
@@ -718,40 +984,41 @@ export default function NutritionLogScreen() {
         {mode === 'photo' ? (
           <>
             <Card style={styles.sectionCard} shadow={false}>
-              <Text style={styles.sectionTitle}>Foto IA</Text>
+              <Text style={styles.sectionTitle}>{NutritionModule.photo.title}</Text>
               <Text style={styles.sectionBody}>
-                Saca una foto, revisa lo que VYRA detecta y ajusta porciones antes de confirmar.
+                {NutritionModule.photo.description}
               </Text>
               <Button
                 onPress={() => void handleAnalyzePhoto('camera')}
                 loading={isAnalyzingPhoto}
+                disabled={isAnalyzingPhoto}
                 fullWidth
               >
-                Tomar foto
+                {NutritionModule.photo.takePhoto}
               </Button>
               <Button
                 onPress={() => void handleAnalyzePhoto('library')}
-                variant="ghost"
+                variant="secondary"
                 fullWidth
                 disabled={isAnalyzingPhoto}
               >
-                Elegir de galería
+                {NutritionModule.photo.chooseGallery}
               </Button>
               {photoError ? <Text style={styles.errorText}>{photoError}</Text> : null}
             </Card>
 
             {photoDraft ? (
               <Card style={styles.previewCard} shadow={false}>
-                <Text style={styles.sectionTitle}>Esto detectó la IA</Text>
+                <Text style={styles.sectionTitle}>{NutritionModule.photo.detection}</Text>
                 <Text style={styles.previewMeta}>
-                  {Math.round(photoDraft.calories)} kcal | confianza {Math.round(photoDraft.confidence * 100)}%
+                  {Math.round(photoDraft.calories)} kcal | {NutritionModule.photo.confidence(photoDraft.confidence)}
                 </Text>
 
                 {photoNeedsFallback ? (
                   <View style={styles.warningBanner}>
                     <Ionicons name="alert-circle-outline" size={18} color={Colors.warning} />
                     <Text style={styles.warningBannerText}>
-                      La deteccion tiene baja confianza. Conviene revisar o pasar a busqueda manual.
+                      {NutritionModule.photo.lowConfidence}
                       
                     </Text>
                   </View>
@@ -770,7 +1037,7 @@ export default function NutritionLogScreen() {
                           )
                         }
                         accessibilityRole="checkbox"
-                        accessibilityLabel={`Incluir ${component.name}`}
+                        accessibilityLabel={NutritionModule.photo.componentIncludeA11y(component.name)}
                         accessibilityState={{ checked: component.selected }}
                         hitSlop={8}
                       >
@@ -784,8 +1051,8 @@ export default function NutritionLogScreen() {
                         <Text style={styles.componentName}>{component.name}</Text>
                         <Text style={styles.componentMeta}>
                           {normalizeNutritionAmount(component.amount, 0)
-                            ? `${Math.round(normalizeNutritionAmount(component.amount, 0))} g estimados`
-                            : 'Sin cantidad estimada'}
+                            ? NutritionModule.photo.estimated(normalizeNutritionAmount(component.amount, 0))
+                            : NutritionModule.photo.noQuantity}
                         </Text>
                       </View>
                     </View>
@@ -797,7 +1064,7 @@ export default function NutritionLogScreen() {
                   variant="ghost"
                   fullWidth
                 >
-                  {showPhotoPortions ? 'Ocultar ajuste de porciones' : 'Ajustar porciones'}
+                  {showPhotoPortions ? NutritionModule.photo.togglePortions.hide : NutritionModule.photo.togglePortions.show}
                 </Button>
 
                 {showPhotoPortions ? (
@@ -825,8 +1092,8 @@ export default function NutritionLogScreen() {
 
                 <Text style={styles.photoSummary}>
                   {selectedPhotoCount > 0
-                    ? `${selectedPhotoCount} item${selectedPhotoCount > 1 ? 's' : ''} marcado${selectedPhotoCount > 1 ? 's' : ''}.`
-                    : 'Marca al menos un item para confirmar.'}
+                    ? NutritionModule.photo.itemsSelected(selectedPhotoCount)
+                    : NutritionModule.photo.selectAtLeast}
                 </Text>
 
                 <Button
@@ -834,11 +1101,11 @@ export default function NutritionLogScreen() {
                   fullWidth
                   disabled={selectedPhotoCount === 0}
                 >
-                  Confirmar deteccion
+                  {NutritionModule.photo.confirmDetection}
                 </Button>
                 {photoNeedsFallback ? (
                   <Button onPress={() => setMode('search')} variant="ghost" fullWidth>
-                    Buscar manualmente
+                    {NutritionModule.photo.manualSearch}
                   </Button>
                 ) : null}
               </Card>
@@ -848,45 +1115,126 @@ export default function NutritionLogScreen() {
 
         {mode === 'manual' ? (
           <Card style={styles.manualCard} shadow={false}>
-            <Text style={styles.sectionTitle}>Carga manual</Text>
+            <Text style={styles.sectionTitle}>{NutritionModule.manual.title}</Text>
             {photoDraft?.note ? <Text style={styles.sectionBody}>{photoDraft.note}</Text> : null}
-            <Input label="Nombre" value={manualName} onChangeText={setManualName} placeholder="Ej: arroz con pollo" />
+            <Input label={NutritionModule.manual.nameLabel} value={manualName} onChangeText={setManualName} placeholder={NutritionModule.manual.namePlaceholder} />
             <Input
-              label="Cantidad"
+              label={NutritionModule.manual.quantityLabel}
               value={manualGrams}
               onChangeText={setManualGrams}
               keyboardType="numeric"
-              unit="g"
+              unit={NutritionModule.manual.quantityUnit}
+            />
+            <Input
+              label="Kcal"
+              value={manualCalories}
+              onChangeText={setManualCalories}
+              keyboardType="numeric"
+              hint="Referencia total de esta porción."
+              style={styles.manualPrimaryField}
             />
             <View style={styles.manualGrid}>
-              <Input label="Kcal" value={manualCalories} onChangeText={setManualCalories} keyboardType="numeric" />
-              <Input label="Proteína" value={manualProtein} onChangeText={setManualProtein} keyboardType="numeric" unit="g" />
+              <Input
+                label={NutritionModule.manual.proteinLabel}
+                value={manualProtein}
+                onChangeText={setManualProtein}
+                keyboardType="numeric"
+                unit={NutritionModule.manual.proteinUnit}
+              />
+              <Input
+                label={NutritionModule.manual.carbsLabel}
+                value={manualCarbs}
+                onChangeText={setManualCarbs}
+                keyboardType="numeric"
+                unit={NutritionModule.manual.carbsUnit}
+              />
             </View>
             <View style={styles.manualGrid}>
-              <Input label="Carbos" value={manualCarbs} onChangeText={setManualCarbs} keyboardType="numeric" unit="g" />
-              <Input label="Grasas" value={manualFat} onChangeText={setManualFat} keyboardType="numeric" unit="g" />
+              <Input
+                label={NutritionModule.manual.fatLabel}
+                value={manualFat}
+                onChangeText={setManualFat}
+                keyboardType="numeric"
+                unit={NutritionModule.manual.fatUnit}
+              />
+              <Input
+                label={NutritionModule.manual.fiberLabel}
+                value={manualFiber}
+                onChangeText={setManualFiber}
+                keyboardType="numeric"
+                unit={NutritionModule.manual.fiberUnit}
+              />
             </View>
-            <Input label="Fibra" value={manualFiber} onChangeText={setManualFiber} keyboardType="numeric" unit="g" />
             <Button
               onPress={() => void handleAddManual()}
               loading={isSubmittingMeal}
               fullWidth
               disabled={isSubmittingMeal || !canSubmitManualNutrition({ name: manualName.trim(), calories: manualCalories })}
             >
-              {isEditingFlow ? 'Guardar cambios' : `Agregar a ${mealMeta.label}`}
+              {isEditingFlow ? NutritionModule.manual.submitEdit : NutritionModule.manual.submitAdd(mealMeta.label)}
             </Button>
           </Card>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={showFastingMealConfirm}
+        onClose={closeFastingMealConfirm}
+        title="Esta comida rompe tu ayuno"
+        ctaLabel={fastingReadyToClose ? 'Registrar y completar ayuno' : 'Registrar y cortar ayuno'}
+        onCta={() => void handleConfirmFastBreak()}
+        ctaLoading={isResolvingFastForMeal || isCompleting || isAbandoning || isSubmittingMeal}
+        secondaryLabel="Seguir ayunando"
+        onSecondary={closeFastingMealConfirm}
+      >
+        <Text style={styles.sectionBody}>
+          {fastingReadyToClose
+            ? 'Si continuas, Vyra cerrará tu ayuno como completado y después guardará esta comida en Nutrición.'
+            : 'Si continuas, Vyra marcará que rompiste el ayuno antes de la meta y después guardará esta comida en Nutrición.'}
+        </Text>
+      </Modal>
     </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: Spacing[5],
     paddingBottom: Spacing[10],
     gap: Spacing[4],
+  },
+  quickActionsCard: {
+    gap: Spacing[3],
+  },
+  quickActionsHeader: {
+    gap: 6,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  quickActionChip: {
+    minHeight: 40,
+    borderRadius: Radius.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: Spacing[3],
+    backgroundColor: Colors.elevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  quickActionChipActive: {
+    backgroundColor: withOpacity(Colors.action, 0.12),
+    borderColor: withOpacity(Colors.action, 0.32),
+  },
+  quickActionChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  quickActionChipTextActive: {
+    color: Colors.action,
   },
   modeRow: {
     flexDirection: 'row',
@@ -896,7 +1244,7 @@ const styles = StyleSheet.create({
   modePill: {
     minHeight: 40,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -917,6 +1265,23 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     gap: Spacing[3],
+  },
+  fastingGuardCard: {
+    gap: Spacing[2],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.fasting, 0.22),
+    backgroundColor: withOpacity(Colors.fasting, 0.08),
+  },
+  fastingGuardTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  fastingGuardBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
   },
   cardHeaderRow: {
     gap: Spacing[3],
@@ -944,7 +1309,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   libraryTabActive: {
     borderColor: Colors.actionBorder,
@@ -967,7 +1332,7 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
     minHeight: 56,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -985,6 +1350,25 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
+  },
+  suggestionMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  sourceBadge: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.secondary, 0.18),
+    backgroundColor: withOpacity(Colors.secondary, 0.12),
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 4,
+  },
+  sourceBadgeText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.secondary,
   },
   emptyHint: {
     fontFamily: FontFamily.regular,
@@ -1004,13 +1388,16 @@ const styles = StyleSheet.create({
   resultsList: {
     gap: Spacing[2],
   },
+  resultsFooter: {
+    marginTop: Spacing[1],
+  },
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[3],
     minHeight: 56,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -1055,7 +1442,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2.5],
     gap: 2,
@@ -1087,7 +1474,7 @@ const styles = StyleSheet.create({
   unitChip: {
     minHeight: 40,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -1095,8 +1482,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   unitChipActive: {
-    borderColor: Colors.actionBorder,
-    backgroundColor: withOpacity(Colors.action, 0.12),
+    borderColor: Colors.secondaryBorder,
+    backgroundColor: withOpacity(Colors.secondary, 0.12),
   },
   unitChipText: {
     fontFamily: FontFamily.medium,
@@ -1104,7 +1491,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   unitChipTextActive: {
-    color: Colors.action,
+    color: Colors.secondary,
   },
   portionHint: {
     fontFamily: FontFamily.regular,
@@ -1119,7 +1506,7 @@ const styles = StyleSheet.create({
   amountChip: {
     minHeight: 38,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -1127,8 +1514,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   amountChipActive: {
-    backgroundColor: withOpacity(Colors.action, 0.1),
-    borderColor: Colors.actionBorder,
+    backgroundColor: withOpacity(Colors.secondary, 0.1),
+    borderColor: Colors.secondaryBorder,
   },
   amountChipText: {
     fontFamily: FontFamily.medium,
@@ -1136,7 +1523,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   amountChipTextActive: {
-    color: Colors.action,
+    color: Colors.secondary,
   },
   warningBanner: {
     flexDirection: 'row',
@@ -1164,7 +1551,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing[3],
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -1209,6 +1596,9 @@ const styles = StyleSheet.create({
   },
   manualCard: {
     gap: Spacing[3],
+  },
+  manualPrimaryField: {
+    marginBottom: 0,
   },
   manualGrid: {
     flexDirection: 'row',

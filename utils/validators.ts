@@ -1,68 +1,108 @@
 // ============================================================
-// VYRA FITNESS — Validadores de formularios
+// VYRA FITNESS — Validadores de formularios (i18n compatible)
 // ============================================================
 
+import { getLocalizedStrings } from '@/constants/strings';
+
+// Helper para obtener mensajes de validación traducidos
+function getMessages() {
+  const strings = getLocalizedStrings();
+  return {
+    emailRequired: 'El email es obligatorio.',
+    emailInvalid: strings.ValidationMessages.emailInvalid,
+    passwordRequired: strings.ValidationMessages.passwordRequired,
+    passwordTooShort: strings.ValidationMessages.passwordTooShort,
+    nameRequired: 'El nombre es obligatorio.',
+    nameTooShort: 'El nombre debe tener al menos 2 caracteres.',
+    ageRequired: 'La edad es obligatoria.',
+    ageTooYoung: strings.ValidationMessages.ageTooYoung,
+    ageInvalid: strings.ValidationMessages.ageInvalid,
+    weightTooLow: strings.ValidationMessages.weightTooLow,
+    weightInvalid: strings.ValidationMessages.weightInvalid,
+    heightTooLow: strings.ValidationMessages.heightTooLow,
+    heightInvalid: strings.ValidationMessages.heightInvalid,
+    waterAmountZero: 'La cantidad debe ser mayor a 0.',
+    waterAmountTooHigh: strings.ValidationMessages.waterAmountTooHigh,
+    waterGoalTooLow: strings.ValidationMessages.waterGoalTooLow,
+    waterGoalTooHigh: strings.ValidationMessages.waterGoalTooHigh,
+    stepsGoalTooLow: strings.ValidationMessages.stepsGoalTooLow,
+    stepsGoalTooHigh: strings.ValidationMessages.stepsGoalTooHigh,
+    foodAmountZero: 'La cantidad debe ser mayor a 0.',
+    foodAmountTooHigh: strings.ValidationMessages.foodAmountTooHigh,
+  };
+}
+
 export function validateEmail(email: string): string | null {
-  if (!email.trim()) return 'El email es obligatorio.';
+  const msgs = getMessages();
+  if (!email.trim()) return msgs.emailRequired;
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!re.test(email)) return 'El email no tiene un formato válido.';
+  if (!re.test(email)) return msgs.emailInvalid;
   return null;
 }
 
 export function validatePassword(password: string): string | null {
-  if (!password) return 'La contraseña es obligatoria.';
-  if (password.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
+  const msgs = getMessages();
+  if (!password) return msgs.passwordRequired;
+  if (password.length < 8) return msgs.passwordTooShort;
   return null;
 }
 
 export function validateName(name: string): string | null {
-  if (!name.trim()) return 'El nombre es obligatorio.';
-  if (name.trim().length < 2) return 'El nombre debe tener al menos 2 caracteres.';
+  const msgs = getMessages();
+  if (!name.trim()) return msgs.nameRequired;
+  if (name.trim().length < 2) return msgs.nameTooShort;
   return null;
 }
 
 export function validateAge(age: number | null): string | null {
-  if (age === null || isNaN(age)) return 'La edad es obligatoria.';
-  if (age < 13) return 'Debés tener al menos 13 años para usar Vyra.';
-  if (age > 120) return 'La edad ingresada no es válida.';
+  const msgs = getMessages();
+  if (age === null || isNaN(age)) return msgs.ageRequired;
+  if (age < 13) return msgs.ageTooYoung;
+  if (age > 120) return msgs.ageInvalid;
   return null;
 }
 
 export function validateWeight(kg: number | null): string | null {
+  const msgs = getMessages();
   if (kg === null || isNaN(kg)) return null;  // Opcional
-  if (kg < 20) return 'El peso mínimo es 20 kg.';
-  if (kg > 500) return 'El peso ingresado no es válido.';
+  if (kg < 20) return msgs.weightTooLow;
+  if (kg > 500) return msgs.weightInvalid;
   return null;
 }
 
 export function validateHeight(cm: number | null): string | null {
+  const msgs = getMessages();
   if (cm === null || isNaN(cm)) return null;  // Opcional
-  if (cm < 50) return 'La altura mínima es 50 cm.';
-  if (cm > 300) return 'La altura ingresada no es válida.';
+  if (cm < 50) return msgs.heightTooLow;
+  if (cm > 300) return msgs.heightInvalid;
   return null;
 }
 
 export function validateWaterAmount(ml: number): string | null {
-  if (ml <= 0) return 'La cantidad debe ser mayor a 0.';
-  if (ml > 5000) return 'La cantidad máxima es 5.000ml por registro.';
+  const msgs = getMessages();
+  if (ml <= 0) return msgs.waterAmountZero;
+  if (ml > 5000) return msgs.waterAmountTooHigh;
   return null;
 }
 
 export function validateWaterGoal(ml: number): string | null {
-  if (ml < 500) return 'La meta mínima es 500ml.';
-  if (ml > 10000) return 'La meta máxima es 10.000ml.';
+  const msgs = getMessages();
+  if (ml < 500) return msgs.waterGoalTooLow;
+  if (ml > 10000) return msgs.waterGoalTooHigh;
   return null;
 }
 
 export function validateStepGoal(steps: number): string | null {
-  if (steps < 1000) return 'La meta mínima es 1.000 pasos.';
-  if (steps > 100000) return 'La meta máxima es 100.000 pasos.';
+  const msgs = getMessages();
+  if (steps < 1000) return msgs.stepsGoalTooLow;
+  if (steps > 100000) return msgs.stepsGoalTooHigh;
   return null;
 }
 
 export function validateFoodAmount(grams: number): string | null {
-  if (grams <= 0) return 'La cantidad debe ser mayor a 0.';
-  if (grams > 5000) return 'La cantidad máxima es 5.000g.';
+  const msgs = getMessages();
+  if (grams <= 0) return msgs.foodAmountZero;
+  if (grams > 5000) return msgs.foodAmountTooHigh;
   return null;
 }
 

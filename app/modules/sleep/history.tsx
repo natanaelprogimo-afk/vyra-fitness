@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
 import SleepModuleTabs from '@/components/sleep/SleepModuleTabs';
+import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
+import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
@@ -15,7 +15,16 @@ import {
   formatSleepClock,
   getSleepQualityMeta,
   groupSleepHistoryByWeek,
+  scoreToQualityLevel,
+  SLEEP_APP_LOCALE,
 } from '@/lib/sleep-module';
+
+function getSleepSourceHint(source: string) {
+  if (source === 'manual') {
+    return 'Profundo y REM se estiman a partir de tu carga manual.';
+  }
+  return 'Profundo y REM vienen de la fuente de sueño que conectaste.';
+}
 
 export default function SleepHistoryScreen() {
   const { history, deleteSleepEntry } = useSleep();
@@ -41,16 +50,18 @@ export default function SleepHistoryScreen() {
 
   const finalizePendingDelete = (entry: SleepEntry | null) => {
     if (!entry?.id) return;
+    pendingDeleteRef.current = null;
     void deleteSleepEntry(entry.id);
   };
 
   const handleDeletePress = (entry: SleepEntry) => {
     clearPendingTimer();
 
-    if (pendingDelete) {
-      finalizePendingDelete(pendingDelete);
+    if (pendingDeleteRef.current) {
+      finalizePendingDelete(pendingDeleteRef.current);
     }
 
+    pendingDeleteRef.current = entry;
     setPendingDelete(entry);
     deleteTimerRef.current = setTimeout(() => {
       finalizePendingDelete(entry);
@@ -61,21 +72,9 @@ export default function SleepHistoryScreen() {
 
   const handleUndoDelete = () => {
     clearPendingTimer();
+    pendingDeleteRef.current = null;
     setPendingDelete(null);
   };
-
-  useEffect(() => {
-    pendingDeleteRef.current = pendingDelete;
-  }, [pendingDelete]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingTimer();
-      if (pendingDeleteRef.current) {
-        finalizePendingDelete(pendingDeleteRef.current);
-      }
-    };
-  }, []);
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
@@ -107,8 +106,8 @@ export default function SleepHistoryScreen() {
           <Card style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Aún no hay noches registradas</Text>
             <Text style={styles.emptyBody}>
-              Empieza desde la pantalla de registro y aquí veras cada semana
-              agrupada con horarios, score y duracion.
+              Empieza desde la pantalla de registro y aquí verás cada semana
+              agrupada con horarios, score y duración.
             </Text>
             <Button
               onPress={() => router.push(Routes.sleep.log)}
@@ -123,24 +122,14 @@ export default function SleepHistoryScreen() {
             <View key={group.key} style={styles.group}>
               <Text style={styles.groupTitle}>{group.label}</Text>
               {group.items.map((entry) => {
-                const qualityMeta = getSleepQualityMeta(
-                  entry.quality_score >= 85
-                    ? 5
-                    : entry.quality_score >= 70
-                      ? 4
-                      : entry.quality_score >= 55
-                        ? 3
-                        : entry.quality_score >= 40
-                          ? 2
-                          : 1,
-                );
+                const qualityMeta = getSleepQualityMeta(scoreToQualityLevel(entry.quality_score));
 
                 return (
                   <Card key={entry.id} style={styles.entryCard}>
                     <View style={styles.entryTop}>
                       <View>
                         <Text style={styles.entryDate}>
-                          {new Date(entry.end_time).toLocaleDateString('es-UY', {
+                          {new Date(entry.end_time).toLocaleDateString(SLEEP_APP_LOCALE, {
                             weekday: 'long',
                             day: 'numeric',
                             month: 'short',
@@ -170,25 +159,43 @@ export default function SleepHistoryScreen() {
                           </Text>
                         </View>
 
-                        <Pressable
-                          onPress={() => handleDeletePress(entry)}
-                          style={styles.deleteButton}
-                          hitSlop={10}
-                          accessibilityLabel="Eliminar registro de sueño"
-                        >
-                          <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
-                        </Pressable>
+                        <View style={styles.actionRow}>
+                          <Pressable
+                            onPress={() =>
+                              router.push({
+                                pathname: Routes.sleep.log,
+                                params: { entryId: entry.id },
+                              } as never)
+                            }
+                            style={styles.actionButton}
+                            hitSlop={10}
+                            accessibilityRole="button"
+                            accessibilityLabel="Editar registro de sueño"
+                            accessibilityHint="Abre este registro para corregir horarios o calidad."
+                          >
+                            <Ionicons name="create-outline" size={16} color={Colors.textMuted} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => handleDeletePress(entry)}
+                            style={styles.actionButton}
+                            hitSlop={10}
+                            accessibilityLabel="Eliminar registro de sueño"
+                          >
+                            <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
+                          </Pressable>
+                        </View>
                       </View>
                     </View>
 
                     <View style={styles.entryStats}>
                       <HistoryStat
-                        label="Duracion"
+                        label="Duración"
                         value={`${(entry.duration_min / 60).toFixed(1)}h`}
                       />
                       <HistoryStat label="Profundo" value={`${entry.deep_min}m`} />
                       <HistoryStat label="REM" value={`${entry.rem_min}m`} />
                     </View>
+                    <Text style={styles.entryHint}>{getSleepSourceHint(entry.source)}</Text>
                   </Card>
                 );
               })}
@@ -202,9 +209,9 @@ export default function SleepHistoryScreen() {
 
 function HistoryStat({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.historyStat}>
-      <Text style={styles.historyStatValue}>{value}</Text>
-      <Text style={styles.historyStatLabel}>{label}</Text>
+    <View style={styles.statItem}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>{value}</Text>
     </View>
   );
 }
@@ -212,13 +219,13 @@ function HistoryStat({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[2],
     paddingBottom: Spacing[10],
     gap: Spacing[4],
   },
   undoCard: {
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.sleep, 0.2),
-    backgroundColor: withOpacity(Colors.sleep, 0.08),
+    borderColor: withOpacity(Colors.warning, 0.24),
+    backgroundColor: withOpacity(Colors.warning, 0.08),
   },
   undoRow: {
     flexDirection: 'row',
@@ -227,43 +234,40 @@ const styles = StyleSheet.create({
   },
   undoCopy: {
     flex: 1,
-    gap: 4,
+    gap: Spacing[1],
   },
   undoTitle: {
-    fontFamily: FontFamily.semibold,
+    fontFamily: FontFamily.bold,
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
   },
   undoBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
     color: Colors.textSecondary,
+    lineHeight: 18,
   },
   emptyCard: {
     gap: Spacing[3],
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.sleep, 0.28),
-    backgroundColor: withOpacity(Colors.sleep, 0.08),
   },
   emptyTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: FontSize.lg,
+    fontSize: FontSize.base,
     color: Colors.textPrimary,
   },
   emptyBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: FontSize.sm * 1.5,
     color: Colors.textSecondary,
+    lineHeight: 20,
   },
   group: {
-    gap: Spacing[3],
+    gap: Spacing[2],
   },
   groupTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
-    color: Colors.textPrimary,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   entryCard: {
     gap: Spacing[3],
@@ -272,12 +276,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: Spacing[3],
-    alignItems: 'center',
-  },
-  entryActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[2],
   },
   entryDate: {
     fontFamily: FontFamily.bold,
@@ -288,54 +286,68 @@ const styles = StyleSheet.create({
   entryTime: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  entryActions: {
+    alignItems: 'flex-end',
+    gap: Spacing[2],
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing[1.5],
   },
   scoreBadge: {
-    minWidth: 74,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    backgroundColor: Colors.bgElevated,
-    paddingVertical: Spacing[2],
-    paddingHorizontal: Spacing[3],
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: Spacing[1.5],
+    borderWidth: 1,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[1],
   },
   scoreEmoji: {
-    fontSize: 16,
+    fontSize: 14,
   },
   scoreValue: {
     fontFamily: FontFamily.bold,
-    fontSize: FontSize.base,
+    fontSize: FontSize.xs,
   },
-  deleteButton: {
+  actionButton: {
     width: 32,
     height: 32,
-    borderRadius: Radius.full,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: withOpacity(Colors.white, 0.04),
   },
   entryStats: {
     flexDirection: 'row',
     gap: Spacing[2],
   },
-  historyStat: {
+  entryHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    lineHeight: 18,
+  },
+  statItem: {
     flex: 1,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
+    paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2.5],
-    alignItems: 'center',
+    gap: 4,
   },
-  historyStatValue: {
+  statLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  statValue: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
   },
-  historyStatLabel: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
 });
+

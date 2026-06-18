@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { isGuestAuthUser } from '@/lib/guest-auth';
 import { useAuthStore } from '@/stores/authStore';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { createActiveDateSet } from '@/lib/engagement-streak';
@@ -14,16 +15,18 @@ interface DateRow {
 }
 
 export function useEngagementStreak(days: number = 60) {
+  const user = useAuthStore((state) => state.user);
   const userId = useAuthStore((state) => state.profile?.id ?? state.user?.id ?? null);
   const workoutHistory = useWorkoutStore((state) => state.history);
   const startDate = daysAgoISO(Math.max(0, days - 1));
+  const isGuest = isGuestAuthUser(user);
 
   const { data: remoteDates = [], isLoading, refetch } = useQuery<string[]>({
     queryKey: ['engagement_streak_dates', userId, days],
-    enabled: Boolean(userId),
+    enabled: Boolean(userId) && !isGuest,
     staleTime: 60 * 1000,
     queryFn: async () => {
-      if (!userId) return [];
+      if (!userId || isGuest) return [];
 
       try {
         const startStamp = `${startDate}T00:00:00`;

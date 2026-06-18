@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -31,6 +31,11 @@ import {
   WORKOUT_SEED_VERSION,
   WORKOUT_TEMPLATE_ROUTINES,
 } from '@/lib/workout-data';
+import {
+  trackWorkoutCompleted,
+  trackWorkoutSetLogged,
+  trackWorkoutStarted,
+} from '@/lib/analytics';
 
 interface StoredActiveSession extends Omit<ActiveSession, 'startedAt' | 'timerStart'> {
   startedAt: string;
@@ -53,11 +58,16 @@ interface CreateExerciseInput {
   muscle_group: string;
   equipment: string;
   instructions?: string | null;
+  description?: string | null;
   movement_pattern?: string | null;
   difficulty_level?: string | null;
   cues?: string[];
   mistakes?: string[];
   muscles_secondary?: string[];
+  aliases?: string[];
+  variations?: string[];
+  video_url?: string | null;
+  gif_url?: string | null;
   type?: string | null;
 }
 
@@ -93,6 +103,7 @@ interface WorkoutStoreState {
   setActiveProgram: (programId: string | null) => Promise<boolean>;
   updateSettings: (patch: Partial<WorkoutSettings>) => void;
   bindOwner: (userId: string) => void;
+  addExerciseToActiveSession: (exercise: Exercise) => void;
   setCurrentExerciseIndex: (index: number) => void;
   startRestTimer: () => void;
   clearRestTimer: () => void;
@@ -104,7 +115,7 @@ interface WorkoutStoreState {
   getWeeklyStats: () => { sessions: number; volume: number; muscles: string[] };
   getConsistencyStats: () => WorkoutConsistencyStats;
   getMonthlyProgress: () => WorkoutMonthlyProgress;
-  getPersonalRecord: (exerciseId: string) => { maxWeight: number; maxReps: number } | null;
+  getPersonalRecord: (exerciseId: string) => WorkoutPersonalRecord | null;
   getSessionDetail: (sessionId: string) => WorkoutSessionDetail | null;
   getRecommendedRoutine: () => RecommendedRoutine;
   getMuscleRecovery: () => MuscleRecoveryEntry[];
@@ -348,6 +359,12 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           isQuickSession: !selectedRoutine,
         };
         set({ activeSession, summary: null });
+        trackWorkoutStarted({
+          session_id: activeSession.session_id,
+          routine_id: activeSession.routine_id,
+          session_name: activeSession.name,
+          is_quick: activeSession.isQuickSession,
+        });
         return activeSession;
       },
       addSet: async (input) => {
@@ -407,6 +424,15 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
         };
 
         set({ activeSession: nextSession, personalRecords: nextRecords });
+        trackWorkoutSetLogged({
+          session_id: nextSession.session_id,
+          routine_id: nextSession.routine_id,
+          exercise_id: exercise.exercise_id,
+          exercise_name: exercise.exercise_name,
+          set_number: nextSetNumber,
+          is_pr: isPr,
+          rest_sec: nextSet.rest_sec,
+        });
         return { isPr, set: nextSet };
       },
       finishSession: async (opts) => {
@@ -477,6 +503,14 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
                 routine.id === state.activeSession?.routine_id ? { ...routine, last_used_at: endedAt } : routine,
               )
             : state.routines,
+        });
+        trackWorkoutCompleted({
+          session_id: historyEntry.id,
+          routine_id: historyEntry.routine_id,
+          session_name: historyEntry.name,
+          duration_min: durationMin,
+          prs: summary.prs.length,
+          total_volume: historyEntry.total_volume_kg,
         });
 
         return summary;
@@ -602,10 +636,15 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           muscles_secondary: input.muscles_secondary ?? [],
           equipment: input.equipment.trim(),
           instructions: input.instructions ?? null,
+          description: input.description ?? null,
           movement_pattern: input.movement_pattern ?? null,
           difficulty_level: input.difficulty_level ?? null,
           cues: input.cues ?? [],
           mistakes: input.mistakes ?? [],
+          aliases: input.aliases ?? [],
+          variations: input.variations ?? [],
+          video_url: input.video_url ?? null,
+          gif_url: input.gif_url ?? null,
           type: input.type ?? 'strength',
           is_global: false,
           created_at: now,
@@ -650,6 +689,30 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
           loading: state.loading,
           saving: state.saving,
         }));
+      },
+      addExerciseToActiveSession: (exercise) => {
+        const session = get().activeSession;
+        if (!session) return;
+
+        const nextExercise = {
+          exercise_id: exercise.id,
+          exercise_name: exercise.name,
+          sets_target: exercise.type === 'cardio' ? 2 : 3,
+          reps_target: exercise.type === 'cardio' ? 2 : 10,
+          weight_suggestion_kg:
+            exercise.type === 'bodyweight' || exercise.type === 'cardio' ? 0 : 20,
+          order: session.exercises.length,
+          rest_seconds: get().settings.defaultRestSeconds,
+          set_type: 'Normal',
+        };
+
+        set({
+          activeSession: {
+            ...session,
+            exercises: [...session.exercises, nextExercise],
+            currentExerciseIndex: session.exercises.length,
+          },
+        });
       },
       startRestTimer: () => {
         const session = get().activeSession;
@@ -780,7 +843,7 @@ export const useWorkoutStore = create<WorkoutStoreState>()(
       getPersonalRecord: (exerciseId) => {
         const record = get().personalRecords[exerciseId];
         if (!record) return null;
-        return { maxWeight: record.maxWeight, maxReps: record.maxReps };
+        return record;
       },
       getSessionDetail: (sessionId) => get().sessionDetails[sessionId] ?? null,
       getMuscleRecovery: () => {

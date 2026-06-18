@@ -12,14 +12,12 @@ import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useFasting } from '@/hooks/useFasting';
 import { useSleep } from '@/hooks/useSleep';
 import { useWater } from '@/hooks/useWater';
-import { useWeight } from '@/hooks/useWeight';
 import { useWorkout } from '@/hooks/useWorkout';
 import { getActiveModules } from '@/lib/active-modules';
 import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useUIStore } from '@/stores/uiStore';
-
-type QuickLogMode = 'menu' | 'water' | 'sleep' | 'weight' | 'fasting';
+import { useUIStore, type QuickLogMode } from '@/stores/uiStore';
+import { trackQuickLogCompleted } from '@/lib/analytics';
 
 type QuickLogAction = {
   key: string;
@@ -40,6 +38,7 @@ function suggestedMealType() {
 export default function QuickLogSheet() {
   const profile = useAuthStore((state) => state.profile);
   const isQuickLogOpen = useUIStore((state) => state.isQuickLogOpen);
+  const preferredMode = useUIStore((state) => state.quickLogMode);
   const closeQuickLog = useUIStore((state) => state.closeQuickLog);
   const activeModules = getActiveModules(profile);
   const glassMl = useSettingsStore((state) => state.waterGlassMl);
@@ -47,24 +46,21 @@ export default function QuickLogSheet() {
   const bottleMl = useSettingsStore((state) => state.waterBottleMl);
   const { totalHydro, goal, logWater, isLogging: waterSaving } = useWater();
   const { goalHours, isLogging: sleepSaving, logSleepAsync, getOptimalAlarmTimes } = useSleep();
-  const { stats, saving: weightSaving, logWeight } = useWeight();
   const { isActive: fastingActive, startFast, isStarting: fastingStarting } = useFasting();
   const { activeSession, getRecommendedRoutine } = useWorkout();
 
   const [mode, setMode] = useState<QuickLogMode>('menu');
   const [waterValue, setWaterValue] = useState(String(glassMl));
-  const [weightValue, setWeightValue] = useState(stats.current ? stats.current.toFixed(1) : '');
   const [protocol, setProtocol] = useState<'14:10' | '16:8' | '18:6'>('16:8');
 
   useEffect(() => {
     if (!isQuickLogOpen) return;
-    setMode('menu');
+    setMode(preferredMode === 'weight' ? 'menu' : preferredMode);
     setWaterValue(String(glassMl));
-    setWeightValue(stats.current ? stats.current.toFixed(1) : '');
-  }, [glassMl, isQuickLogOpen, stats.current]);
+  }, [glassMl, isQuickLogOpen, preferredMode]);
 
   const actions = useMemo<QuickLogAction[]>(() => {
-    const next: QuickLogAction[] = [];
+    const next: Array<QuickLogAction & { score: number }> = [];
 
     if (activeModules.includes('water')) {
       next.push({
@@ -73,6 +69,7 @@ export default function QuickLogSheet() {
         icon: 'water-outline',
         color: Colors.water,
         onPress: () => setMode('water'),
+        score: activeModules.includes('workout') ? 95 : 92,
       });
     }
 
@@ -89,6 +86,7 @@ export default function QuickLogSheet() {
             params: { mealType: suggestedMealType() },
           } as never);
         },
+        score: 100,
       });
     }
 
@@ -114,6 +112,7 @@ export default function QuickLogSheet() {
           }
           router.push(Routes.workout.index as never);
         },
+        score: activeSession ? 110 : 98,
       });
     }
 
@@ -124,16 +123,23 @@ export default function QuickLogSheet() {
         icon: 'moon-outline',
         color: Colors.sleep,
         onPress: () => setMode('sleep'),
+        score: 84,
       });
     }
 
-    next.push({
-      key: 'weight',
-      label: 'Peso',
-      icon: 'scale-outline',
-      color: Colors.textPrimary,
-      onPress: () => setMode('weight'),
-    });
+    if (activeModules.includes('steps')) {
+      next.push({
+        key: 'steps',
+        label: 'Pasos',
+        icon: 'footsteps-outline',
+        color: Colors.steps,
+        onPress: () => {
+          closeQuickLog();
+          router.push(Routes.steps.index as never);
+        },
+        score: 86,
+      });
+    }
 
     if (activeModules.includes('fasting')) {
       next.push({
@@ -149,10 +155,39 @@ export default function QuickLogSheet() {
           }
           setMode('fasting');
         },
+        score: fastingActive ? 88 : 62,
       });
     }
 
-    return next.slice(0, 6);
+    if (activeModules.includes('female')) {
+      next.push({
+        key: 'female',
+        label: 'Ciclo',
+        icon: 'flower-outline',
+        color: Colors.female,
+        onPress: () => {
+          closeQuickLog();
+          router.push(Routes.female.index as never);
+        },
+        score: 80,
+      });
+    }
+
+    if (activeModules.includes('supplements')) {
+      next.push({
+        key: 'supplements',
+        label: 'Suplementos',
+        icon: 'medical-outline',
+        color: Colors.supplements,
+        onPress: () => {
+          closeQuickLog();
+          router.push(Routes.supplements.index as never);
+        },
+        score: 74,
+      });
+    }
+
+    return next.sort((a, b) => b.score - a.score);
   }, [
     activeModules,
     activeSession,
@@ -161,6 +196,9 @@ export default function QuickLogSheet() {
     getRecommendedRoutine,
   ]);
 
+  const displayActions = actions;
+  const shouldScroll = displayActions.length > 6;
+
   const remainingWater = Math.max(0, goal - totalHydro);
 
   return (
@@ -168,28 +206,60 @@ export default function QuickLogSheet() {
       visible={isQuickLogOpen}
       onClose={closeQuickLog}
       title={mode === 'menu' ? '¿Qué registras?' : undefined}
-      snapHeight={mode === 'sleep' ? 720 : 520}
+      snapHeight={mode === 'sleep' ? 720 : mode === 'menu' && shouldScroll ? 660 : 520}
     >
       {mode === 'menu' ? (
         <View style={styles.menuWrap}>
           <Text style={styles.subtitle}>Registra lo básico sin salirte del flujo.</Text>
-          <View style={styles.grid}>
-            {actions.map((action) => (
-              <Pressable
-                key={action.key}
-                onPress={action.onPress}
-                style={styles.actionCard}
-                accessibilityRole="button"
-                accessibilityLabel={`Registrar ${action.label}`}
-                accessibilityHint="Abre este formulario rapido."
-              >
-                <View style={[styles.actionIcon, { backgroundColor: withOpacity(action.color, 0.12) }]}>
-                  <Ionicons name={action.icon} size={20} color={action.color} />
-                </View>
-                <Text style={styles.actionLabel}>{action.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+          {shouldScroll ? (
+            <ScrollView
+              style={styles.menuScroll}
+              contentContainerStyle={styles.menuScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.grid}>
+                {displayActions.map((action, index) => {
+                  const isLastOdd = displayActions.length % 2 === 1 && index === displayActions.length - 1;
+                  return (
+                    <Pressable
+                      key={action.key}
+                      onPress={action.onPress}
+                      style={[styles.actionCard, isLastOdd && styles.actionCardFullWidth]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Registrar ${action.label}`}
+                      accessibilityHint="Abre este formulario rapido."
+                    >
+                      <View style={[styles.actionIcon, { backgroundColor: withOpacity(action.color, 0.12) }]}>
+                        <Ionicons name={action.icon} size={20} color={action.color} />
+                      </View>
+                      <Text style={styles.actionLabel}>{action.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          ) : (
+            <View style={styles.grid}>
+              {displayActions.map((action, index) => {
+                const isLastOdd = displayActions.length % 2 === 1 && index === displayActions.length - 1;
+                return (
+                  <Pressable
+                    key={action.key}
+                    onPress={action.onPress}
+                    style={[styles.actionCard, isLastOdd && styles.actionCardFullWidth]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Registrar ${action.label}`}
+                    accessibilityHint="Abre este formulario rapido."
+                  >
+                    <View style={[styles.actionIcon, { backgroundColor: withOpacity(action.color, 0.12) }]}>
+                      <Ionicons name={action.icon} size={20} color={action.color} />
+                    </View>
+                    <Text style={styles.actionLabel}>{action.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </View>
       ) : null}
 
@@ -226,41 +296,20 @@ export default function QuickLogSheet() {
             unit="ml"
           />
           <Button
-            onPress={() => {
+            onPress={async () => {
               const amount = Number.parseInt(waterValue, 10);
               if (!Number.isFinite(amount) || amount <= 0) return;
-              logWater(amount, 'water');
+              await logWater(amount, 'water');
+              trackQuickLogCompleted('water', {
+                source: 'quick_log_sheet',
+                amount_ml: amount,
+              });
               closeQuickLog();
             }}
             loading={waterSaving}
             fullWidth
           >
             Guardar agua
-          </Button>
-        </View>
-      ) : null}
-
-      {mode === 'weight' ? (
-        <View style={styles.detailWrap}>
-          <DetailHeader title="Registrar peso" onBack={() => setMode('menu')} />
-          <Input
-            label="Peso"
-            value={weightValue}
-            onChangeText={setWeightValue}
-            keyboardType="decimal-pad"
-            unit="kg"
-          />
-          <Button
-            onPress={async () => {
-              const parsed = Number(weightValue.replace(',', '.'));
-              if (!Number.isFinite(parsed) || parsed <= 0) return;
-              await logWeight(parsed);
-              closeQuickLog();
-            }}
-            loading={weightSaving}
-            fullWidth
-          >
-            Guardar peso
           </Button>
         </View>
       ) : null}
@@ -295,6 +344,10 @@ export default function QuickLogSheet() {
               }
               startFast({ protocol }, {
                 onSuccess: () => {
+                  trackQuickLogCompleted('fasting', {
+                    source: 'quick_log_sheet',
+                    protocol,
+                  });
                   closeQuickLog();
                   router.push(Routes.fasting.index as never);
                 },
@@ -318,6 +371,16 @@ export default function QuickLogSheet() {
             submitLabel="Guardar sueño"
             onSubmit={async (input) => {
               await logSleepAsync(input);
+              const durationHours = Math.max(
+                0,
+                (input.wakeTime.getTime() - input.bedtime.getTime()) / (1000 * 60 * 60),
+              );
+              trackQuickLogCompleted('sleep', {
+                source: 'quick_log_sheet',
+                duration_hours: Number(durationHours.toFixed(2)),
+                bedtime: input.bedtime.toISOString(),
+                wake_time: input.wakeTime.toISOString(),
+              });
               closeQuickLog();
             }}
           />
@@ -348,12 +411,19 @@ function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) 
 const styles = StyleSheet.create({
   menuWrap: {
     gap: Spacing[3],
+    flex: 1,
     paddingBottom: Spacing[4],
   },
   subtitle: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
+  },
+  menuScroll: {
+    flex: 1,
+  },
+  menuScrollContent: {
+    paddingBottom: Spacing[2],
   },
   grid: {
     flexDirection: 'row',
@@ -366,11 +436,14 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.06),
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[4],
     paddingVertical: Spacing[4],
     gap: Spacing[3],
     justifyContent: 'center',
+  },
+  actionCardFullWidth: {
+    width: '100%',
   },
   actionIcon: {
     width: 40,
@@ -400,7 +473,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   backButtonSpacer: {
     width: 36,
@@ -426,7 +499,7 @@ const styles = StyleSheet.create({
   presetCard: {
     flex: 1,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[3],
     gap: 4,
@@ -449,7 +522,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 48,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.06),
     alignItems: 'center',

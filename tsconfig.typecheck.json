@@ -7,7 +7,6 @@
       "dom",
       "esnext"
     ],
-    "module": "preserve",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
     "customConditions": [
@@ -40,7 +39,6 @@
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
     "strictPropertyInitialization": true,
-    "strictBuiltinIteratorReturn": true,
     "alwaysStrict": true,
     "useUnknownInCatchVariables": true
   },
@@ -54,6 +52,9 @@
     "android",
     "ios",
     ".expo",
+    "test",
+    "**/*.test.ts",
+    "**/*.test.tsx",
     "scripts/deleted-backup",
     "**/scripts/deleted-backup/**",
     "**/android/**",

@@ -20,7 +20,7 @@ export default function NutritionModuleTabs({ active }: { active: NutritionTabKe
     <View
       style={styles.wrap}
       accessibilityRole="tablist"
-      accessibilityLabel="Secciones del modulo de nutricion"
+      accessibilityLabel="Secciones del módulo de nutrición"
     >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {TABS.map((tab) => {
@@ -30,11 +30,11 @@ export default function NutritionModuleTabs({ active }: { active: NutritionTabKe
               key={tab.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
-              accessibilityLabel={`Pestana ${tab.label}`}
+              accessibilityLabel={`Pestaña ${tab.label}`}
               accessibilityHint={
                 isActive
-                  ? `Ya estas en ${tab.label}.`
-                  : `Abre ${tab.label} dentro del modulo de nutricion.`
+                  ? `Ya estás en ${tab.label}.`
+                  : `Abre ${tab.label} dentro del módulo de nutrición.`
               }
               hitSlop={8}
               onPress={() => {
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: withOpacity(Colors.bgFloating, 0.9),
+    backgroundColor: withOpacity(Colors.base, 0.9),
     paddingHorizontal: Spacing[3.5],
     paddingVertical: 10,
   },

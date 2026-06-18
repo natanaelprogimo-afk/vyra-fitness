@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Button from '@/components/ui/Button';
 import SleepTimeField from '@/components/sleep/SleepTimeField';
@@ -25,6 +25,8 @@ interface SleepLogFormProps {
   showCancel?: boolean;
   submitLabel?: string;
   getOptimalAlarmTimes: (bedtime: Date) => Date[];
+  initialValues?: Partial<SleepLogInput> | null;
+  compactMode?: boolean;
 }
 
 const REASON_OPTIONS = ['Estrés', 'Calor', 'Ruido', 'Alcohol', 'Enfermedad', 'Otro'] as const;
@@ -37,13 +39,36 @@ export default function SleepLogForm({
   showCancel = false,
   submitLabel = 'Guardar sueño',
   getOptimalAlarmTimes,
+  initialValues = null,
+  compactMode = false,
 }: SleepLogFormProps) {
-  const [bedtime, setBedtime] = useState<Date | null>(buildDefaultTime(23));
-  const [wakeTime, setWakeTime] = useState<Date | null>(buildDefaultTime(7));
-  const [quality, setQuality] = useState<number>(4);
-  const [deepPct, setDeepPct] = useState(20);
-  const [remPct, setRemPct] = useState(25);
+  const [bedtime, setBedtime] = useState<Date | null>(initialValues?.bedtime ?? buildDefaultTime(23));
+  const [wakeTime, setWakeTime] = useState<Date | null>(initialValues?.wakeTime ?? buildDefaultTime(7));
+  const [quality, setQuality] = useState<number>(initialValues?.quality ?? 4);
+  const [deepPct, setDeepPct] = useState(initialValues?.deepSleep ?? 20);
+  const [remPct, setRemPct] = useState(initialValues?.remSleep ?? 25);
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+
+  useEffect(() => {
+    setBedtime(initialValues?.bedtime ?? buildDefaultTime(23));
+    setWakeTime(initialValues?.wakeTime ?? buildDefaultTime(7));
+    setQuality(initialValues?.quality ?? 4);
+    setDeepPct(initialValues?.deepSleep ?? 20);
+    setRemPct(initialValues?.remSleep ?? 25);
+
+    if (typeof initialValues?.notes === 'string' && initialValues.notes.startsWith('motivos:')) {
+      setSelectedReasons(
+        initialValues.notes
+          .replace('motivos:', '')
+          .split(',')
+          .map((reason) => reason.trim())
+          .filter(Boolean),
+      );
+      return;
+    }
+
+    setSelectedReasons([]);
+  }, [initialValues]);
 
   const isRetroactive = new Date().getHours() >= 11;
   const durationHours = getSleepDurationHours(bedtime, wakeTime);
@@ -70,11 +95,19 @@ export default function SleepLogForm({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>{isRetroactive ? 'Registrar sueño de anoche' : 'Registrar sueño'}</Text>
+      <Text style={styles.title}>
+        {compactMode
+          ? 'Registrar anoche'
+          : isRetroactive
+            ? 'Registrar sueño de anoche'
+            : 'Registrar sueño'}
+      </Text>
       <Text style={styles.subtitle}>
-        {isRetroactive
-          ? 'Si te acordaste más tarde, igual conviene cargarlo ahora.'
-          : 'Registra la noche aquí y deja el hub para lectura y contexto.'}
+        {compactMode
+          ? 'Deja hora de dormir, despertar y una lectura rápida. El resto puede esperar.'
+          : isRetroactive
+            ? 'Si te acordaste más tarde, igual conviene cargarlo ahora.'
+            : 'Registra la noche aquí y deja el hub para lectura y contexto.'}
       </Text>
 
       <SleepTimeField
@@ -173,45 +206,49 @@ export default function SleepLogForm({
         </View>
       ) : null}
 
-      <SleepPhasePicker
-        label="Sueño profundo"
-        value={deepPct}
-        onChange={setDeepPct}
-        color="#4FC3F7"
-        hint="Rango habitual: 15% a 25%"
-      />
+      {!compactMode ? (
+        <>
+          <SleepPhasePicker
+            label="Sueño profundo"
+            value={deepPct}
+            onChange={setDeepPct}
+            color="#4FC3F7"
+            hint="Rango habitual: 15% a 25%"
+          />
 
-      <SleepPhasePicker
-        label="Sueño REM"
-        value={remPct}
-        onChange={setRemPct}
-        color="#CE93D8"
-        hint="Rango habitual: 20% a 25%"
-      />
+          <SleepPhasePicker
+            label="Sueño REM"
+            value={remPct}
+            onChange={setRemPct}
+            color="#CE93D8"
+            hint="Rango habitual: 20% a 25%"
+          />
 
-      <View style={styles.block}>
-        <Text style={styles.blockLabel}>Alarmas sugeridas</Text>
-        <Text style={styles.blockHint}>
-          Se calculan con ciclos de 90 minutos desde tu hora de dormir.
-        </Text>
-        <View style={styles.alarmRow}>
-          {alarmTimes.map((alarm, index) => (
-            <View
-              key={`${alarm.toISOString()}-${index}`}
-              style={[styles.alarmChip, index === 1 && styles.alarmChipRecommended]}
-            >
-              {index === 1 ? <Text style={styles.alarmRecommended}>Recomendada</Text> : null}
-              <Text style={[styles.alarmTime, index === 1 && { color: Colors.sleep }]}>
-                {alarm.toLocaleTimeString('es-UY', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </Text>
-              <Text style={styles.alarmMeta}>{[6, 7.5, 9][index]}h</Text>
+          <View style={styles.block}>
+            <Text style={styles.blockLabel}>Alarmas sugeridas</Text>
+            <Text style={styles.blockHint}>
+              Se calculan con ciclos de 90 minutos desde tu hora de dormir.
+            </Text>
+            <View style={styles.alarmRow}>
+              {alarmTimes.map((alarm, index) => (
+                <View
+                  key={`${alarm.toISOString()}-${index}`}
+                  style={[styles.alarmChip, index === 1 && styles.alarmChipRecommended]}
+                >
+                  {index === 1 ? <Text style={styles.alarmRecommended}>Recomendada</Text> : null}
+                  <Text style={[styles.alarmTime, index === 1 && { color: Colors.sleep }]}>
+                    {alarm.toLocaleTimeString('es-UY', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                  <Text style={styles.alarmMeta}>{[6, 7.5, 9][index]}h</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-      </View>
+          </View>
+        </>
+      ) : null}
 
       <Button
         onPress={handleSubmit}

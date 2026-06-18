@@ -143,7 +143,11 @@ export function useWeight() {
     const goalKg = profile.weight_goal_kg ?? null;
     const startKg = profile.weight_start_kg ?? null;
 
-    const current = data[0]?.weight_kg ?? null;
+    const current =
+      data[0]?.weight_kg ??
+      profile.weight_current_kg ??
+      profile.weight_start_kg ??
+      null;
     const previous = data[1]?.weight_kg ?? null;
     const dailyDelta =
       current !== null && previous !== null
@@ -167,9 +171,9 @@ export function useWeight() {
     const bmiCategory = bmi ? getBmiCategory(bmi) : '';
 
     const totalLost =
-      startKg && current ? Math.round((startKg - current) * 10) / 10 : null;
+      startKg !== null && current !== null ? Math.round((startKg - current) * 10) / 10 : null;
     const toGoal =
-      goalKg && current ? Math.round((current - goalKg) * 10) / 10 : null;
+      goalKg !== null && current !== null ? Math.round((current - goalKg) * 10) / 10 : null;
 
     // Tendencia semanal como default (menos ruido que el peso diario)
     let trend: WeightStats['trend'] = null;

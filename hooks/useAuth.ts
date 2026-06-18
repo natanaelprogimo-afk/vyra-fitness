@@ -14,7 +14,6 @@ import { trackOnboardingCompleted } from '@/lib/analytics';
 import {
   normalizeOnboardingGender,
   normalizeOnboardingGoal,
-  sanitizeActiveModules,
 } from '@/lib/auth-profile';
 import { ErrorMessages } from '@/constants/strings';
 import { Routes } from '@/constants/routes';
@@ -32,7 +31,13 @@ import {
   isGuestAuthUser,
 } from '@/lib/guest-auth';
 import type { UserProfile, UserProfileUpdate, OnboardingData } from '@/types/user';
-import { calculateTDEE, calculateBMR } from '@/utils/calculations';
+import { calculateBMR, calculateMacros, calculateTDEE } from '@/utils/calculations';
+import {
+  buildSuggestedActiveModules,
+  isGoalDetailId,
+  sanitizeActiveModuleSelection,
+} from '@/lib/onboarding-v2';
+import { DEFAULT_ACTIVE_MODULES } from '@/constants/modules';
 
 type AuthActionResult = {
   ok: boolean;
@@ -124,7 +129,7 @@ export function useAuth() {
       if (error) throw error;
       if (!data.user) throw new Error('No user returned');
 
-      router.replace(Routes.auth.onboarding.goals as never);
+      router.replace(Routes.auth.onboarding.transition as never);
       return { ok: true };
     } catch (err: unknown) {
       const message = mapAuthErrorMessage(err, ErrorMessages.registerFailed);
@@ -140,7 +145,7 @@ export function useAuth() {
     setIsLoading(true);
     try {
       if (isGuestAuthUser(user)) {
-        router.replace(Routes.auth.onboarding.goals as never);
+        router.replace(Routes.auth.onboarding.transition as never);
         return { ok: true };
       }
 
@@ -186,7 +191,7 @@ export function useAuth() {
         setProfile(seededProfile);
       }
 
-      router.replace(Routes.auth.onboarding.goals as never);
+      router.replace(Routes.auth.onboarding.transition as never);
       return { ok: true };
     } catch (err: unknown) {
       const message = mapAuthErrorMessage(
@@ -242,29 +247,93 @@ export function useAuth() {
       const age = data.age ?? 25;
       const gender = data.gender ?? 'prefer_not_to_say';
       const height = data.height_cm ?? 170;
-      const weight = data.weight_start_kg ?? 70;
+      const weightCurrent = data.weight_current_kg ?? data.weight_start_kg ?? 70;
+      const weightStart = data.weight_start_kg ?? weightCurrent;
+      const moduleGender = gender === 'female' ? 'female' : 'male';
+      const normalizedGoal = normalizeOnboardingGoal(data.goal);
+      const goalDetail = isGoalDetailId(data.goal_detail) ? data.goal_detail : null;
 
-      const tdee = data.height_cm && data.age && data.weight_start_kg
-        ?  calculateTDEE(
-            calculateBMR(weight, height, age, gender as 'male' | 'female' | 'other'),
-            data.activity_level
+      const tdee = Number.isFinite(height) && Number.isFinite(age) && Number.isFinite(weightCurrent)
+        ? calculateTDEE(
+            calculateBMR(weightCurrent, height, age, gender as 'male' | 'female' | 'other'),
+            data.activity_level,
           )
         : 2000;
+      const macroGoal:
+        | 'lose_fat'
+        | 'gain_muscle'
+        | 'health'
+        | 'performance'
+        | 'mental' =
+        normalizedGoal === 'lose_fat'
+          ? 'lose_fat'
+          : normalizedGoal === 'gain_muscle'
+            ? 'gain_muscle'
+            : normalizedGoal === 'sport_performance' || normalizedGoal === 'performance'
+              ? 'performance'
+              : normalizedGoal === 'mental_wellbeing' || normalizedGoal === 'mental'
+                ? 'mental'
+                : 'health';
+      const calorieGoal = calculateMacros(
+        tdee,
+        macroGoal,
+      ).calories;
 
-      const activeModules = sanitizeActiveModules(data.active_modules);
+      const selectedActiveModules = sanitizeActiveModuleSelection(moduleGender, data.active_modules);
+      const activeModules =
+        selectedActiveModules.length >= 1
+          ? selectedActiveModules
+          : goalDetail
+            ? buildSuggestedActiveModules(goalDetail, moduleGender, Boolean(data.female_health_enabled))
+            : DEFAULT_ACTIVE_MODULES;
       const currentContextMemory = getProfileContextMemory(profile);
       const onboardingCompletedAt = new Date().toISOString();
       const nextContextMemory: Record<string, unknown> = {
         ...currentContextMemory,
         onboarding_completed_at: onboardingCompletedAt,
+        active_modules: activeModules,
       };
 
       if (activeModules.length > 0) {
         nextContextMemory.active_modules = activeModules;
       }
 
+      if (typeof data.nutrition_pattern === 'string' && data.nutrition_pattern.trim().length > 0) {
+        nextContextMemory.nutrition_pattern = data.nutrition_pattern.trim();
+      }
+
       if (typeof data.equipment === 'string' && data.equipment.trim().length > 0) {
         nextContextMemory.equipment_type = data.equipment.trim();
+      }
+
+      if (typeof data.goal_detail === 'string' && data.goal_detail.trim().length > 0) {
+        nextContextMemory.onboarding_goal_detail = data.goal_detail.trim();
+      }
+
+      if (Array.isArray(data.equipment_inventory) && data.equipment_inventory.length > 0) {
+        nextContextMemory.equipment_inventory = [...new Set(data.equipment_inventory)];
+      } else {
+        delete nextContextMemory.equipment_inventory;
+      }
+
+      nextContextMemory.female_health_enabled = Boolean(data.female_health_enabled);
+
+      if (typeof data.female_cycle_length === 'number') {
+        nextContextMemory.female_cycle_length = data.female_cycle_length;
+      }
+
+      if (typeof data.female_last_period_date === 'string' && data.female_last_period_date.trim().length > 0) {
+        nextContextMemory.female_last_period_date = data.female_last_period_date.trim();
+      }
+
+      if (typeof data.health_connect_enabled === 'boolean') {
+        nextContextMemory.health_connect_enabled = data.health_connect_enabled;
+      }
+
+      if (Array.isArray(data.workout_limitations) && data.workout_limitations.length > 0) {
+        nextContextMemory.workout_limitations = [...new Set(data.workout_limitations)];
+      } else {
+        delete nextContextMemory.workout_limitations;
       }
 
       if (data.notifications_permission_state) {
@@ -284,16 +353,28 @@ export function useAuth() {
       const updatePayload: Record<string, unknown> = {
         gender: normalizeOnboardingGender(data.gender),
         height_cm: data.height_cm,
-        weight_start_kg: data.weight_start_kg,
+        weight_start_kg: weightStart,
+        weight_current_kg: weightCurrent,
         weight_goal_kg: data.weight_goal_kg,
+        body_fat_current_pct: data.body_fat_current_pct ?? null,
         activity_level: data.activity_level,
+        goal: normalizedGoal,
         primary_goal: normalizeOnboardingGoal(data.goal),
         wake_time_minutes: data.wake_time_minutes,
         sleep_time_minutes: data.sleep_time_minutes,
         step_goal: data.step_goal,
         water_goal_ml: data.water_goal_ml,
         sleep_goal_hours: data.sleep_goal_hours ?? 8,
-        calorie_goal: Math.round(tdee),
+        calorie_goal: Math.round(calorieGoal),
+        tdee: Math.round(tdee),
+        female_health_enabled: Boolean(data.female_health_enabled),
+        female_cycle_length:
+          typeof data.female_cycle_length === 'number' ? data.female_cycle_length : null,
+        female_last_period_date:
+          typeof data.female_last_period_date === 'string' &&
+          data.female_last_period_date.trim().length > 0
+            ? data.female_last_period_date.trim()
+            : null,
         onboarding_completed: true,
         ...contextUpdate,
         updated_at: new Date().toISOString(),
@@ -330,6 +411,8 @@ export function useAuth() {
         biological_sex: data.gender,
         goal: data.goal,
         tdee: Math.round(tdee),
+        calorie_goal: Math.round(calorieGoal),
+        weight_current_kg: weightCurrent,
       });
       trackOnboardingCompleted('included');
       await clearOnboardingProgress();

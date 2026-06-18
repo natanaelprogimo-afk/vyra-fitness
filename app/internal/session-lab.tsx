@@ -16,7 +16,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 
 const QA_LAB_ENABLED =
-  __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_INTERNAL_ROUTES === 'true';
 
 function buildCorruptedSessionSnapshot(session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) {
   if (!session?.user) {

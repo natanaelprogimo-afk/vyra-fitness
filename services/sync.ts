@@ -1,22 +1,11 @@
-// Minimal sync service: listens to NetInfo and triggers syncPendingChanges
-import NetInfo from '@react-native-community/netinfo';
-import { syncPendingChanges } from '@/database';
-import { captureError } from '@/lib/sentry';
-
+// DEPRECATED: Sync service (WatermelonDB removed)
+// For offline-first sync, use SyncQueue from lib/sync/syncQueue.ts
 let initialized = false;
 
 export function initSyncService() {
   if (initialized) return;
   initialized = true;
-
-  NetInfo.addEventListener((state) => {
-    const online = state.isConnected === true && state.isInternetReachable !== false;
-    if (online) {
-      setTimeout(() => {
-        void syncPendingChanges().catch((err) => captureError(err instanceof Error ? err : new Error(String(err)), { context: 'syncService' }));
-      }, 1200);
-    }
-  });
+  // Network monitoring only, actual sync via SyncQueue
 }
 
 export default initSyncService;

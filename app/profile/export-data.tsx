@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -18,7 +18,14 @@ import { loadRecentExportHistory, recordExportHistory, type ExportHistoryEntry }
 import { hydrateSensitiveExportData } from '@/lib/export-sensitive';
 import { mergeWorkoutExportData } from '@/lib/workout-local-data';
 import { supabase } from '@/lib/supabase';
+import { isGuestAuthUser } from '@/lib/guest-auth';
 import { useUIStore } from '@/stores/uiStore';
+import {
+  createMedicalExportLink,
+  deleteMedicalExportLink,
+  listMedicalExports,
+  type MedicalExportLink,
+} from '@/services/backend/medicalExport';
 
 type ExportTable = {
   key: string;
@@ -67,6 +74,13 @@ type WorkoutSessionRow = {
   ended_at?: string | null;
   duration_min?: number | null;
   total_volume_kg?: number | null;
+};
+
+type FemaleHealthExportRow = {
+  logged_at: string;
+  phase?: string | null;
+  symptoms?: unknown;
+  notes?: string | null;
 };
 
 const SECTIONS: ExportSection[] = [
@@ -139,6 +153,45 @@ function getExportTable(key: string): ExportTable {
     throw new Error(`Unknown export table: ${key}`);
   }
   return table;
+}
+
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? '');
+}
+
+function normalizeMedicalExportError(error: unknown, isGuestMode: boolean): string {
+  const normalized = getErrorText(error).trim();
+
+  if (!normalized) {
+    return isGuestMode
+      ? 'En modo invitado puedes exportar archivos locales. Los links temporales se habilitan mejor con una cuenta sincronizada.'
+      : 'No pudimos usar los links temporales ahora mismo.';
+  }
+
+  if (normalized.includes('Route not found')) {
+    return 'Este backend todavia no tiene activados los links temporales. El export local sigue funcionando mientras tanto.';
+  }
+
+  if (
+    normalized.includes('401') ||
+    normalized.includes('403') ||
+    normalized.toLowerCase().includes('unauthorized')
+  ) {
+    return isGuestMode
+      ? 'En modo invitado puedes exportar archivos locales, pero los links temporales requieren una cuenta sincronizada.'
+      : 'Necesitas volver a iniciar sesion para usar links temporales de solo lectura.';
+  }
+
+  if (
+    normalized.toLowerCase().includes('network') ||
+    normalized.toLowerCase().includes('fetch') ||
+    normalized.toLowerCase().includes('timeout')
+  ) {
+    return 'No pudimos conectar con el backend de links temporales. Revisa tu conexion o prueba mas tarde.';
+  }
+
+  return normalized;
 }
 
 function buildExportBundle(
@@ -342,6 +395,49 @@ async function loadMonthlyPdfBundle(
   return buildExportBundle(userId, userEmail, data);
 }
 
+async function loadFemaleMedicalBundle(
+  userId: string,
+  userEmail: string | null | undefined,
+): Promise<ExportBundle> {
+  const sixMonthsAgoIso = new Date(Date.now() - 190 * 24 * 60 * 60 * 1000).toISOString();
+  const data = await loadExportData(
+    userId,
+    [getExportTable('profiles'), getExportTable('female_health_logs')],
+    {
+      tableOptions: {
+        profiles: {
+          select: 'id, name, female_health_enabled, female_cycle_length, female_last_period_date',
+        },
+        female_health_logs: {
+          select: 'logged_at, phase, symptoms, notes',
+          fromColumn: 'logged_at',
+          fromValue: sixMonthsAgoIso,
+        },
+      },
+    },
+  );
+
+  return buildExportBundle(userId, userEmail, data);
+}
+
+function normalizeFemaleSymptoms(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+      .map((item) => item.replace(/@@\d+$/, ''));
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => item.replace(/@@\d+$/, ''));
+  }
+  return [];
+}
+
 function buildWeightCsv(bundle: ExportBundle) {
   const rows = (bundle.data.weight_logs ?? []) as WeightRow[];
   return rowsToCsv(
@@ -403,6 +499,19 @@ function buildWorkoutCsv(bundle: ExportBundle) {
       session.duration_min ?? '',
       session.total_volume_kg ?? '',
       prsBySession.get(session.id) ?? 0,
+    ]),
+  );
+}
+
+function buildFemaleMedicalCsv(bundle: ExportBundle) {
+  const rows = (bundle.data.female_health_logs ?? []) as FemaleHealthExportRow[];
+  return rowsToCsv(
+    ['fecha', 'fase', 'sintomas', 'notas'],
+    rows.map((row) => [
+      row.logged_at,
+      row.phase ?? '',
+      normalizeFemaleSymptoms(row.symptoms).join(' | '),
+      row.notes ?? '',
     ]),
   );
 }
@@ -516,14 +625,126 @@ function buildMonthlyPdfHtml(bundle: ExportBundle) {
   </html>`;
 }
 
+function buildFemaleMedicalPdfHtml(bundle: ExportBundle) {
+  const profile = ((bundle.data.profiles ?? [])[0] ?? {}) as Record<string, unknown>;
+  const rows = ((bundle.data.female_health_logs ?? []) as FemaleHealthExportRow[])
+    .slice()
+    .sort((left, right) => left.logged_at.localeCompare(right.logged_at));
+  const recentRows = rows.slice(-10).reverse();
+  const cycleLength = getNumber(profile, 'female_cycle_length');
+  const lastPeriodDate = getString(profile, 'female_last_period_date');
+  const symptomsCount = new Map<string, number>();
+  const phaseCount = new Map<string, number>();
+
+  for (const row of rows) {
+    const phase = (row.phase ?? 'sin fase').toString();
+    phaseCount.set(phase, (phaseCount.get(phase) ?? 0) + 1);
+    for (const symptom of normalizeFemaleSymptoms(row.symptoms)) {
+      symptomsCount.set(symptom, (symptomsCount.get(symptom) ?? 0) + 1);
+    }
+  }
+
+  const topSymptoms = [...symptomsCount.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 5)
+    .map(([symptom, count]) => `<li><strong>${symptom}</strong> · ${count} registros</li>`)
+    .join('');
+
+  const phaseSummary = [...phaseCount.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([phase, count]) => `<li><strong>${phase}</strong> · ${count} entradas</li>`)
+    .join('');
+
+  const recentSummary = recentRows
+    .map((row) => {
+      const date = new Date(row.logged_at).toLocaleDateString('es-UY', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+      const symptoms = normalizeFemaleSymptoms(row.symptoms).join(', ') || 'sin síntomas';
+      return `<li><strong>${date}</strong> · ${row.phase ?? 'fase no guardada'} · ${symptoms}${row.notes ? ` · ${row.notes}` : ''}</li>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+  <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#fffafc; color:#2a2030; padding:32px; }
+        .title { font-size:28px; font-weight:700; margin:0 0 8px; color:#9d174d; }
+        .subtitle { font-size:14px; color:#6b5a67; margin:0 0 24px; }
+        .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:24px; }
+        .card { background:#fff; border:1px solid #f3d8e7; border-radius:18px; padding:16px; }
+        .eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#be185d; margin-bottom:8px; }
+        .value { font-size:24px; font-weight:700; margin-bottom:4px; }
+        .hint { font-size:12px; color:#6b5a67; line-height:1.4; }
+        h2 { font-size:18px; margin:0 0 12px; color:#831843; }
+        ul { padding-left:18px; margin:0; }
+        li { margin-bottom:8px; font-size:13px; color:#372b34; }
+      </style>
+    </head>
+    <body>
+      <div class="title">Resumen de ciclo para consulta médica</div>
+      <div class="subtitle">Generado el ${new Date(bundle.exportedAt).toLocaleString('es-UY')}</div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="eyebrow">Registros</div>
+          <div class="value">${rows.length}</div>
+          <div class="hint">Entradas de salud femenina incluidas en este export.</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Ciclo base</div>
+          <div class="value">${cycleLength ? `${cycleLength} días` : '--'}</div>
+          <div class="hint">${lastPeriodDate ? `Último periodo base: ${lastPeriodDate}.` : 'No hay fecha base guardada.'}</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Síntoma top</div>
+          <div class="value">${symptomsCount.size ? [...symptomsCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '--' : '--'}</div>
+          <div class="hint">Patrón más repetido dentro del historial exportado.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;">
+        <h2>Síntomas frecuentes</h2>
+        <ul>${topSymptoms || '<li>Sin síntomas suficientes para resumir.</li>'}</ul>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;">
+        <h2>Distribución por fase</h2>
+        <ul>${phaseSummary || '<li>Sin fases suficientes para resumir.</li>'}</ul>
+      </div>
+
+      <div class="card">
+        <h2>Registros recientes</h2>
+        <ul>${recentSummary || '<li>No hay registros recientes para compartir.</li>'}</ul>
+      </div>
+    </body>
+  </html>`;
+}
+
 export default function ExportDataScreen() {
+  const params = useLocalSearchParams<{ preset?: string }>();
   const { profile } = useAuthStore();
+  const authUser = useAuthStore((state) => state.user);
   const showToast = useUIStore((state) => state.showToast);
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState('');
-  const [openSection, setOpenSection] = useState<string>('identity');
+  const [openSection, setOpenSection] = useState<string>(params.preset === 'female' ? 'health' : 'identity');
   const [exportHistory, setExportHistory] = useState<ExportHistoryEntry[]>([]);
   const [localExportMessage, setLocalExportMessage] = useState<string | null>(null);
+  const [medicalExports, setMedicalExports] = useState<MedicalExportLink[]>([]);
+  const [medicalLoading, setMedicalLoading] = useState(false);
+  const [medicalBusyKey, setMedicalBusyKey] = useState<string | null>(null);
+  const [medicalMessage, setMedicalMessage] = useState<string | null>(null);
+  const isFemalePreset = params.preset === 'female';
+  const backendAvailable = Boolean(
+    (process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '').trim(),
+  );
+  const isGuestMode = isGuestAuthUser(authUser);
 
   const allTables = useMemo(() => SECTIONS.flatMap((section) => section.tables), []);
 
@@ -539,6 +760,107 @@ export default function ExportDataScreen() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!profile?.id || !backendAvailable) return undefined;
+
+    const loadRemoteExports = async () => {
+      setMedicalLoading(true);
+      try {
+        const exports = await listMedicalExports();
+        if (!mounted) return;
+        setMedicalExports(exports);
+      } catch (error) {
+        if (!mounted) return;
+        setMedicalMessage(normalizeMedicalExportError(error, isGuestMode));
+      } finally {
+        if (mounted) setMedicalLoading(false);
+      }
+    };
+
+    void loadRemoteExports();
+    return () => {
+      mounted = false;
+    };
+  }, [backendAvailable, isGuestMode, profile?.id]);
+
+  async function refreshMedicalExports() {
+    if (!backendAvailable || !profile?.id) return;
+    setMedicalLoading(true);
+    try {
+      const exports = await listMedicalExports();
+      setMedicalExports(exports);
+    } catch (error) {
+      setMedicalMessage(normalizeMedicalExportError(error, isGuestMode));
+    } finally {
+      setMedicalLoading(false);
+    }
+  }
+
+  async function handleCreateMedicalExportLink(contentType: 'pdf' | 'csv') {
+    if (!backendAvailable || !profile?.id) return;
+    const busyKey = `create-${contentType}`;
+    setMedicalBusyKey(busyKey);
+    setMedicalMessage(null);
+    try {
+      const created = await createMedicalExportLink({
+        contentType,
+        exportType: contentType === 'pdf' ? 'clinical' : 'medical',
+        expiryHours: 24,
+      });
+      setMedicalExports((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      await rememberExport(
+        contentType,
+        `Link temporal ${contentType.toUpperCase()}`,
+        `Vence ${new Date(created.expiresAt).toLocaleString('es-UY')}`,
+      );
+      setMedicalMessage(
+        `Link temporal ${contentType.toUpperCase()} listo. Vence ${new Date(created.expiresAt).toLocaleString('es-UY')}.`,
+      );
+      showToast(`Link temporal ${contentType.toUpperCase()} listo.`, 'success');
+    } catch (error) {
+      setMedicalMessage(normalizeMedicalExportError(error, isGuestMode));
+      showToast('No pudimos crear el link temporal.', 'error');
+    } finally {
+      setMedicalBusyKey(null);
+    }
+  }
+
+  async function handleShareMedicalExport(item: MedicalExportLink) {
+    try {
+      await Share.share({
+        title: `Export medico ${item.contentType.toUpperCase()}`,
+        message: `VYRA export temporal (${item.contentType.toUpperCase()})\n\nDescarga directa: ${item.downloadUrl}\nLink compartible: ${item.shareableUrl}`,
+      });
+    } catch {
+      showToast('No pudimos abrir el share sheet ahora mismo.', 'error');
+    }
+  }
+
+  async function handleOpenMedicalExport(item: MedicalExportLink) {
+    try {
+      await Linking.openURL(item.downloadUrl);
+    } catch {
+      showToast('No pudimos abrir el link temporal.', 'error');
+    }
+  }
+
+  async function handleDeleteMedicalExport(item: MedicalExportLink) {
+    const busyKey = `delete-${item.id}`;
+    setMedicalBusyKey(busyKey);
+    setMedicalMessage(null);
+    try {
+      await deleteMedicalExportLink(item.id);
+      setMedicalExports((current) => current.filter((exportItem) => exportItem.id !== item.id));
+      showToast('Link temporal eliminado.', 'success');
+    } catch (error) {
+      setMedicalMessage(normalizeMedicalExportError(error, isGuestMode));
+      showToast('No pudimos eliminar este link temporal.', 'error');
+    } finally {
+      setMedicalBusyKey(null);
+    }
+  }
 
   async function rememberExport(
     format: ExportHistoryEntry['format'],
@@ -627,16 +949,16 @@ export default function ExportDataScreen() {
         type === 'weight'
           ? 'vyra-peso.csv'
           : type === 'sleep'
-            ? 'vyra-sueno.csv'
+            ? 'vyra-sueño.csv'
             : type === 'calories'
-              ? 'vyra-calorias.csv'
+              ? 'vyra-calorías.csv'
               : 'vyra-entrenos.csv';
 
       await writeAndShareTextFile(filename, csv, 'text/csv', 'Exportar CSV');
       const csvLabels = {
         weight: 'CSV de peso',
-        sleep: 'CSV de sueno',
-        calories: 'CSV de calorias',
+        sleep: 'CSV de sueño',
+        calories: 'CSV de calorías',
         workout: 'CSV de entrenos',
       } as const;
       await rememberExport('csv', csvLabels[type], filename);
@@ -671,6 +993,50 @@ export default function ExportDataScreen() {
     );
   }
 
+  async function handleExportFemaleCsv() {
+    if (!profile?.id) return;
+    await withBundle(
+      'Generando CSV de salud femenina...',
+      () => loadFemaleMedicalBundle(profile.id, profile.email),
+      async (bundle) => {
+        await writeAndShareTextFile(
+          'vyra-ciclo-medico.csv',
+          buildFemaleMedicalCsv(bundle),
+          'text/csv',
+          'CSV de salud femenina',
+        );
+        await rememberExport('csv', 'CSV salud femenina', 'vyra-ciclo-medico.csv');
+        showToast('CSV de salud femenina listo para compartir.', 'success');
+      },
+    );
+  }
+
+  async function handleExportFemalePdf() {
+    if (!profile?.id) return;
+    await withBundle(
+      'Generando PDF de ciclo...',
+      () => loadFemaleMedicalBundle(profile.id, profile.email),
+      async (bundle) => {
+        const html = buildFemaleMedicalPdfHtml(bundle);
+        const result = await Print.printToFileAsync({ html });
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          setLocalExportMessage(`PDF generado localmente en ${result.uri}`);
+          await rememberExport('pdf', 'PDF ciclo para médico', result.uri);
+          showToast('PDF de ciclo generado en el dispositivo.', 'success');
+          return;
+        }
+        await Sharing.shareAsync(result.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Resumen de ciclo para médico',
+          UTI: 'com.adobe.pdf',
+        });
+        await rememberExport('pdf', 'PDF ciclo para médico', result.uri);
+        showToast('PDF de ciclo listo para compartir.', 'success');
+      },
+    );
+  }
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header title="Exportar datos" showBack color={Colors.brand} />
@@ -684,6 +1050,14 @@ export default function ExportDataScreen() {
             para compartir con médico, nutricionista o entrenador.
           </Text>
         </Card>
+
+        {isFemalePreset ? (
+          <NoticeCard
+            title="Modo salud femenina"
+            body="Entraste desde el módulo de ciclo. Aquí tienes un CSV limpio y un PDF corto para compartir con ginecólogo, médico o consulta clínica."
+            tone="info"
+          />
+        ) : null}
 
         <NoticeCard
           title="Alcance actual del export"
@@ -771,6 +1145,138 @@ export default function ExportDataScreen() {
             El JSON conserva casi todo tu historial. Los CSV y el PDF sirven cuando quieres
             usar o compartir solo la parte importante.
           </Text>
+
+          <View style={styles.medicalNote}>
+            <Text style={styles.medicalNoteTitle}>Salud femenina</Text>
+            <Text style={styles.medicalNoteBody}>
+              También tienes un CSV específico y un PDF corto para consulta médica con fase, síntomas y resumen reciente del ciclo.
+            </Text>
+          </View>
+        </Card>
+
+        <Card>
+          <Text style={styles.sectionTitle}>Link temporal para médico</Text>
+          <Text style={styles.sectionHint}>
+            Genera un enlace de solo lectura que vence en 24h y se corta tras pocos accesos.
+          </Text>
+
+          {!backendAvailable ? (
+            <Text style={styles.mutedNote}>
+              Este build no tiene backend configurado para compartir links temporales.
+            </Text>
+          ) : (
+            <>
+              {medicalMessage ? (
+                <NoticeCard
+                  title="Estado del link temporal"
+                  body={medicalMessage}
+                  tone="info"
+                />
+              ) : null}
+
+              <View style={styles.medicalActionStack}>
+                <Button
+                  onPress={() => void handleCreateMedicalExportLink('pdf')}
+                  loading={medicalBusyKey === 'create-pdf'}
+                  fullWidth
+                  color={Colors.female}
+                >
+                  Crear link PDF 24h
+                </Button>
+                <Button
+                  onPress={() => void handleCreateMedicalExportLink('csv')}
+                  loading={medicalBusyKey === 'create-csv'}
+                  variant="secondary"
+                  fullWidth
+                  color={Colors.female}
+                >
+                  Crear link CSV 24h
+                </Button>
+                <Pressable
+                  onPress={() => void refreshMedicalExports()}
+                  style={styles.inlineRefresh}
+                  accessibilityRole="button"
+                  accessibilityLabel="Actualizar links temporales"
+                >
+                  <Ionicons name="refresh" size={14} color={Colors.textMuted} />
+                  <Text style={styles.inlineRefreshText}>
+                    {medicalLoading ? 'Actualizando...' : 'Actualizar lista'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {medicalExports.length ? (
+                <View style={styles.remoteExportStack}>
+                  {medicalExports.map((item) => (
+                    <View key={item.id} style={styles.remoteExportCard}>
+                      <View style={styles.remoteExportTop}>
+                        <View style={styles.remoteExportCopy}>
+                          <Text style={styles.remoteExportTitle}>
+                            {item.contentType.toUpperCase()} · {item.exportType}
+                          </Text>
+                          <Text style={styles.remoteExportMeta}>
+                            Creado {new Date(item.createdAt).toLocaleString('es-UY')}
+                          </Text>
+                          <Text style={styles.remoteExportMeta}>
+                            Vence {new Date(item.expiresAt).toLocaleString('es-UY')} · accesos {item.accessCount}/{item.maxAccesses}
+                          </Text>
+                          {item.lastAccessed ? (
+                            <Text style={styles.remoteExportMeta}>
+                              Último acceso: {new Date(item.lastAccessed).toLocaleString('es-UY')}
+                            </Text>
+                          ) : (
+                            <Text style={styles.remoteExportMeta}>Todavía no se abrió desde el link.</Text>
+                          )}
+                        </View>
+                        <View style={styles.historyPill}>
+                          <Text style={styles.historyPillText}>{item.contentType.toUpperCase()}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.remoteExportButtons}>
+                        <Pressable
+                          onPress={() => void handleShareMedicalExport(item)}
+                          style={styles.remoteAction}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Compartir link ${item.contentType}`}
+                        >
+                          <Ionicons name="download-outline" size={16} color={Colors.female} />
+                          <Text style={styles.remoteActionText}>Compartir</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => void handleOpenMedicalExport(item)}
+                          style={styles.remoteAction}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Abrir descarga ${item.contentType}`}
+                        >
+                          <Ionicons name="open-outline" size={16} color={Colors.info} />
+                          <Text style={styles.remoteActionText}>Abrir</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => void handleDeleteMedicalExport(item)}
+                          style={styles.remoteAction}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Eliminar link ${item.contentType}`}
+                          disabled={medicalBusyKey === `delete-${item.id}`}
+                        >
+                          <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                          <Text style={[styles.remoteActionText, medicalBusyKey === `delete-${item.id}` && styles.remoteActionTextDisabled]}>
+                            {medicalBusyKey === `delete-${item.id}` ? 'Eliminando...' : 'Eliminar'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.mutedNote}>
+                  {medicalLoading
+                    ? 'Leyendo links temporales...'
+                    : 'Todavía no generaste links temporales de solo lectura.'}
+                </Text>
+              )}
+            </>
+          )}
         </Card>
 
         <Card>
@@ -822,8 +1328,14 @@ export default function ExportDataScreen() {
           <Button onPress={() => void handleExportCsv('workout')} variant="secondary" fullWidth color={Colors.brand}>
             CSV de entrenos
           </Button>
+          <Button onPress={() => void handleExportFemaleCsv()} variant="secondary" fullWidth color={Colors.female}>
+            CSV salud femenina
+          </Button>
           <Button onPress={() => void handleExportPdf()} fullWidth color={Colors.info}>
             {isExporting && progress.includes('PDF') ? progress : 'PDF visual del último mes'}
+          </Button>
+          <Button onPress={() => void handleExportFemalePdf()} fullWidth color={Colors.female}>
+            {isExporting && progress.includes('ciclo') ? progress : 'PDF ciclo para médico'}
           </Button>
         </View>
 
@@ -861,7 +1373,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 28,
+    fontSize: FontSize['2xl'],
     lineHeight: 30,
     color: Colors.textPrimary,
     marginBottom: 6,
@@ -955,7 +1467,7 @@ const styles = StyleSheet.create({
   },
   metaValue: {
     fontFamily: FontFamily.display,
-    fontSize: 24,
+    fontSize: FontSize['2.75xl'],
     lineHeight: 24,
     color: Colors.textPrimary,
   },
@@ -968,6 +1480,96 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     lineHeight: 18,
+    color: Colors.textMuted,
+  },
+  medicalNote: {
+    marginTop: Spacing[3],
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.female, 0.2),
+    backgroundColor: withOpacity(Colors.female, 0.08),
+    padding: Spacing[3],
+    gap: 6,
+  },
+  medicalNoteTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  medicalNoteBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  medicalActionStack: {
+    gap: Spacing[2],
+  },
+  inlineRefresh: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 6,
+  },
+  inlineRefreshText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  remoteExportStack: {
+    gap: Spacing[2],
+  },
+  remoteExportCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.female, 0.18),
+    backgroundColor: withOpacity(Colors.female, 0.06),
+    padding: Spacing[3],
+    gap: Spacing[2],
+  },
+  remoteExportTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing[3],
+  },
+  remoteExportCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  remoteExportTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  remoteExportMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  remoteExportButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  remoteAction: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing[3],
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: withOpacity(Colors.surface, 0.82),
+  },
+  remoteActionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+  },
+  remoteActionTextDisabled: {
     color: Colors.textMuted,
   },
   buttonStack: {

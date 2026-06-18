@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Colors, withOpacity } from '@/constants/colors';
@@ -193,7 +193,7 @@ export function ModuleGrid({ progress = {}, activeModules }: ModuleGridProps) {
   );
 }
 
-export default ModuleGrid;
+export default memo(ModuleGrid);
 
 const styles = StyleSheet.create({
   grid: {
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   cell: {
-    width: '48.4%',
+    width: '49%',
     minHeight: 88,
     borderWidth: 1,
     borderRadius: Radius.xl,

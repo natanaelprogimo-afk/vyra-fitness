@@ -1,60 +1,25 @@
+// REDESIGNED: 2026-05-21 - password reset is simpler, clearer, and calmer
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useTranslation } from 'react-i18next';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { validateEmail } from '@/utils/validators';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { ForgotPasswordStrings } from '@/constants/strings';
+import { Routes } from '@/constants/routes';
 import { supabase } from '@/lib/supabase';
-import { resolveSupportedLanguage } from '@/lib/language';
 
 const SCREEN_COPY = {
-  es: {
-    title: 'Recupera tu acceso',
-    subtitle: 'Ingresa tu email y te mandamos las instrucciones.',
-    send: 'Enviar instrucciones',
-    sendFailed: 'No pudimos enviar el email. Verifica la direccion e intenta otra vez.',
-    successTitle: 'Revisa tu bandeja de entrada',
-    successBody: 'Tambien revisa spam si no lo ves.',
-    resend: 'Reenviar',
-    resendIn: (seconds: number) => `Reenviar en ${seconds}s`,
-    resendA11y: (seconds: number) =>
-      seconds > 0 ? `Reenviar en ${seconds} segundos` : 'Reenviar email',
-    resendHint: 'Vuelve a mandar el correo de recuperacion.',
-  },
-  en: {
-    title: 'Recover your access',
-    subtitle: 'Enter your email and we will send you the instructions.',
-    send: 'Send instructions',
-    sendFailed: 'We could not send the email. Check the address and try again.',
-    successTitle: 'Check your inbox',
-    successBody: 'Also check spam if you do not see it.',
-    resend: 'Resend',
-    resendIn: (seconds: number) => `Resend in ${seconds}s`,
-    resendA11y: (seconds: number) =>
-      seconds > 0 ? `Resend in ${seconds} seconds` : 'Resend email',
-    resendHint: 'Send the recovery email again.',
-  },
-  pt: {
-    title: 'Recupere seu acesso',
-    subtitle: 'Digite seu email e enviaremos as instrucoes.',
-    send: 'Enviar instrucoes',
-    sendFailed: 'Nao conseguimos enviar o email. Verifique o endereco e tente novamente.',
-    successTitle: 'Verifique sua caixa de entrada',
-    successBody: 'Veja tambem o spam se nao aparecer.',
-    resend: 'Reenviar',
-    resendIn: (seconds: number) => `Reenviar em ${seconds}s`,
-    resendA11y: (seconds: number) =>
-      seconds > 0 ? `Reenviar em ${seconds} segundos` : 'Reenviar email',
-    resendHint: 'Envie o email de recuperacao novamente.',
-  },
+  back: 'Volver',
+  eyebrow: 'Recuperar acceso',
+  backToLogin: 'Volver a iniciar sesion',
 } as const;
 
 export default function ForgotPasswordScreen() {
-  const { i18n } = useTranslation();
-  const copy = SCREEN_COPY[resolveSupportedLanguage(i18n.resolvedLanguage ?? i18n.language)];
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -70,9 +35,9 @@ export default function ForgotPasswordScreen() {
   }, [cooldown]);
 
   const handleReset = async () => {
-    const err = validateEmail(email);
-    if (err) {
-      setError(err);
+    const validationError = validateEmail(email);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setError(null);
@@ -90,25 +55,20 @@ export default function ForgotPasswordScreen() {
       } else {
         const response = await fetch(`${backendUrl}/api/auth/reset-password`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: normalizedEmail }),
         });
 
         if (!response.ok) {
-          const payload = (await response.json().catch((e) => {
-            console.debug?.('[ForgotPassword] reset-password response parse failed', e);
-            return null;
-          })) as { error?: string } | null;
-          throw new Error(payload?.error ?? copy.sendFailed);
+          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(payload?.error ?? ForgotPasswordStrings.sendFailed);
         }
       }
 
       setSent(true);
       setCooldown(60);
     } catch {
-      setError(copy.sendFailed);
+      setError(ForgotPasswordStrings.sendFailed);
     } finally {
       setSubmitting(false);
     }
@@ -116,49 +76,83 @@ export default function ForgotPasswordScreen() {
 
   if (sent) {
     return (
-      <SafeScreen>
-        <View style={styles.success}>
-          <View style={styles.checkWrap}>
-            <Text style={styles.check}>✓</Text>
+      <SafeScreen disableAtmosphere contentStyle={styles.successContainer}>
+        <View style={styles.successCard}>
+          <View style={styles.successIconWrap}>
+            <Ionicons name="checkmark" size={28} color={Colors.black} />
           </View>
-          <Text style={styles.successTitle}>{copy.successTitle}</Text>
-          <Text style={styles.email}>{email}</Text>
-          <Text style={styles.successBody}>{copy.successBody}</Text>
-          <Pressable
-            onPress={handleReset}
-            disabled={cooldown > 0}
-            accessibilityRole="button"
-            accessibilityLabel={copy.resendA11y(cooldown)}
-            accessibilityHint={copy.resendHint}
-            accessibilityState={{ disabled: cooldown > 0 }}
-            hitSlop={8}
-          >
-            <Text style={[styles.resend, cooldown > 0 && styles.resendDisabled]}>
-              {cooldown > 0 ? copy.resendIn(cooldown) : copy.resend}
-            </Text>
-          </Pressable>
+
+          <View style={styles.successCopy}>
+            <Text style={styles.successTitle}>{ForgotPasswordStrings.successTitle}</Text>
+            <Text style={styles.successBody}>{ForgotPasswordStrings.successBody}</Text>
+            <Text style={styles.successEmail}>{email}</Text>
+          </View>
+
+          <View style={styles.successActions}>
+            <Button
+              onPress={() => router.replace(Routes.auth.login as never)}
+              fullWidth
+              size="md"
+              haptic="medium"
+            >
+              {SCREEN_COPY.backToLogin}
+            </Button>
+            <Button
+              onPress={handleReset}
+              fullWidth
+              size="md"
+              variant="secondary"
+              disabled={cooldown > 0}
+              loading={submitting}
+            >
+              {cooldown > 0 ? ForgotPasswordStrings.resendIn(cooldown) : ForgotPasswordStrings.resend}
+            </Button>
+          </View>
         </View>
       </SafeScreen>
     );
   }
 
   return (
-    <SafeScreen>
+    <SafeScreen disableAtmosphere contentStyle={styles.container}>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+          accessibilityRole="button"
+          accessibilityLabel={SCREEN_COPY.back}
+        >
+          <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
+        </Pressable>
+      </View>
+
+      <View style={styles.hero}>
+        <Text style={styles.eyebrow}>{SCREEN_COPY.eyebrow}</Text>
+        <Text style={styles.title}>{ForgotPasswordStrings.title}</Text>
+        <Text style={styles.subtitle}>{ForgotPasswordStrings.subtitle}</Text>
+      </View>
+
       <View style={styles.form}>
-        <Text style={styles.title}>{copy.title}</Text>
-        <Text style={styles.subtitle}>{copy.subtitle}</Text>
         <Input
           label="Email"
           value={email}
-          onChangeText={setEmail}
+          size="md"
+          autoFocus
+          onChangeText={(value) => {
+            setEmail(value);
+            if (error) setError(null);
+          }}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoComplete="email"
+          textContentType="emailAddress"
           error={error}
           returnKeyType="done"
           onSubmitEditing={handleReset}
         />
-        <Button onPress={handleReset} fullWidth size="lg" loading={submitting}>
-          {copy.send}
+
+        <Button onPress={handleReset} fullWidth size="md" loading={submitting} haptic="medium">
+          {ForgotPasswordStrings.send}
         </Button>
       </View>
     </SafeScreen>
@@ -166,71 +160,100 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  form: {
-    flex: 1,
+  container: {
+    flexGrow: 1,
+    paddingBottom: Spacing[6],
+  },
+  topBar: {
+    paddingTop: Spacing[1],
+    marginBottom: Spacing[6],
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing[3],
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    backgroundColor: withOpacity(Colors.white, 0.03),
+  },
+  backButtonPressed: {
+    opacity: 0.88,
+  },
+  hero: {
+    gap: Spacing[2],
+    marginBottom: Spacing[6],
+  },
+  eyebrow: {
+    color: Colors.textMuted,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.xs,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   title: {
-    fontFamily: FontFamily.display,
-    fontSize: 38,
-    lineHeight: 40,
     color: Colors.textPrimary,
+    fontFamily: FontFamily.display,
+    fontSize: FontSize.xl,
+    lineHeight: 30,
+    letterSpacing: -0.6,
   },
   subtitle: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    lineHeight: 24,
     color: Colors.textSecondary,
-    marginBottom: Spacing[2],
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.md,
+    lineHeight: 22,
+    maxWidth: 330,
   },
-  success: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing[3],
-    paddingHorizontal: Spacing[6],
+  form: {
+    gap: Spacing[4],
   },
-  checkWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
+  successContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.success, 0.12),
+  },
+  successCard: {
+    borderRadius: Radius.xl,
     borderWidth: 1,
-    borderColor: withOpacity(Colors.success, 0.24),
+    borderColor: withOpacity(Colors.success, 0.22),
+    backgroundColor: withOpacity(Colors.success, 0.06),
+    paddingHorizontal: Spacing[5],
+    paddingVertical: Spacing[6],
+    gap: Spacing[5],
   },
-  check: {
-    fontFamily: FontFamily.bold,
-    fontSize: 30,
-    color: Colors.success,
+  successIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    alignSelf: 'flex-start',
+  },
+  successCopy: {
+    gap: Spacing[2],
   },
   successTitle: {
+    color: Colors.textPrimary,
     fontFamily: FontFamily.display,
-    fontSize: 36,
-    lineHeight: 38,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-  },
-  email: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.lg,
-    color: Colors.textPrimary,
-    textAlign: 'center',
+    fontSize: FontSize.xl,
+    lineHeight: 30,
+    letterSpacing: -0.6,
   },
   successBody: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
     color: Colors.textSecondary,
-    textAlign: 'center',
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.md,
+    lineHeight: 22,
   },
-  resend: {
-    fontFamily: FontFamily.medium,
+  successEmail: {
+    color: Colors.textPrimary,
+    fontFamily: FontFamily.semibold,
     fontSize: FontSize.sm,
-    color: Colors.brand,
+    lineHeight: 18,
   },
-  resendDisabled: {
-    color: Colors.textMuted,
+  successActions: {
+    gap: Spacing[3],
   },
 });

@@ -1,3 +1,4 @@
+// REDESIGNED: 2026-05-19 — modulos alineados con seleccion real del usuario
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
@@ -18,8 +19,16 @@ import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { buildProfileContextUpdate } from '@/lib/profile-context';
+import { getProfileContextMemory } from '@/lib/profile-context';
 import { supabase } from '@/lib/supabase';
 import { buildProfileContextWithActiveModules, getActiveModules } from '@/lib/active-modules';
+import { trackModuleDisabled, trackModuleEnabled } from '@/lib/analytics';
+import {
+  buildSuggestedActiveModules,
+  isBinaryGender,
+  isGoalDetailId,
+} from '@/lib/onboarding-v2';
+import type { UserProfile } from '@/types/user';
 
 const MODULE_GROUPS: Array<{
   tier: ModuleTier;
@@ -28,18 +37,27 @@ const MODULE_GROUPS: Array<{
 }> = [
   {
     tier: 'core',
-    title: 'Core',
-    description: 'Sostienen Inicio, Quick Log y la lectura principal de progreso.',
+    title: 'Base diaria',
+    description: 'Lo que puede sostener tu rutina central sin llenarte de ruido.',
   },
   {
     tier: 'contextual',
-    title: 'Contextuales',
-    description: 'Suman valor real sin competir con el núcleo diario del producto.',
+    title: 'Complementarios',
+    description: 'Se activan solo si de verdad suman a como quieres usar VYRA.',
   },
 ] as const;
 
 function normalizeSelection(modules: ModuleId[]): ModuleId[] {
-  return [...new Set(modules)].sort();
+  const seen = new Set<ModuleId>();
+  const ordered: ModuleId[] = [];
+
+  for (const moduleId of modules) {
+    if (seen.has(moduleId)) continue;
+    seen.add(moduleId);
+    ordered.push(moduleId);
+  }
+
+  return ordered;
 }
 
 function sameSelection(a: ModuleId[], b: ModuleId[]): boolean {
@@ -49,6 +67,36 @@ function sameSelection(a: ModuleId[], b: ModuleId[]): boolean {
   return left.every((item, index) => item === right[index]);
 }
 
+function getRecommendedModulesForProfile(profile: UserProfile | null): ModuleId[] {
+  if (!profile) return DEFAULT_ACTIVE_MODULES;
+
+  const memory = getProfileContextMemory(profile);
+  const rawGoalDetail =
+    (profile as unknown as Record<string, unknown>).goal_detail ?? memory.goal_detail;
+  const gender = isBinaryGender(profile.gender) ? profile.gender : 'male';
+
+  if (isGoalDetailId(rawGoalDetail)) {
+    return buildSuggestedActiveModules(rawGoalDetail, gender, Boolean(profile.female_health_enabled));
+  }
+
+  switch (profile.primary_goal ?? profile.goal) {
+    case 'lose_fat':
+      return ['nutrition', 'workout', 'water'];
+    case 'gain_muscle':
+      return ['workout', 'nutrition', 'sleep'];
+    case 'sport_performance':
+    case 'performance':
+      return ['workout', 'sleep', 'nutrition'];
+    case 'mental_wellbeing':
+    case 'mental':
+      return ['sleep', 'water', 'steps'];
+    case 'general_health':
+    case 'health':
+    default:
+      return DEFAULT_ACTIVE_MODULES;
+  }
+}
+
 export default function SettingsModulesScreen() {
   const { profile, setProfile } = useAuthStore();
   const showToast = useUIStore((state) => state.showToast);
@@ -56,8 +104,9 @@ export default function SettingsModulesScreen() {
   const [selected, setSelected] = useState<ModuleId[]>(() => getActiveModules(profile));
 
   const baseline = useMemo(() => getActiveModules(profile), [profile]);
+  const recommendedSelection = useMemo(() => getRecommendedModulesForProfile(profile), [profile]);
   const hasChanges = !sameSelection(selected, baseline);
-  const isRecommendedSelection = sameSelection(selected, DEFAULT_ACTIVE_MODULES);
+  const isRecommendedSelection = sameSelection(selected, recommendedSelection);
 
   useEffect(() => {
     setSelected(getActiveModules(profile));
@@ -66,12 +115,13 @@ export default function SettingsModulesScreen() {
   const toggleModule = (moduleId: ModuleId) => {
     setSelected((prev) => {
       if (prev.includes(moduleId)) {
-        if (prev.length <= 3) {
-          showToast('Mantén al menos 3 módulos activos.', 'warning');
+        if (prev.length <= 1) {
+          showToast('Manten al menos 1 modulo activo.', 'warning');
           return prev;
         }
         return prev.filter((item) => item !== moduleId);
       }
+
       return [...prev, moduleId];
     });
   };
@@ -79,8 +129,8 @@ export default function SettingsModulesScreen() {
   const handleSave = async () => {
     if (!profile?.id) return;
 
-    if (selected.length < 3) {
-      showToast('Tienes que dejar al menos 3 módulos activos.', 'warning');
+    if (selected.length < 1) {
+      showToast('Tienes que dejar al menos 1 modulo activo.', 'warning');
       return;
     }
 
@@ -99,10 +149,22 @@ export default function SettingsModulesScreen() {
 
       if (error) throw error;
       setProfile(data);
-      showToast('Módulos activos actualizados.', 'success');
+      const baselineSet = new Set(baseline);
+      const nextSet = new Set(selected);
+      for (const moduleId of selected) {
+        if (!baselineSet.has(moduleId)) {
+          trackModuleEnabled(moduleId, 'settings');
+        }
+      }
+      for (const moduleId of baseline) {
+        if (!nextSet.has(moduleId)) {
+          trackModuleDisabled(moduleId, 'settings');
+        }
+      }
+      showToast('Modulos activos actualizados.', 'success');
       router.back();
     } catch {
-      showToast('No se pudieron guardar los módulos.', 'error');
+      showToast('No se pudieron guardar los modulos.', 'error');
     } finally {
       setSaving(false);
     }
@@ -114,29 +176,29 @@ export default function SettingsModulesScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Card style={styles.introCard}>
-          <Text style={styles.title}>Ordena VYRA a tu manera</Text>
+          <Text style={styles.title}>Activa solo lo que si quieres usar</Text>
           <Text style={styles.subtitle}>
-            Los módulos core son la base recomendada. Los contextuales quedan como apoyo
-            cuando realmente suman a tu día.
+            Tu inicio, Explore y Registro rapido se adaptan a este set. Si no forma parte de tu rutina real, no hace falta dejarlo encendido.
           </Text>
 
           {!isRecommendedSelection ? (
             <Button
-              label="Volver al set recomendado"
-              onPress={() => setSelected(DEFAULT_ACTIVE_MODULES)}
+              label="Volver al set sugerido"
+              onPress={() => setSelected(recommendedSelection)}
               variant="secondary"
               color={Colors.brand}
               fullWidth
             />
           ) : (
             <View style={styles.recommendedBadge}>
-              <Text style={styles.recommendedBadgeText}>Base recomendada activa</Text>
+              <Text style={styles.recommendedBadgeText}>Set sugerido activo</Text>
             </View>
           )}
         </Card>
 
         {MODULE_GROUPS.map((group) => {
           const modules = MODULES.filter((module) => module.tier === group.tier);
+
           return (
             <Card key={group.tier} style={styles.groupCard}>
               <View style={styles.groupHeader}>
@@ -158,7 +220,7 @@ export default function SettingsModulesScreen() {
                       accessibilityLabel={module.name}
                       accessibilityHint={
                         isSelected
-                          ? `Desactiva ${module.name} si quieres simplificar tu stack diario.`
+                          ? `Desactiva ${module.name} si no quieres verlo dentro de tu stack diario.`
                           : `Activa ${module.name} dentro de tus módulos visibles.`
                       }
                       style={[
@@ -197,14 +259,13 @@ export default function SettingsModulesScreen() {
         <Card style={styles.helperCard}>
           <Text style={styles.helperTitle}>Salud femenina</Text>
           <Text style={styles.helperText}>
-            El encendido sensible del ciclo ya no vive en Perfil. Si necesitas activarlo
-            o ajustar tus datos base, hazlo desde la configuración dedicada del módulo.
+            Si usas el modulo de ciclo, la configuracion sensible sigue viviendo en su ajuste dedicado.
           </Text>
           <Button
             label={
               profile?.female_health_enabled
-                ? 'Abrir configuración del ciclo'
-                : 'Configurar módulo'
+                ? 'Abrir configuracion del ciclo'
+                : 'Configurar modulo'
             }
             onPress={() => router.push(Routes.profile.femaleHealth as never)}
             variant="secondary"

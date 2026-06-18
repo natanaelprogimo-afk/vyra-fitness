@@ -65,7 +65,6 @@ export default function SleepTimeField({
               ? value.toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })
               : placeholder}
           </Text>
-          <Text style={styles.hint}>Selector nativo del sistema</Text>
         </View>
         <Ionicons name="time-outline" size={20} color={Colors.sleep} />
       </Pressable>

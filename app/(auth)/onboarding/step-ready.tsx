@@ -1,507 +1,981 @@
+// REDESIGNED: 2026-05-21 - cierre manual y resumen final del onboarding
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
+import { MODULES, type ModuleId } from '@/constants/modules';
 import { Colors, withOpacity } from '@/constants/colors';
-import { DEFAULT_ACTIVE_MODULES } from '@/constants/modules';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
-import { useWorkout } from '@/hooks/useWorkout';
-import { requestNotificationPermissions } from '@/lib/notifications';
+import { useAuthStore } from '@/stores/authStore';
+import {
+  buildOnboardingDataFromDraft,
+  getGoalOption,
+  getFirstIncompleteOnboardingRoute,
+  isGoalDetailId,
+  type OnboardingGoalDetailId,
+} from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   type OnboardingDraft,
 } from '@/lib/onboarding-storage';
-import type { OnboardingData } from '@/types/user';
-import type { Routine } from '@/lib/workout-types';
+import { isGuestAuthUser, MANAGED_GUEST_NAME, normalizeManagedGuestName } from '@/lib/guest-auth';
+import { calculateBMR, calculateMacros, calculateTDEE } from '@/utils/calculations';
+import { formatNumber } from '@/utils/formatters';
 
-type WorkoutExerciseMeta = {
-  id: string;
-  equipment: string;
+type SaveState = 'loading' | 'idle' | 'saving' | 'error';
+
+const EQUIPMENT_LABELS: Record<string, string> = {
+  gym_full: 'Gimnasio',
+  home_basic: 'Casa con material',
+  bodyweight: 'Peso corporal',
 };
 
-function goalPriority(goal: OnboardingDraft['goal']) {
-  switch (goal) {
-    case 'gain_muscle':
-      return ['hipertrofia', 'fuerza', 'base'];
+type HomePreviewMetric = {
+  id: string;
+  label: string;
+  value: string;
+  color: string;
+};
+
+const NUTRITION_FORWARD_GOALS = new Set<OnboardingGoalDetailId>([
+  'lose_fat',
+  'gain_muscle',
+  'improve_appearance',
+  'eat_better',
+  'perform_better',
+]);
+
+function mapGoalDetailToMacroGoal(goalDetail: OnboardingGoalDetailId | null | undefined) {
+  switch (goalDetail) {
     case 'lose_fat':
-      return ['continuidad', 'resistencia', 'cardio'];
-    case 'sport_performance':
-      return ['potencia', 'fuerza', 'resistencia'];
+      return 'lose_fat';
+    case 'gain_muscle':
+      return 'gain_muscle';
+    case 'perform_better':
+      return 'performance';
+    case 'feel_better':
+      return 'mental';
     default:
-      return ['continuidad', 'bienestar', 'funcional', 'recuperación'];
+      return 'health';
   }
 }
 
-function equipmentScore(equipment: string | undefined, routine: Routine, exercises: WorkoutExerciseMeta[]) {
-  if (!equipment) return 0;
-  const routineExercises = routine.exercises
-    .map((item) => exercises.find((exercise) => exercise.id === item.exercise_id))
-    .filter(Boolean) as WorkoutExerciseMeta[];
+function formatWaterGoalVolume(ml: number) {
+  if (!Number.isFinite(ml) || ml <= 0) return '0ml';
+  if (ml < 1000) return `${Math.round(ml)}ml`;
 
-  if (!routineExercises.length) return 0;
-
-  const labels = routineExercises.map((item) => item.equipment.toLowerCase());
-  const hasBarbell = labels.some((label) => label.includes('barra'));
-  const hasMachine = labels.some((label) => label.includes('maquina') || label.includes('polea'));
-  const allBodyweightOrBands = labels.every(
-    (label) =>
-      label.includes('peso corporal') ||
-      label.includes('banda') ||
-      label.includes('mancuerna') ||
-      label.includes('colchoneta'),
-  );
-
-  if (equipment === 'gym_full') {
-    return hasBarbell || hasMachine ? 3 : 1;
-  }
-
-  if (equipment === 'home_basic') {
-    if (hasMachine) return -2;
-    return allBodyweightOrBands ? 3 : hasBarbell ? -1 : 2;
-  }
-
-  if (equipment === 'bodyweight') {
-    return allBodyweightOrBands ? 3 : hasMachine || hasBarbell ? -3 : 1;
-  }
-
-  return 0;
+  const liters = Math.floor((ml / 1000) * 10) / 10;
+  return `${liters.toFixed(1)}L`;
 }
 
-function pickRoutine({
-  goal,
-  equipment,
-  routines,
-  exercises,
-}: {
-  goal: OnboardingDraft['goal'];
-  equipment: string | undefined;
-  routines: Routine[];
-  exercises: WorkoutExerciseMeta[];
-}) {
-  if (!routines.length) return null;
-  const priorities = goalPriority(goal);
-  const scored = routines.map((routine) => {
-    const goalLabel = (routine.goal_tag ?? '').toLowerCase();
-    const goalScore = priorities.findIndex((value) => goalLabel.includes(value));
+function buildHomePreviewHero(
+  moduleIds: ModuleId[],
+  goalLabel: string,
+  userName?: string,
+): { eyebrow: string; title: string; body: string; accent: string } {
+  const greeting = userName ? `${userName}, ` : '';
+
+  if (moduleIds.includes('workout')) {
     return {
-      routine,
-      score:
-        (goalScore === -1 ? 0 : 10 - goalScore) +
-        equipmentScore(equipment, routine, exercises) +
-        (routine.is_primary ? 1 : 0),
-    };
-  });
-
-  return scored.sort((left, right) => right.score - left.score)[0]?.routine ?? routines[0] ?? null;
-}
-
-function buildFallbackRoutine(goal: OnboardingDraft['goal'], equipment: string | undefined) {
-  if (equipment === 'bodyweight') {
-    return {
-      name: 'Full Body - Inicio',
-      estimated_duration_min: 25,
-      exercises: [
-        { exercise_name: 'Sentadilla con peso corporal', reps_target: 15 },
-        { exercise_name: 'Flexiones', reps_target: 10 },
-        { exercise_name: 'Zancadas alternadas', reps_target: 12 },
-        { exercise_name: 'Plancha frontal', reps_target: 40 },
-      ],
+      eyebrow: 'PRIMERO EN HOME',
+      title: 'Readiness + bloque del día',
+      body: `${greeting}VYRA va a abrir con una lectura breve para mover tu objetivo ${goalLabel.toLowerCase()} sin perder tiempo.`,
+      accent: Colors.workout,
     };
   }
 
-  if (goal === 'gain_muscle') {
+  if (moduleIds.includes('fasting')) {
     return {
-      name: 'Full Body - Base',
-      estimated_duration_min: 30,
-      exercises: [
-        { exercise_name: 'Press con mancuernas', reps_target: 10 },
-        { exercise_name: 'Remo con mancuerna', reps_target: 12 },
-        { exercise_name: 'Sentadilla goblet', reps_target: 12 },
-        { exercise_name: 'Peso muerto rumano', reps_target: 10 },
-      ],
+      eyebrow: 'PRIMERO EN HOME',
+      title: 'Ventana y siguiente accion',
+      body: `${greeting}Vas a ver tu ayuno, el tiempo actual y la accion mas util para seguir sin ruido.`,
+      accent: Colors.fasting,
+    };
+  }
+
+  if (moduleIds.includes('sleep')) {
+    return {
+      eyebrow: 'PRIMERO EN HOME',
+      title: 'Como amaneciste hoy',
+      body: `${greeting}Tu descanso reciente y el siguiente ajuste del día quedan arriba para que arranques con contexto.`,
+      accent: Colors.sleep,
+    };
+  }
+
+  if (moduleIds.includes('nutrition')) {
+    return {
+      eyebrow: 'PRIMERO EN HOME',
+      title: 'Base diaria y registro rapido',
+      body: `${greeting}Home va a empujar tus comidas, el balance del día y una entrada rápida cuando te haga falta.`,
+      accent: Colors.nutrition,
     };
   }
 
   return {
-    name: 'Full Body - Inicio',
-    estimated_duration_min: 25,
-    exercises: [
-      { exercise_name: 'Sentadilla goblet', reps_target: 12 },
-      { exercise_name: 'Press inclinado', reps_target: 10 },
-      { exercise_name: 'Remo apoyado', reps_target: 12 },
-      { exercise_name: 'Plancha frontal', reps_target: 40 },
-    ],
+    eyebrow: 'PRIMERO EN HOME',
+    title: 'Tu tablero del día',
+    body: `${greeting}Lo primero que ves cambia según tus módulos y lo que ya hayas hecho en el día.`,
+    accent: Colors.action,
   };
 }
 
-function buildStepGoal(goal: OnboardingDraft['goal']) {
-  switch (goal) {
-    case 'lose_fat':
-      return 7500;
-    case 'gain_muscle':
-      return 8000;
-    case 'sport_performance':
-      return 9000;
-    default:
-      return 6500;
-  }
+function buildHomePreviewMetrics(moduleIds: ModuleId[]): HomePreviewMetric[] {
+  const calorieGoalValue = 1858;
+  const waterGoalValue = 2450;
+  const map: Record<ModuleId, HomePreviewMetric> = {
+    workout: { id: 'workout', label: 'Entreno', value: 'Listo hoy', color: Colors.workout },
+    nutrition: {
+      id: 'nutrition',
+      label: 'Comidas',
+      value: `${formatNumber(calorieGoalValue)} kcal`,
+      color: Colors.nutrition,
+    },
+    sleep: { id: 'sleep', label: 'Sueño', value: '8 h meta', color: Colors.sleep },
+    water: {
+      id: 'water',
+      label: 'Agua',
+      value: formatWaterGoalVolume(waterGoalValue),
+      color: Colors.water,
+    },
+    steps: { id: 'steps', label: 'Pasos', value: '9.5k meta', color: Colors.steps },
+    fasting: { id: 'fasting', label: 'Ayuno', value: '16:8', color: Colors.fasting },
+    female: { id: 'female', label: 'Ciclo', value: 'En contexto', color: Colors.female },
+    supplements: { id: 'supplements', label: 'Suples', value: 'Por horario', color: Colors.supplements },
+    weight: { id: 'weight', label: 'Peso', value: 'Seguimiento', color: Colors.action },
+    recovery: { id: 'recovery', label: 'Recovery', value: 'Contexto', color: Colors.action },
+    mental: { id: 'mental', label: 'Mental', value: 'Check-in', color: Colors.action },
+  };
+
+  return moduleIds.slice(0, 4).map((moduleId) => map[moduleId]).filter(Boolean);
+}
+
+function buildHomePreviewActions(moduleIds: ModuleId[]) {
+  const actionMap: Record<ModuleId, string> = {
+    workout: '+ Entreno',
+    nutrition: '+ Comida',
+    sleep: '+ Sueño',
+    water: '+ Agua',
+    steps: 'Ver pasos',
+    fasting: 'Seguir ayuno',
+    female: 'Check-in',
+    supplements: '+ Toma',
+    weight: '+ Peso',
+    recovery: 'Recovery',
+    mental: 'Como vas',
+  };
+
+  return moduleIds.slice(0, 3).map((moduleId) => actionMap[moduleId]).filter(Boolean);
+}
+
+function HeroAnimation({
+  opacity,
+  scale,
+  children,
+}: {
+  opacity: ReturnType<typeof useSharedValue<number>>;
+  scale: ReturnType<typeof useSharedValue<number>>;
+  children: React.ReactNode;
+}) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={[styles.summaryHero, animatedStyle]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+function ItemAnimation({
+  opacity,
+  children,
+}: {
+  opacity: ReturnType<typeof useSharedValue<number>>;
+  children: React.ReactNode;
+}) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return <Animated.View style={[animatedStyle]}>{children}</Animated.View>;
 }
 
 export default function StepReadyScreen() {
-  const { saveOnboarding, isLoading } = useAuth();
-  const { routines, exercises } = useWorkout();
+  const { isLoading, saveOnboarding } = useAuth();
+  const authUser = useAuthStore((state) => state.user);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
-  const [notifPermissionState, setNotifPermissionState] = useState<'granted' | 'denied' | 'skipped'>('skipped');
-  const [notifLoading, setNotifLoading] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('loading');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const heroOpacity = useSharedValue(0);
+  const heroScale = useSharedValue(0.9);
+  const itemsOpacity = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
 
   useEffect(() => {
     let active = true;
+
     void (async () => {
       const progress = await loadOnboardingProgress();
       if (!active) return;
+
+      const nextRoute = getFirstIncompleteOnboardingRoute(progress.data ?? null);
+      if (nextRoute !== Routes.auth.onboarding.ready) {
+        router.replace(nextRoute as never);
+        return;
+      }
+
       setDraft(progress.data ?? null);
-      setNotifPermissionState(progress.data?.notifications_permission_state ?? 'skipped');
+      setSaveState('idle');
     })();
+
     return () => {
       active = false;
     };
   }, []);
 
-  const primaryModule = useMemo(() => {
-    const activeModules = Array.isArray(draft?.active_modules) ? draft.active_modules : [];
-    return activeModules[0] ?? DEFAULT_ACTIVE_MODULES[0];
-  }, [draft?.active_modules]);
+  // Celebration animation
+  useEffect(() => {
+    if (saveState !== 'idle') return;
 
-  const suggestedRoutine = useMemo(() => {
-    const picked = pickRoutine({
-      goal: draft?.goal,
-      equipment: draft?.equipment,
-      routines,
-      exercises,
+    // Hero entrance
+    heroOpacity.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
+    heroScale.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
+
+    // Staggered items entrance
+    itemsOpacity.forEach((opacity, index) => {
+      opacity.value = withDelay(200 + index * 150, withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) }));
     });
+  }, [saveState]);
 
-    if (picked) return picked;
-    return buildFallbackRoutine(draft?.goal, draft?.equipment);
-  }, [draft?.equipment, draft?.goal, exercises, routines]);
+  const onboardingData = useMemo(() => buildOnboardingDataFromDraft(draft), [draft]);
 
-  const onboardingData = useMemo(() => {
-    const name = draft?.name?.trim() || 'Usuario';
-    const age = Math.max(13, Number(draft?.age ?? 25));
-    const heightCm = Math.max(120, Number(draft?.height_cm ?? 170));
-    const weightStartKg = Math.max(35, Number(draft?.weight_start_kg ?? 70));
-    const weightGoalKg =
-      typeof draft?.weight_goal_kg === 'number' && draft.weight_goal_kg >= 35
-        ? draft.weight_goal_kg
-        : undefined;
-    const activityLevel = Math.max(0, Math.min(5, Number(draft?.activity_level ?? 1))) as 0 | 1 | 2 | 3 | 4 | 5;
-    return {
-      name,
-      age,
-      goal: draft?.goal ?? 'general_health',
-      gender: draft?.gender ?? 'prefer_not_to_say',
-      height_cm: heightCm,
-      weight_start_kg: weightStartKg,
-      weight_goal_kg: weightGoalKg,
-      activity_level: activityLevel,
-      water_goal_ml: draft?.water_goal_ml ?? 2400,
-      step_goal: draft?.step_goal ?? buildStepGoal(draft?.goal),
-      sleep_goal_hours: 8,
-      equipment: draft?.equipment,
-      active_modules: Array.isArray(draft?.active_modules) && draft.active_modules.length
-        ? draft.active_modules
-        : DEFAULT_ACTIVE_MODULES,
-      wake_time_minutes: 420,
-      sleep_time_minutes: 1380,
-      fasting_protocol: null,
-      context_display_name: name,
-      notifications_permission_state: notifPermissionState,
+  const selectedModules = useMemo(() => {
+    const moduleMap = new Map(MODULES.map((item) => [item.id, item]));
+    return (onboardingData?.active_modules ?? [])
+      .map((moduleId) => moduleMap.get(moduleId))
+      .filter((item): item is (typeof MODULES)[number] => Boolean(item));
+  }, [onboardingData?.active_modules]);
+
+  const goalDetail = isGoalDetailId(draft?.goal_detail) ? draft.goal_detail : null;
+  const goalLabel = useMemo(() => {
+    if (!goalDetail) return 'Tu objetivo principal';
+    return getGoalOption(goalDetail)?.label ?? 'Tu objetivo principal';
+  }, [goalDetail]);
+
+  const equipmentLabel = draft?.equipment
+    ? EQUIPMENT_LABELS[draft.equipment] ?? 'Tu entorno elegido'
+    : 'Tu entorno elegido';
+  const fallbackName =
+    authUser?.user_metadata && typeof authUser.user_metadata.name === 'string'
+      ? authUser.user_metadata.name.trim()
+      : typeof authUser?.email === 'string'
+        ? authUser.email.split('@')[0] ?? ''
+        : '';
+  const displayName = isGuestAuthUser(authUser)
+    ? MANAGED_GUEST_NAME
+    : normalizeManagedGuestName(onboardingData?.name) ||
+      normalizeManagedGuestName(draft?.name) ||
+      normalizeManagedGuestName(fallbackName) ||
+      'tu base';
+  const selectedModuleIds = useMemo(
+    () => selectedModules.map((module) => module.id as ModuleId),
+    [selectedModules],
+  );
+  const calorieGoal = useMemo(() => {
+    if (!draft || !onboardingData) return null;
+    if (!goalDetail) return null;
+    if (!NUTRITION_FORWARD_GOALS.has(goalDetail)) return null;
+
+    const age = Number(onboardingData.age);
+    const heightCm = Number(onboardingData.height_cm);
+    const weightKg = Number(
+      onboardingData.weight_current_kg ??
+        onboardingData.weight_start_kg ??
+        draft.weight_current_kg ??
+        draft.weight_start_kg ??
+        0,
+    );
+    const activityLevel = Number(onboardingData.activity_level);
+    const sex = onboardingData.gender === 'female' ? 'female' : 'male';
+
+    if (
+      !Number.isFinite(age) ||
+      !Number.isFinite(heightCm) ||
+      !Number.isFinite(weightKg) ||
+      !Number.isFinite(activityLevel)
+    ) {
+      return null;
+    }
+
+    const tdee = calculateTDEE(
+      calculateBMR(weightKg, heightCm, age, sex),
+      activityLevel,
+    );
+    const macroGoal = mapGoalDetailToMacroGoal(goalDetail);
+    return calculateMacros(tdee, macroGoal).calories;
+  }, [draft, goalDetail, onboardingData]);
+  const showCalorieGoal = Boolean(
+    (goalDetail && NUTRITION_FORWARD_GOALS.has(goalDetail)) || selectedModuleIds.includes('nutrition'),
+  );
+  const previewHero = useMemo(
+    () => buildHomePreviewHero(selectedModuleIds, goalLabel, onboardingData?.name as string),
+    [goalLabel, selectedModuleIds, onboardingData?.name],
+  );
+  const previewMetrics = useMemo(
+    () =>
+      buildHomePreviewMetrics(
+        selectedModuleIds,
+      ).map((metric) => {
+        if (metric.id === 'water') {
+          return {
+            ...metric,
+            value: formatWaterGoalVolume(onboardingData?.water_goal_ml ?? 0),
+          };
+        }
+
+        if (metric.id === 'nutrition' && calorieGoal) {
+          return {
+            ...metric,
+            value: `${formatNumber(calorieGoal)} kcal`,
+          };
+        }
+
+        return metric;
+      }),
+    [calorieGoal, onboardingData?.water_goal_ml, selectedModuleIds],
+  );
+  const previewActions = useMemo(
+    () => buildHomePreviewActions(selectedModuleIds),
+    [selectedModuleIds],
+  );
+  const isGuest = isGuestAuthUser(authUser);
+
+  const handleContinue = async () => {
+    if (!onboardingData || !termsAccepted || !privacyAccepted) return;
+
+    setSaveState('saving');
+    setSaveError(null);
+    const ok = await saveOnboarding({
+      ...onboardingData,
       terms_accepted: true,
       privacy_accepted: true,
-    } satisfies OnboardingData;
-  }, [draft, notifPermissionState]);
-
-  const handleEnableNotifications = async () => {
-    setNotifLoading(true);
-    try {
-      const granted = await requestNotificationPermissions();
-      setNotifPermissionState(granted ? 'granted' : 'denied');
-    } finally {
-      setNotifLoading(false);
-    }
-  };
-
-  const completeOnboarding = async () => {
-    return saveOnboarding(onboardingData);
-  };
-
-  const handlePrimaryAction = async () => {
-    const ok = await completeOnboarding();
-    if (!ok) return;
-
-    if (primaryModule === 'nutrition') {
-      router.replace({
-        pathname: Routes.nutrition.log,
-        params: { mealType: 'breakfast' },
-      } as never);
-      return;
-    }
-
-    if (primaryModule === 'sleep') {
-      router.replace(Routes.sleep.log as never);
-      return;
-    }
-
-    if (primaryModule === 'steps') {
+    });
+    if (ok) {
       router.replace(Routes.tabs.home as never);
       return;
     }
 
-    const routineId = suggestedRoutine && 'id' in suggestedRoutine ? suggestedRoutine.id : null;
-    router.replace({
-      pathname: Routes.workout.preview,
-      params: routineId
-        ? { routineId, name: suggestedRoutine.name }
-        : { free: '1', name: suggestedRoutine?.name ?? 'Sesión libre' },
-    } as never);
+    setSaveError('No pudimos completar tu configuración. Verifica tu conexión e intenta de nuevo.');
+    setSaveState('error');
   };
-
-  const handleExplore = async () => {
-    const ok = await completeOnboarding();
-    if (!ok) return;
-    router.replace(Routes.tabs.home as never);
-  };
-
-  const primaryCta =
-    primaryModule === 'nutrition'
-      ? 'Registrar mi primera comida'
-      : primaryModule === 'sleep'
-        ? 'Registrar sueño de anoche'
-        : primaryModule === 'steps'
-          ? 'Entrar a VYRA'
-          : 'Empezar mi primera rutina';
 
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.ready}
-      eyebrow="Paso 4 de 4"
-      title={
-        <View>
-          <Text style={styles.title}>Todo listo, {draft?.name?.trim() || 'Usuario'}.</Text>
-        </View>
+      eyebrow="Todo listo"
+      title={<Text style={styles.title}>Base sólida para comenzar</Text>}
+      subtitle="Revisá el enfoque con el que va a arrancar tu inicio. Cuando sigas, entrás directo a Home."
+      scrollable
+      contentStyle={styles.content}
+      footer={
+        saveState !== 'loading' ? (
+          <View style={styles.footerStack}>
+            {saveError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorIcon}>⚠️</Text>
+                <Text style={styles.errorText}>{saveError}</Text>
+              </View>
+            )}
+            <Button
+              onPress={handleContinue}
+              fullWidth
+              size="md"
+              haptic="medium"
+              loading={saveState === 'saving' || isLoading}
+              disabled={!onboardingData || !termsAccepted || !privacyAccepted}
+            >
+              Ir a VYRA
+            </Button>
+            <Pressable
+              onPress={() => router.push(Routes.auth.onboarding.modules as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Ajustar módulos"
+              accessibilityHint="Te vuelve a la selección de módulos para editar tu arranque."
+              style={styles.secondaryAction}
+            >
+              <Text style={styles.secondaryActionText}>Ajustar módulos</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.footerStack}>
+            <Button fullWidth size="md" disabled loading onPress={() => {}}>
+              Preparando...
+            </Button>
+          </View>
+        )
       }
-      subtitle="Ya hay una primera acción clara esperandote."
     >
       <Card style={styles.card} shadow={false}>
-        <View style={styles.heroAccent} />
-        <Text style={styles.eyebrow}>Listo para hoy</Text>
-
-        {primaryModule === 'nutrition' ? (
+        {saveState === 'loading' ? (
           <>
-            <Text style={styles.heroTitle}>Empieza registrando tu próxima comida</Text>
-            <Text style={styles.heroMeta}>Tu hub de nutrición ya está listo para foto, busqueda o log manual.</Text>
-          </>
-        ) : primaryModule === 'steps' ? (
-          <>
-            <Text style={styles.heroTitle}>Meta diaria de pasos activa</Text>
-            <Text style={styles.heroMeta}>Objetivo inicial: {onboardingData.step_goal.toLocaleString('es-UY')} pasos.</Text>
-          </>
-        ) : primaryModule === 'sleep' ? (
-          <>
-            <Text style={styles.heroTitle}>Registra cuando dormiste anoche</Text>
-            <Text style={styles.heroMeta}>Con ese primer dato ya podemos contextualizar mejor tus días.</Text>
+            <View style={styles.loaderRow}>
+              <ActivityIndicator size="small" color={Colors.textPrimary} />
+              <Text style={styles.loaderTitle}>Preparando tu resumen final...</Text>
+            </View>
+            <Text style={styles.loaderBody}>
+              Estamos reuniendo tus elecciones para que el inicio salga ya personalizado.
+            </Text>
           </>
         ) : (
           <>
-            <Text style={styles.heroTitle}>{suggestedRoutine?.name ?? 'Full Body - Inicio'}</Text>
-            <Text style={styles.heroMeta}>
-              {(suggestedRoutine?.exercises.length ?? 4)} ejercicios · {suggestedRoutine?.estimated_duration_min ?? 25} min
-            </Text>
-            <View style={styles.divider} />
-            <View style={styles.exerciseList}>
-              {(suggestedRoutine?.exercises ?? []).slice(0, 4).map((exercise) => (
-                <View key={exercise.exercise_name} style={styles.exerciseRow}>
-                  <Text style={styles.exerciseBullet}>○</Text>
-                  <Text style={styles.exerciseName}>{exercise.exercise_name}</Text>
-                  <Text style={styles.exerciseReps}>3 x {exercise.reps_target}</Text>
+            <HeroAnimation opacity={heroOpacity} scale={heroScale}>
+              <Text style={styles.summaryEyebrow}>🎉 Onboarding completado</Text>
+              <Text style={styles.summaryTitle}>
+                {isGuest ? 'Tu arranque' : `¡Hola, ${displayName}!`}
+              </Text>
+              <Text style={styles.summaryBody}>
+                Home va a priorizar lo que elegiste usar y el objetivo que querés trabajar primero.
+              </Text>
+            </HeroAnimation>
+
+            <ItemAnimation opacity={itemsOpacity[0]}>
+              <View style={styles.summaryStack}>
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryLabelRow}>
+                    <Text style={styles.summaryLabel}>Objetivo</Text>
+                    <Pressable
+                      onPress={() => router.push(Routes.auth.onboarding.goal as never)}
+                      style={styles.editButton}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.editButtonText}>✏️</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.summaryValue}>{goalLabel}</Text>
                 </View>
-              ))}
+
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryLabelRow}>
+                  <Text style={styles.summaryLabel}>Entorno</Text>
+                  <Pressable
+                    onPress={() => router.push(Routes.auth.onboarding.equipment as never)}
+                    style={styles.editButton}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.editButtonText}>✏️</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.summaryValue}>{equipmentLabel}</Text>
+              </View>
+
+              <View style={[styles.summaryRow, styles.summaryRowWrap]}>
+                <View style={styles.summaryLabelRow}>
+                  <Text style={styles.summaryLabel}>Módulos activos</Text>
+                  <Pressable
+                    onPress={() => router.push(Routes.auth.onboarding.modules as never)}
+                    style={styles.editButton}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.editButtonText}>✏️</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.moduleWrap}>
+                  {selectedModules.map((module) => (
+                    <View
+                      key={module.id}
+                      style={[
+                        styles.moduleChip,
+                        {
+                          borderColor: withOpacity(module.color, 0.24),
+                          backgroundColor: withOpacity(module.color, 0.1),
+                        },
+                      ]}
+                    >
+                      <Text style={styles.moduleChipText}>{module.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
             </View>
+            </ItemAnimation>
+
+            <View style={styles.metaBox}>
+                <View style={styles.metaRow}>
+                  <Text style={styles.summaryLabel}>Meta de agua</Text>
+                  <Text style={styles.metaValue}>
+                    {formatWaterGoalVolume(onboardingData?.water_goal_ml ?? 0)} / día
+                  </Text>
+                </View>
+              {showCalorieGoal && calorieGoal ? (
+                <View style={styles.metaRow}>
+                  <Text style={styles.summaryLabel}>Meta calórica</Text>
+                  <Text style={styles.metaValue}>
+                    {formatNumber(calorieGoal)} kcal / día
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.previewStack}>
+              <Text style={styles.previewLabel}>Así se verá tu Home</Text>
+
+              <View style={styles.previewDevice}>
+                <View style={[styles.previewHeroCard, { borderColor: withOpacity(previewHero.accent, 0.3) }]}>
+                  <View style={styles.previewHeroTop}>
+                    <Text style={styles.previewHeroEyebrow}>{previewHero.eyebrow}</Text>
+                    <View style={[styles.previewHeroDot, { backgroundColor: previewHero.accent }]} />
+                  </View>
+                  <Text style={styles.previewHeroTitle}>{previewHero.title}</Text>
+                  <Text style={styles.previewHeroBody}>{previewHero.body}</Text>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.previewMetricsScroll}
+                >
+                  {previewMetrics.map((metric) => (
+                    <View
+                      key={metric.id}
+                      style={[
+                        styles.previewMetricCard,
+                        {
+                          borderColor: withOpacity(metric.color, 0.18),
+                          backgroundColor: withOpacity(metric.color, 0.09),
+                        },
+                      ]}
+                    >
+                      <Text style={styles.previewMetricLabel}>{metric.label}</Text>
+                      <Text style={styles.previewMetricValue} numberOfLines={2}>
+                        {metric.value}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+
+                <View style={styles.previewActionsRow}>
+                  {previewActions.map((action) => (
+                    <View key={action} style={styles.previewActionChip}>
+                      <Text style={styles.previewActionText}>{action}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.noteBox}>
+              <Text style={styles.noteTitle}>Que pasa al entrar</Text>
+              <Text style={styles.noteBody}>
+                Vas directo a Home, con acciones rápidas, módulos activos y prioridades ajustadas a esta configuración.
+              </Text>
+            </View>
+
+            <View style={styles.consentsBox}>
+              <Pressable
+                onPress={() => setTermsAccepted(!termsAccepted)}
+                style={[styles.consentRow, termsAccepted && styles.consentRowActive]}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: termsAccepted }}
+                accessibilityLabel="Aceptar términos de servicio"
+              >
+                <View
+                  style={[
+                    styles.consentCheckbox,
+                    termsAccepted && styles.consentCheckboxActive,
+                  ]}
+                >
+                  {termsAccepted && <Text style={styles.consentCheckmark}>✓</Text>}
+                </View>
+                <Text style={styles.consentText}>Acepto los términos de servicio</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setPrivacyAccepted(!privacyAccepted)}
+                style={[styles.consentRow, privacyAccepted && styles.consentRowActive]}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: privacyAccepted }}
+                accessibilityLabel="Aceptar política de privacidad"
+              >
+                <View
+                  style={[
+                    styles.consentCheckbox,
+                    privacyAccepted && styles.consentCheckboxActive,
+                  ]}
+                >
+                  {privacyAccepted && <Text style={styles.consentCheckmark}>✓</Text>}
+                </View>
+                <Text style={styles.consentText}>Acepto la política de privacidad</Text>
+              </Pressable>
+            </View>
+
+            {saveState === 'error' ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorTitle}>No pudimos guardar tu perfil todavia.</Text>
+                <Text style={styles.errorBody}>
+                  Tus respuestas siguen guardadas. Proba de nuevo y entras apenas termine el guardado.
+                </Text>
+              </View>
+            ) : null}
           </>
         )}
-
       </Card>
-
-      <View style={styles.heroActions}>
-        <Button onPress={handlePrimaryAction} fullWidth size="lg" haptic="medium" loading={isLoading}>
-          {primaryCta}
-        </Button>
-        <Button onPress={handleExplore} variant="ghost" fullWidth disabled={isLoading}>
-          Explorar primero
-        </Button>
-      </View>
-
-      <View style={styles.autoList}>
-        <View style={styles.notificationCard}>
-          <Text style={styles.notificationTitle}>Avisos útiles desde el día 1</Text>
-          <Text style={styles.notificationBody}>
-            Te podemos avisar cuando termine un descanso o cuando tu meta del día se este quedando atrás.
-            Nunca más de 1-2 por día y luego puedes apagarlos por tipo.
-          </Text>
-          <View style={styles.notificationActions}>
-            <Button
-              onPress={() => {
-                void handleEnableNotifications();
-              }}
-              variant={notifPermissionState === 'granted' ? 'secondary' : 'primary'}
-              loading={notifLoading}
-              fullWidth
-            >
-              {notifPermissionState === 'granted'
-                ? 'Avisos útiles activados'
-                : notifPermissionState === 'denied'
-                  ? 'Volver a intentar'
-                  : 'Activar avisos útiles'}
-            </Button>
-            {notifPermissionState !== 'granted' ? (
-              <Button
-                onPress={() => setNotifPermissionState('skipped')}
-                variant="ghost"
-                fullWidth
-                disabled={notifLoading}
-              >
-                Ahora no
-              </Button>
-            ) : null}
-          </View>
-          <Text style={styles.notificationMeta}>
-            {notifPermissionState === 'granted'
-              ? 'Quedaron activadas y las podras ajustar en Notificaciones.'
-              : notifPermissionState === 'denied'
-                ? 'Si el sistema no muestra el permiso, podrás cambiarlo después desde ajustes.'
-                : 'Puedes seguir sin activarlas y decidirlo más tarde.'}
-          </Text>
-        </View>
-
-        <Text style={styles.autoItem}>Tu primer plan ya está listo</Text>
-        <Text style={styles.autoItem}>La app aprende de tus datos</Text>
-        <Text style={styles.autoItem}>Sin configuracion manual extra</Text>
-      </View>
     </OnboardingShell>
   );
 }
 
 const styles = StyleSheet.create({
+  content: {
+    gap: Spacing[3],
+    paddingTop: 0,
+    paddingBottom: Spacing[4],
+  },
   title: {
     fontFamily: FontFamily.display,
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 24,
+    lineHeight: 28,
     color: Colors.textPrimary,
-    letterSpacing: -1.5,
-  },
-  heroActions: {
-    gap: Spacing[2],
+    letterSpacing: -0.7,
   },
   card: {
-    gap: Spacing[2],
-    overflow: 'hidden',
+    gap: Spacing[3],
+    borderRadius: Radius['2xl'],
+    borderColor: withOpacity(Colors.textPrimary, 0.1),
+    backgroundColor: Colors.surface2,
   },
-  heroAccent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: Colors.action,
-  },
-  eyebrow: {
-    fontFamily: FontFamily.semibold,
-    fontSize: FontSize.xs,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    color: Colors.action,
-  },
-  heroTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 22,
-    color: Colors.textPrimary,
-  },
-  heroMeta: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: withOpacity(Colors.white, 0.08),
-    marginVertical: Spacing[1],
-  },
-  exerciseList: {
-    gap: Spacing[2],
-  },
-  exerciseRow: {
+  loaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[2],
   },
-  exerciseBullet: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.base,
-    color: Colors.textMuted,
-  },
-  exerciseName: {
-    flex: 1,
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
-    color: Colors.textPrimary,
-  },
-  exerciseReps: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  autoList: {
-    gap: Spacing[1],
-    marginTop: Spacing[2],
-    paddingTop: Spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: withOpacity(Colors.white, 0.08),
-  },
-  notificationCard: {
-    gap: Spacing[2],
-    marginBottom: Spacing[2],
-    padding: Spacing[3],
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.18),
-    backgroundColor: withOpacity(Colors.action, 0.08),
-  },
-  notificationTitle: {
+  loaderTitle: {
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.base,
     color: Colors.textPrimary,
   },
-  notificationBody: {
+  loaderBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     lineHeight: 20,
     color: Colors.textSecondary,
   },
-  notificationActions: {
+  summaryHero: {
+    gap: Spacing[1.5],
+  },
+  summaryEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 10,
+    color: Colors.textMuted,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  summaryTitle: {
+    fontFamily: FontFamily.display,
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.6,
+    color: Colors.textPrimary,
+  },
+  summaryBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  summaryStack: {
     gap: Spacing[2],
   },
-  notificationMeta: {
+  previewStack: {
+    gap: Spacing[1.5],
+  },
+  previewLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    color: Colors.textMuted,
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  previewDevice: {
+    borderRadius: Radius['2xl'],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.textPrimary, 0.08),
+    backgroundColor: withOpacity(Colors.base, 0.65),
+    padding: Spacing[2],
+    gap: Spacing[2],
+  },
+  previewHeroCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    padding: Spacing[2],
+    gap: Spacing[1],
+  },
+  previewHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[1],
+  },
+  previewHeroEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 9,
+    color: Colors.textMuted,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  previewHeroDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radius.full,
+  },
+  previewHeroTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  previewHeroBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     lineHeight: 18,
-    color: Colors.textMuted,
-  },
-  autoItem: {
-    fontFamily: FontFamily.regular,
-    fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
+  previewMetricsGrid: {
+    flexDirection: 'row',
+    gap: Spacing[1.5],
+  },
+  previewMetricsScroll: {
+    flexDirection: 'row',
+    gap: Spacing[1.5],
+    paddingRight: Spacing[1],
+  },
+  previewMetricCard: {
+    width: 126,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[1.5],
+    gap: 4,
+  },
+  previewMetricLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 10,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  previewMetricValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  previewActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[1],
+  },
+  previewActionChip: {
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[1.5],
+    paddingVertical: Spacing[1],
+    backgroundColor: withOpacity(Colors.white, 0.05),
+  },
+  previewActionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 10,
+    color: Colors.textPrimary,
+  },
+  summaryRow: {
+    gap: Spacing[1],
+  },
+  summaryLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+  },
+  editButton: {
+    padding: Spacing[0.5],
+    borderRadius: Radius.lg,
+    backgroundColor: withOpacity(Colors.action, 0.1),
+  },
+  editButtonText: {
+    fontSize: 12,
+  },
+  summaryRowWrap: {
+    gap: Spacing[1.5],
+  },
+  summaryLabel: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    color: Colors.textMuted,
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  summaryValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  metaBox: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.textPrimary, 0.08),
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    padding: Spacing[3],
+    gap: Spacing[2],
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  metaValue: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  moduleWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[1.5],
+  },
+  moduleChip: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[1],
+  },
+  moduleChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+  },
+  primaryAction: {
+    marginTop: Spacing[1],
+  },
+  noteBox: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.textPrimary, 0.08),
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    padding: Spacing[3],
+    gap: Spacing[1],
+  },
+  noteTitle: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  noteBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  errorBox: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.error, 0.24),
+    backgroundColor: withOpacity(Colors.error, 0.08),
+    padding: Spacing[3],
+    gap: Spacing[1],
+  },
+  errorTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  errorBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  secondaryAction: {
+    alignSelf: 'center',
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing[2],
+  },
+  secondaryActionText: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  footerStack: {
+    gap: Spacing[1.5],
+  },
+  consentsBox: {
+    gap: Spacing[2],
+    borderRadius: Radius.lg,
+    backgroundColor: withOpacity(Colors.textPrimary, 0.04),
+    padding: Spacing[2.5],
+  },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    paddingVertical: Spacing[1.5],
+  },
+  consentRowActive: {
+    opacity: 1,
+  },
+  consentCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: Radius.sm,
+    borderWidth: 1.5,
+    borderColor: withOpacity(Colors.textSecondary, 0.4),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  consentCheckboxActive: {
+    borderColor: Colors.secondary,
+    backgroundColor: Colors.secondary,
+  },
+  consentCheckmark: {
+    fontFamily: FontFamily.bold,
+    fontSize: 12,
+    color: Colors.white,
+  },
+  consentText: {
+    flex: 1,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 18,
+    color: Colors.textPrimary,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    borderRadius: Radius.lg,
+    backgroundColor: withOpacity(Colors.error, 0.1),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.error, 0.3),
+    paddingVertical: Spacing[2],
+    paddingHorizontal: Spacing[2.5],
+  },
+  errorIcon: {
+    fontSize: 18,
+    flexShrink: 0,
+  },
+  errorText: {
+    flex: 1,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 18,
+    color: Colors.error,
+  },
 });
+

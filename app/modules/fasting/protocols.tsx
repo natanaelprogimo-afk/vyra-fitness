@@ -49,6 +49,41 @@ function parseProtocolHours(id: string): { fasting: number; eating: number } | n
 
 /** Visualización de la ventana de 24h dividida entre ayuno y comer */
 function FastingWindowBar({ protocolId, color }: { protocolId: string; color: string }) {
+  if (protocolId === '5:2') {
+    return (
+      <View style={windowStyles.container}>
+        <View style={windowStyles.weekPattern}>
+          {['Normal', 'Normal', 'Ayuno', 'Normal', 'Normal', 'Ayuno', 'Libre'].map((label, index) => {
+            const fastingDay = label === 'Ayuno';
+            return (
+              <View
+                key={`${label}-${index}`}
+                style={[
+                  windowStyles.weekChip,
+                  fastingDay
+                    ? {
+                        backgroundColor: withOpacity(color, 0.18),
+                        borderColor: withOpacity(color, 0.34),
+                      }
+                    : windowStyles.weekChipNeutral,
+                ]}
+              >
+                <Text
+                  style={[
+                    windowStyles.weekChipText,
+                    fastingDay ? { color } : windowStyles.weekChipTextNeutral,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  }
+
   const hours = parseProtocolHours(protocolId);
 
   // FIX #16: For non-standard protocols (OMAD, 24h, 5:2) show a descriptive
@@ -57,7 +92,6 @@ function FastingWindowBar({ protocolId, color }: { protocolId: string; color: st
     const fallbackMap: Record<string, { fasting: number; eating: number }> = {
       OMAD:  { fasting: 23, eating: 1 },
       '24h': { fasting: 24, eating: 0 },
-      '5:2': { fasting: 16, eating: 8 }, // restrictive days reference
     };
     const fallback = fallbackMap[protocolId];
     if (!fallback) return null;
@@ -111,7 +145,7 @@ const windowStyles = StyleSheet.create({
     height: 28,
     borderRadius: Radius.lg,
     overflow: 'hidden',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   fastingSegment: {
     justifyContent: 'center',
@@ -121,6 +155,32 @@ const windowStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: withOpacity(Colors.success, 0.1),
+  },
+  weekPattern: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[1.5],
+  },
+  weekChip: {
+    minWidth: 64,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[1],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekChipNeutral: {
+    backgroundColor: Colors.elevated,
+    borderColor: Colors.border,
+  },
+  weekChipText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
+  weekChipTextNeutral: {
+    color: Colors.textMuted,
   },
   segLabel: {
     fontFamily: FontFamily.bold,
@@ -138,18 +198,22 @@ export default function FastingProtocolsScreen() {
   const [showMedicalModal, setShowMedicalModal] = useState(false);
 
   const protocolOptions = useMemo(() => {
-    const base = Object.entries(PROTOCOLS).map(([id, data]) => ({
-      id,
-      label: data.label,
-      description: data.description,
-      difficulty: PROTOCOL_DIFFICULTY[id] ?? 'moderate',
-    }));
-    const extra = Object.entries(EXTRA_PROTOCOLS).map(([id, data]) => ({
-      id,
-      label: data.label,
-      description: data.description,
-      difficulty: PROTOCOL_DIFFICULTY[id] ?? 'advanced',
-    }));
+    const base = Object.entries(PROTOCOLS)
+      .filter(([id]) => id !== 'custom' && id !== 'OMAD')
+      .map(([id, data]) => ({
+        id,
+        label: id === '23:1' ? '23:1 / OMAD' : data.label,
+        description: id === '23:1' ? 'Ventana mínima con una comida principal al día.' : data.description,
+        difficulty: PROTOCOL_DIFFICULTY[id] ?? 'moderate',
+      }));
+    const extra = Object.entries(EXTRA_PROTOCOLS)
+      .filter(([id]) => id !== 'OMAD')
+      .map(([id, data]) => ({
+        id,
+        label: data.label,
+        description: data.description,
+        difficulty: PROTOCOL_DIFFICULTY[id] ?? 'advanced',
+      }));
 
     const map = new Map<string, { id: string; label: string; description: string; difficulty: string }>();
     base.forEach((p) => map.set(p.id, p));
@@ -476,3 +540,4 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 });
+

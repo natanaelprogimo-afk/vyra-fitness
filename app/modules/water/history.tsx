@@ -1,58 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import BannerPlacementCard from '@/components/ads/BannerPlacementCard';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import { useWater } from '@/hooks/useWater';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontSize, FontFamily, Spacing, Radius } from '@/constants/theme';
 import { triggerImpactHaptic, triggerNotificationHaptic } from '@/lib/haptics';
 import { visibleRatioPercent } from '@/lib/visual-progress';
+import { getWaterGoalOffsetPx, WATER_GOAL_LINE_HEIGHT } from '@/lib/water';
+import { formatVolume } from '@/utils/formatters';
 
 type WaterHistoryItem = {
   id: string;
   amount_ml: number;
   drink_type: string;
+  hydration_equivalent_ml: number;
   logged_at: string;
 };
 
-function getDrinkLabel(drinkType: string) {
-  switch (drinkType) {
-    case 'electrolyte_water':
-    case 'electrolyte':
-      return 'Electrolitos';
-    case 'sports_drink':
-    case 'sports':
-      return 'Isotonica';
-    case 'tea':
-      return 'Te';
-    case 'coffee':
-      return 'Cafe';
-    case 'juice':
-      return 'Jugo';
-    case 'soda':
-      return 'Gaseosa';
-    case 'milk':
-      return 'Leche';
-    case 'alcohol':
-      return 'Alcohol';
-    default:
-      return 'Agua';
-  }
-}
-
 export default function WaterHistoryScreen() {
-  const { weeklyData, history, goal, hourlyDistribution, deleteLog } = useWater();
+  const { weeklyData, history, goal, hourlyDistribution, resolveDrinkLabel, deleteLog } = useWater();
+  const volumeUnit = useSettingsStore((state) => state.volumeUnit);
   const scrollRef = useRef<ScrollView | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WaterHistoryItem | null>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDeleteRef = useRef<WaterHistoryItem | null>(null);
   const maxVal = Math.max(...weeklyData.map((day) => day.total), goal, 1);
   const maxHour = Math.max(...hourlyDistribution.buckets.map((bucket) => bucket.totalMl), 1);
+  const goalOffset = getWaterGoalOffsetPx(goal, maxVal, WATER_GOAL_LINE_HEIGHT);
   const visibleHistory = useMemo(
     () => history.filter((log) => log.id !== pendingDelete?.id),
     [history, pendingDelete?.id],
@@ -67,6 +47,7 @@ export default function WaterHistoryScreen() {
 
   const finalizePendingDelete = (log: WaterHistoryItem | null) => {
     if (!log?.id) return;
+    pendingDeleteRef.current = null;
     deleteLog(log.id);
   };
 
@@ -78,6 +59,7 @@ export default function WaterHistoryScreen() {
       finalizePendingDelete(pendingDelete);
     }
 
+    pendingDeleteRef.current = log;
     setPendingDelete(log);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
     deleteTimerRef.current = setTimeout(() => {
@@ -90,12 +72,9 @@ export default function WaterHistoryScreen() {
   const handleUndoDelete = () => {
     clearPendingTimer();
     void triggerNotificationHaptic('success');
+    pendingDeleteRef.current = null;
     setPendingDelete(null);
   };
-
-  useEffect(() => {
-    pendingDeleteRef.current = pendingDelete;
-  }, [pendingDelete]);
 
   useEffect(() => {
     return () => {
@@ -121,7 +100,7 @@ export default function WaterHistoryScreen() {
               <View style={styles.undoCopy}>
                 <Text style={styles.undoTitle}>Registro marcado para borrar</Text>
                 <Text style={styles.undoBody}>
-                  +{pendingDelete.amount_ml}ml de {getDrinkLabel(pendingDelete.drink_type)} eliminado. Si fue un toque accidental, puedes deshacerlo ahora.
+                  +{formatVolume(pendingDelete.amount_ml, volumeUnit)} de {resolveDrinkLabel(pendingDelete)} eliminado. Si fue un toque accidental, puedes deshacerlo ahora.
                 </Text>
               </View>
               <Button onPress={handleUndoDelete} variant="ghost" color={Colors.water}>
@@ -138,15 +117,13 @@ export default function WaterHistoryScreen() {
               const pct = Math.min(100, (day.total / maxVal) * 100);
               const isToday = day.date === new Date().toISOString().split('T')[0];
               const reachedGoal = day.total >= goal;
-              const dayLabel = new Date(`${day.date}T12:00:00`).toLocaleDateString('es', { weekday: 'short' });
+              const dayLabel = new Date(`${day.date}T12:00:00`).toLocaleDateString('es-UY', { weekday: 'short' });
 
               return (
                 <View key={day.date} style={styles.barWrap}>
-                  <Text style={styles.barValue}>
-                    {day.total >= 1000 ? `${(day.total / 1000).toFixed(1)}L` : `${day.total}ml`}
-                  </Text>
+                  <Text style={styles.barValue}>{formatVolume(day.total, volumeUnit)}</Text>
                   <View style={styles.barTrack}>
-                    <View style={[styles.goalLine, { bottom: `${(goal / maxVal) * 100}%` }]} />
+                    <View style={[styles.goalLine, { bottom: goalOffset }]} />
                     <View
                       style={[
                         styles.barFill,
@@ -166,15 +143,9 @@ export default function WaterHistoryScreen() {
           </View>
           <View style={styles.chartLegend}>
             <View style={[styles.legendDot, { backgroundColor: Colors.water }]} />
-            <Text style={styles.legendText}>Meta diaria: {goal}ml</Text>
+            <Text style={styles.legendText}>Meta diaria: {formatVolume(goal, volumeUnit)}</Text>
           </View>
         </Card>
-
-        <BannerPlacementCard
-          placementKey="water_history_banner"
-          title="Patrocinado"
-          body="El banner vive en historial para sostener el acceso abierto sin romper tu registro de hoy."
-        />
 
         <Card style={styles.distributionCard}>
           <Text style={styles.chartTitle}>Cuando tomas más agua</Text>
@@ -190,7 +161,7 @@ export default function WaterHistoryScreen() {
                     ]}
                   />
                 </View>
-                <Text style={styles.distributionValue}>{bucket.totalMl}ml</Text>
+                <Text style={styles.distributionValue}>{formatVolume(bucket.totalMl, volumeUnit)}</Text>
               </View>
             ))}
           </View>
@@ -208,34 +179,34 @@ export default function WaterHistoryScreen() {
         <View style={styles.statsRow}>
           <StatCard
             label="Promedio semanal"
-            value={weeklyData.length ? `${Math.round(weeklyData.reduce((sum, day) => sum + day.total, 0) / weeklyData.length)}ml` : '0ml'}
-            emoji="AG"
+            value={weeklyData.length ? formatVolume(Math.round(weeklyData.reduce((sum, day) => sum + day.total, 0) / weeklyData.length), volumeUnit) : formatVolume(0, volumeUnit)}
+            emoji="💧"
           />
           <StatCard
             label="Días con meta"
             value={`${weeklyData.filter((day) => day.total >= goal).length}/${weeklyData.length}`}
-            emoji="OK"
+            emoji="✅"
           />
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Registros recientes</Text>
           {visibleHistory.length ? (
-            visibleHistory.slice(0, 30).map((log, index) => (
-              <View key={index} style={styles.historyItem}>
+            visibleHistory.slice(0, 30).map((log) => (
+              <View key={log.id} style={styles.historyItem}>
                 <View style={styles.historyCopy}>
                   <Text style={styles.historyDate}>
-                    {new Date(log.logged_at).toLocaleDateString('es', {
+                    {new Date(log.logged_at).toLocaleDateString('es-UY', {
                       day: 'numeric',
                       month: 'short',
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
                   </Text>
-                  <Text style={styles.historyDrink}>{getDrinkLabel(log.drink_type)}</Text>
+                  <Text style={styles.historyDrink}>{resolveDrinkLabel(log)}</Text>
                 </View>
                 <View style={styles.historyActions}>
-                  <Text style={[styles.historyAmount, { color: Colors.water }]}>+{log.amount_ml}ml</Text>
+                  <Text style={[styles.historyAmount, { color: Colors.water }]}>+{formatVolume(log.amount_ml, volumeUnit)}</Text>
                   <Pressable
                     onPress={() => handleDeletePress(log)}
                     style={styles.deleteButton}
@@ -311,7 +282,7 @@ const styles = StyleSheet.create({
   barTrack: {
     width: '100%',
     flex: 1,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.sm,
     overflow: 'hidden',
     position: 'relative',
@@ -356,7 +327,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 8,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     overflow: 'hidden',
   },
   distributionFill: {
@@ -409,7 +380,7 @@ const styles = StyleSheet.create({
     gap: Spacing[1.5],
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
   },
   deleteButtonText: {
     fontFamily: FontFamily.medium,

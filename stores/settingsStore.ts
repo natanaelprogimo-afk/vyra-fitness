@@ -33,7 +33,10 @@ type NotifKey =
   | 'notifSummary';
 
 interface SettingsState {
-  colorScheme: 'dark' | 'light' | 'system';
+  // Hydration flag
+  isHydrated: boolean;
+
+  colorScheme: 'dark' | 'light' | 'system' | 'midnight' | 'pastel' | 'forest' | 'ocean' | 'sunset';
   language: 'system' | SupportedLanguage;
   focusMode: boolean;
   highContrast: boolean;
@@ -56,6 +59,10 @@ interface SettingsState {
   waterAutoExerciseAdjustment: boolean;
   waterReminderHeat: boolean;
   waterReminderExercise: boolean;
+  sleepSmartAlarmEnabled: boolean;
+  sleepSmartAlarmWindowStart: number;
+  sleepSmartAlarmWindowEnd: number;
+  femalePredictionAlertsEnabled: boolean;
 
   notificationsEnabled: boolean;
   notifWater: boolean;
@@ -77,9 +84,19 @@ interface SettingsState {
   femalePeriodDuration: number;
   supplementsDisclaimerAccepted: boolean;
   supplementCycleStarts: Record<string, string>;
-  moduleIntroSeen: Record<string, boolean>;
 
-  setColorScheme: (scheme: 'dark' | 'light' | 'system') => void;
+  // Readiness score custom weights (default: 0.2, 0.2, 0.25, 0.15, 0.2)
+  hydrationWeight: number;
+  activityWeight: number;
+  sleepWeight: number;
+  nutritionWeight: number;
+  mentalWeight: number;
+  readinessGoal: 'gain_muscle' | 'lose_fat' | 'athletic_performance' | 'general_health';
+
+  // Hydration flag
+  setIsHydrated: (hydrated: boolean) => void;
+
+  setColorScheme: (scheme: 'dark' | 'light' | 'system' | 'midnight' | 'pastel' | 'forest' | 'ocean' | 'sunset') => void;
   setLanguage: (language: 'system' | SupportedLanguage) => void;
   setFocusMode: (enabled: boolean) => void;
   setHighContrast: (enabled: boolean) => void;
@@ -102,6 +119,10 @@ interface SettingsState {
   setWaterAutoExerciseAdjustment: (enabled: boolean) => void;
   setWaterReminderHeat: (enabled: boolean) => void;
   setWaterReminderExercise: (enabled: boolean) => void;
+  setSleepSmartAlarmEnabled: (enabled: boolean) => void;
+  setSleepSmartAlarmWindowStart: (minutes: number) => void;
+  setSleepSmartAlarmWindowEnd: (minutes: number) => void;
+  setFemalePredictionAlertsEnabled: (enabled: boolean) => void;
 
   setNotificationsEnabled: (enabled: boolean) => void;
   setMaxNotifsPerDay: (value: number) => void;
@@ -117,14 +138,24 @@ interface SettingsState {
   setSupplementsDisclaimerAccepted: (accepted: boolean) => void;
   setSupplementCycleStart: (supplementId: string, isoDate: string) => void;
   clearSupplementCycleStart: (supplementId: string) => void;
-  markModuleIntroSeen: (moduleKey: string) => void;
+
+  // Readiness custom weights
+  setHydrationWeight: (value: number) => void;
+  setActivityWeight: (value: number) => void;
+  setSleepWeight: (value: number) => void;
+  setNutritionWeight: (value: number) => void;
+  setMentalWeight: (value: number) => void;
+  setReadinessGoal: (goal: 'gain_muscle' | 'lose_fat' | 'athletic_performance' | 'general_health') => void;
+  // Auto-adjust weights based on goal
+  applyReadinessGoal: (goal: 'gain_muscle' | 'lose_fat' | 'athletic_performance' | 'general_health') => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      isHydrated: false,
       colorScheme: 'system',
-      language: 'system',
+      language: 'es',
       focusMode: false,
       highContrast: false,
       reduceMotion: false,
@@ -146,17 +177,21 @@ export const useSettingsStore = create<SettingsState>()(
       waterAutoExerciseAdjustment: true,
       waterReminderHeat: true,
       waterReminderExercise: true,
+      sleepSmartAlarmEnabled: false,
+      sleepSmartAlarmWindowStart: 390,
+      sleepSmartAlarmWindowEnd: 420,
+      femalePredictionAlertsEnabled: true,
 
-      notificationsEnabled: true,
+      notificationsEnabled: false,
       notifWater: true,
-      notifSteps: true,
-      notifStepsMovement: true,
-      notifStepsNearGoal: true,
-      notifFasting: true,
-      notifStreak: true,
-      notifCoach: true,
+      notifSteps: false,
+      notifStepsMovement: false,
+      notifStepsNearGoal: false,
+      notifFasting: false,
+      notifStreak: false,
+      notifCoach: false,
       notifSummary: true,
-      maxNotifsPerDay: 2,
+      maxNotifsPerDay: 1,
       notificationQuietHoursEnabled: true,
       notificationQuietHoursStart: 22,
       notificationQuietHoursEnd: 7,
@@ -167,7 +202,14 @@ export const useSettingsStore = create<SettingsState>()(
       femalePeriodDuration: 5,
       supplementsDisclaimerAccepted: false,
       supplementCycleStarts: {},
-      moduleIntroSeen: {},
+
+      // Readiness defaults
+      hydrationWeight: 0.2,
+      activityWeight: 0.2,
+      sleepWeight: 0.25,
+      nutritionWeight: 0.15,
+      mentalWeight: 0.2,
+      readinessGoal: 'general_health',
 
       setColorScheme: (colorScheme) => set({ colorScheme }),
       setLanguage: (language) => set({ language }),
@@ -196,10 +238,21 @@ export const useSettingsStore = create<SettingsState>()(
         set({ waterAutoExerciseAdjustment }),
       setWaterReminderHeat: (waterReminderHeat) => set({ waterReminderHeat }),
       setWaterReminderExercise: (waterReminderExercise) => set({ waterReminderExercise }),
+      setSleepSmartAlarmEnabled: (sleepSmartAlarmEnabled) => set({ sleepSmartAlarmEnabled }),
+      setSleepSmartAlarmWindowStart: (sleepSmartAlarmWindowStart) =>
+        set({
+          sleepSmartAlarmWindowStart: Math.max(0, Math.min(1439, Math.round(sleepSmartAlarmWindowStart))),
+        }),
+      setSleepSmartAlarmWindowEnd: (sleepSmartAlarmWindowEnd) =>
+        set({
+          sleepSmartAlarmWindowEnd: Math.max(0, Math.min(1439, Math.round(sleepSmartAlarmWindowEnd))),
+        }),
+      setFemalePredictionAlertsEnabled: (femalePredictionAlertsEnabled) =>
+        set({ femalePredictionAlertsEnabled }),
 
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       setMaxNotifsPerDay: (maxNotifsPerDay) =>
-        set({ maxNotifsPerDay: Math.max(1, Math.min(2, Math.round(maxNotifsPerDay))) }),
+        set({ maxNotifsPerDay: Math.max(1, Math.min(1, Math.round(maxNotifsPerDay))) }),
       setNotificationQuietHoursEnabled: (notificationQuietHoursEnabled) =>
         set({ notificationQuietHoursEnabled }),
       setNotificationQuietHoursStart: (notificationQuietHoursStart) =>
@@ -234,17 +287,47 @@ export const useSettingsStore = create<SettingsState>()(
           delete next[supplementId];
           return { supplementCycleStarts: next };
         }),
-      markModuleIntroSeen: (moduleKey) =>
-        set((state) => ({
-          moduleIntroSeen: {
-            ...state.moduleIntroSeen,
-            [moduleKey]: true,
-          },
-        })),
+
+      // Readiness weight setters
+      setHydrationWeight: (hydrationWeight) =>
+        set({ hydrationWeight: Math.max(0, Math.min(1, hydrationWeight)) }),
+      setActivityWeight: (activityWeight) =>
+        set({ activityWeight: Math.max(0, Math.min(1, activityWeight)) }),
+      setSleepWeight: (sleepWeight) =>
+        set({ sleepWeight: Math.max(0, Math.min(1, sleepWeight)) }),
+      setNutritionWeight: (nutritionWeight) =>
+        set({ nutritionWeight: Math.max(0, Math.min(1, nutritionWeight)) }),
+      setMentalWeight: (mentalWeight) =>
+        set({ mentalWeight: Math.max(0, Math.min(1, mentalWeight)) }),
+      setReadinessGoal: (readinessGoal) => set({ readinessGoal }),
+      applyReadinessGoal: (goal) => {
+        const presets: Record<string, { h: number; a: number; s: number; n: number; m: number }> = {
+          gain_muscle: { h: 0.15, a: 0.25, s: 0.30, n: 0.20, m: 0.10 },
+          lose_fat: { h: 0.20, a: 0.25, s: 0.25, n: 0.20, m: 0.10 },
+          athletic_performance: { h: 0.15, a: 0.30, s: 0.25, n: 0.20, m: 0.10 },
+          general_health: { h: 0.20, a: 0.20, s: 0.25, n: 0.15, m: 0.20 },
+        };
+        const preset = presets[goal] || presets.general_health;
+        set({
+          readinessGoal: goal,
+          hydrationWeight: preset.h,
+          activityWeight: preset.a,
+          sleepWeight: preset.s,
+          nutritionWeight: preset.n,
+          mentalWeight: preset.m,
+        });
+      },
+
+      setIsHydrated: (isHydrated) => set({ isHydrated }),
     }),
     {
       name: 'vyra-settings-store',
       storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.setIsHydrated(true);
+        }
+      },
       partialize: (state) => ({
         colorScheme: state.colorScheme,
         language: state.language,
@@ -267,6 +350,10 @@ export const useSettingsStore = create<SettingsState>()(
         waterAutoExerciseAdjustment: state.waterAutoExerciseAdjustment,
         waterReminderHeat: state.waterReminderHeat,
         waterReminderExercise: state.waterReminderExercise,
+        sleepSmartAlarmEnabled: state.sleepSmartAlarmEnabled,
+        sleepSmartAlarmWindowStart: state.sleepSmartAlarmWindowStart,
+        sleepSmartAlarmWindowEnd: state.sleepSmartAlarmWindowEnd,
+        femalePredictionAlertsEnabled: state.femalePredictionAlertsEnabled,
         notificationsEnabled: state.notificationsEnabled,
         notifWater: state.notifWater,
         notifSteps: state.notifSteps,
@@ -286,7 +373,12 @@ export const useSettingsStore = create<SettingsState>()(
         femalePeriodDuration: state.femalePeriodDuration,
         supplementsDisclaimerAccepted: state.supplementsDisclaimerAccepted,
         supplementCycleStarts: state.supplementCycleStarts,
-        moduleIntroSeen: state.moduleIntroSeen,
+        hydrationWeight: state.hydrationWeight,
+        activityWeight: state.activityWeight,
+        sleepWeight: state.sleepWeight,
+        nutritionWeight: state.nutritionWeight,
+        mentalWeight: state.mentalWeight,
+        readinessGoal: state.readinessGoal,
       }),
     },
   ),

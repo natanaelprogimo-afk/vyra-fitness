@@ -4,6 +4,7 @@ import {
   getBackendUrl,
   requestJson,
 } from '@/services/backend/client';
+import { ReferralMessages } from '@/constants/strings';
 
 export interface ReferralOverview {
   code: string;
@@ -47,7 +48,7 @@ function normalizeReferralError(status: number, fallback: string): ReferralOverv
   if (status === 401 || status === 403) {
     return {
       ok: false,
-      error: 'Necesitas una sesion valida para abrir tus invitaciones.',
+      error: ReferralMessages.noValidSession,
       status,
       reason: 'unauthorized',
       retryable: false,
@@ -57,7 +58,7 @@ function normalizeReferralError(status: number, fallback: string): ReferralOverv
   if (status >= 500) {
     return {
       ok: false,
-      error: 'El servicio de invitaciones no esta disponible ahora mismo. Reintenta mas tarde.',
+      error: ReferralMessages.serviceUnavailable,
       status,
       reason: 'unavailable',
       retryable: true,
@@ -77,7 +78,7 @@ export async function getReferralOverview(): Promise<ReferralOverviewResult> {
   if (!getBackendUrl()) {
     return {
       ok: false,
-      error: 'El backend de invitaciones no esta configurado en este build.',
+      error: ReferralMessages.notConfigured,
       reason: 'missing_backend',
       retryable: false,
     };
@@ -94,7 +95,7 @@ export async function getReferralOverview(): Promise<ReferralOverviewResult> {
       const payload = asRecord(response.data);
       return normalizeReferralError(
         response.status,
-        typeof payload?.error === 'string' ? payload.error : 'No pudimos cargar tus invitaciones.',
+        typeof payload?.error === 'string' ? payload.error : ReferralMessages.loadFailed,
       );
     }
 
@@ -103,7 +104,7 @@ export async function getReferralOverview(): Promise<ReferralOverviewResult> {
     if (!overview || overview.code.trim().length === 0) {
       return {
         ok: false,
-        error: 'Invitaciones respondio sin datos utiles. Reintenta en unos segundos.',
+        error: ReferralMessages.noData,
         status: response.status,
         reason: 'unavailable',
         retryable: true,
@@ -117,7 +118,7 @@ export async function getReferralOverview(): Promise<ReferralOverviewResult> {
   } catch {
     return {
       ok: false,
-      error: 'No pudimos conectarnos al servicio de invitaciones.',
+      error: ReferralMessages.networkFailed,
       reason: 'network',
       retryable: true,
     };
@@ -132,7 +133,7 @@ export async function redeemReferral(code: string): Promise<{
   if (!getBackendUrl()) {
     return {
       ok: false,
-      error: 'Invitaciones no esta disponible en este build.',
+      error: ReferralMessages.notAvailable,
     };
   }
 
@@ -145,7 +146,7 @@ export async function redeemReferral(code: string): Promise<{
     });
     if (!response.ok) {
       const payload = asRecord(response.data);
-      return { ok: false, error: typeof payload?.error === 'string' ? payload.error : 'No se pudo canjear.' };
+      return { ok: false, error: typeof payload?.error === 'string' ? payload.error : ReferralMessages.redeemFailed };
     }
     return { ok: true, ...(asRecord(response.data) ?? {}) };
   } catch {

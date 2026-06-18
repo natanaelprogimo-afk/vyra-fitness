@@ -1,6 +1,6 @@
 // ============================================================
 // VYRA FITNESS - useNutrition Hook
-// Log de comidas por tipo (breakfast/lunch/dinner/snack),
+// Log de comidas por tipo (breakfast/lunch/dinner/snack/pre/post-workout),
 // totales diarios de macros, busqueda de alimentos, historial
 // ============================================================
 
@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { captureError } from '@/lib/sentry';
-import { trackLogCreated } from '@/lib/analytics';
+import { trackLogCreated, trackNutritionFoodLogged } from '@/lib/analytics';
 import { todayISO, daysAgoISO } from '@/utils/dates';
 import { calculateMacros } from '@/utils/calculations';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
@@ -36,7 +36,13 @@ import {
   type OfflineMealLogSyncPayload,
 } from '@/lib/nutrition-offline';
 
-export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+export type MealType =
+  | 'breakfast'
+  | 'lunch'
+  | 'dinner'
+  | 'snack'
+  | 'pre_workout'
+  | 'post_workout';
 
 const BARCODE_DAILY_LIMIT = 5;
 
@@ -45,6 +51,8 @@ export const MEAL_TYPES: Record<MealType, { label: string; emoji: string; hour: 
   lunch:     { label: 'Almuerzo', emoji: '☀️',  hour: 13 },
   dinner:    { label: 'Cena',     emoji: '🌙',  hour: 20 },
   snack:     { label: 'Snack',    emoji: '🍎',  hour: 16 },
+  pre_workout: { label: 'Pre-workout', emoji: '⚡', hour: 17 },
+  post_workout: { label: 'Post-workout', emoji: '🏁', hour: 19 },
 };
 
 export interface MealEntry {
@@ -61,6 +69,7 @@ export interface MealEntry {
   amount_g:   number;
   logged_at:  string;
   source?:    MealSource;
+  hydrationFromMeal_ml?: number;  // NEW: Estimated hydration from food (e.g., coffee, soup, fruits)
 }
 
 export type MealSource = 'manual' | 'barcode' | 'photo_ai' | 'voice' | 'recipe';
@@ -141,11 +150,52 @@ type MacroGoalType = 'lose_fat' | 'gain_muscle' | 'health' | 'performance' | 'me
 type WorkoutCaloriesRow = {
   estimated_calories: number | null;
   started_at: string;
+  duration_min?: number | null;
 };
 
 function average(values: number[]): number | null {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+// NEW: Classify food/drink by hydration content + estimate water contribution
+function estimateHydrationFromMeal(foodName: string, amountG: number): number {
+  const name = foodName.toLowerCase();
+
+  // Beverages: High water content
+  if (name.includes('agua') || name.includes('water')) return Math.min(500, amountG * 0.95);
+  if (name.includes('café') || name.includes('coffee') || name.includes('espresso')) return Math.min(250, amountG * 0.98);
+  if (name.includes('té') || name.includes('tea') || name.includes('infusión')) return Math.min(250, amountG * 0.98);
+  if (name.includes('jugo') || name.includes('juice') || name.includes('zumo')) return Math.min(300, amountG * 0.85);
+  if (name.includes('leche') || name.includes('milk')) return Math.min(250, amountG * 0.87);
+  if (name.includes('cerveza') || name.includes('beer')) return Math.min(350, amountG * 0.93);
+  if (name.includes('vino') || name.includes('wine')) return Math.min(200, amountG * 0.85);
+  if (name.includes('soda') || name.includes('gaseosa')) return Math.min(400, amountG * 0.90);
+  if (name.includes('smoothie') || name.includes('batido')) return Math.min(350, amountG * 0.85);
+
+  // Soups & broths: Medium-high water
+  if (name.includes('sopa') || name.includes('soup') || name.includes('caldo') || name.includes('broth')) return Math.min(400, amountG * 0.80);
+
+  // Fruits: Medium water (high water content but less per gram)
+  if (name.includes('sandía') || name.includes('watermelon') || name.includes('melón') || name.includes('melon')) return amountG * 0.92;
+  if (name.includes('naranja') || name.includes('orange') || name.includes('limón') || name.includes('lemon')) return amountG * 0.87;
+  if (name.includes('fresa') || name.includes('strawberry') || name.includes('frambuesa') || name.includes('raspberry')) return amountG * 0.91;
+  if (name.includes('manzana') || name.includes('apple')) return amountG * 0.86;
+  if (name.includes('plátano') || name.includes('banana')) return amountG * 0.74;
+  if (name.includes('uva') || name.includes('grape')) return amountG * 0.81;
+
+  // Vegetables: Moderate water
+  if (name.includes('lechuga') || name.includes('lettuce') || name.includes('espinaca') || name.includes('spinach')) return amountG * 0.95;
+  if (name.includes('tomate') || name.includes('tomato')) return amountG * 0.95;
+  if (name.includes('pepino') || name.includes('cucumber')) return amountG * 0.96;
+  if (name.includes('brócoli') || name.includes('broccoli')) return amountG * 0.89;
+  if (name.includes('zanahoria') || name.includes('carrot')) return amountG * 0.88;
+
+  // Yogurt & dairy: Some water
+  if (name.includes('yogur') || name.includes('yogurt')) return Math.min(150, amountG * 0.80);
+
+  // Default: assume low water for everything else (bread, meat, etc)
+  return 0;
 }
 
 function resolveMacroGoal(goal: string | null | undefined): MacroGoalType {
@@ -165,20 +215,16 @@ function isRecoverableOfflineError(error: unknown): boolean {
   );
 }
 
-function buildOfflineFoodCandidates(meals: MealEntry[], query: string): FoodItem[] {
-  const trimmedQuery = query.trim().toLowerCase();
-  if (!trimmedQuery) return [];
-
-  const deduped = new Map<string, FoodItem>();
-
+// Optimized: Build indexed search (one-time cost per meal list, fast lookup)
+function buildFoodIndex(meals: MealEntry[]): Map<string, FoodItem> {
+  const index = new Map<string, FoodItem>();
+  
   for (const meal of [...meals].sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())) {
-    if (!meal.food_name.toLowerCase().includes(trimmedQuery)) continue;
-
     const key = `${meal.food_id ?? meal.food_name.trim().toLowerCase()}`;
-    if (deduped.has(key)) continue;
+    if (index.has(key)) continue;
 
     const amount = Math.max(1, Number(meal.amount_g ?? 100));
-    deduped.set(key, {
+    index.set(key, {
       id: meal.food_id ?? `offline_${key}`,
       name: meal.food_name,
       brand: 'Guardado en tu dispositivo',
@@ -191,7 +237,54 @@ function buildOfflineFoodCandidates(meals: MealEntry[], query: string): FoodItem
     });
   }
 
-  return [...deduped.values()].slice(0, 20);
+  return index;
+}
+
+// Fast search using pre-built index + tokenization
+function buildOfflineFoodCandidates(meals: MealEntry[], query: string, limit = 20): FoodItem[] {
+  const trimmedQuery = query.trim().toLowerCase();
+  if (!trimmedQuery) return [];
+
+  // Build index once for this search
+  const index = buildFoodIndex(meals);
+  const queryTokens = trimmedQuery.split(/\s+/).filter(Boolean);
+  
+  // Score matches: higher if all tokens match or start with query
+  const scored: Array<[key: string, item: FoodItem, score: number]> = [];
+  
+  for (const [key, item] of index) {
+    const name = item.name.toLowerCase();
+    let score = 0;
+
+    // Bonus if name starts with query (e.g. "pecho" matches "pollo con pechuga" better than "caldo pollo")
+    if (name.startsWith(trimmedQuery)) {
+      score += 100;
+    } else if (name.includes(` ${trimmedQuery}`)) {
+      score += 50;
+    }
+
+    // Check if all tokens are present
+    const allTokensMatch = queryTokens.every(token => name.includes(token));
+    if (allTokensMatch) {
+      score += 30;
+    } else if (queryTokens.some(token => name.includes(token))) {
+      score += 10;
+    }
+
+    // Skip if no match
+    if (score === 0) continue;
+
+    scored.push([key, item, score]);
+  }
+
+  // Sort by score desc, then by name for tie-breaking
+  scored.sort((a, b) => {
+    const scoreDiff = b[2] - a[2];
+    if (scoreDiff !== 0) return scoreDiff;
+    return a[1].name.localeCompare(b[1].name);
+  });
+
+  return scored.slice(0, Math.max(1, limit)).map(([, item]) => item);
 }
 
 function normalizeMealEntry(
@@ -230,6 +323,9 @@ function buildMealSyncPayload(
   input: LogMealInput | UpdateMealInput,
   loggedAt: string,
 ): OfflineMealLogSyncPayload {
+  // NEW: Calculate hydration contribution from meal
+  const hydrationFromMeal_ml = estimateHydrationFromMeal(input.food_name, input.amount_g);
+
   return {
     meal_type: input.meal_type,
     food_name: input.food_name,
@@ -242,6 +338,7 @@ function buildMealSyncPayload(
     amount_g: input.amount_g,
     logged_at: loggedAt,
     source: input.source ?? 'manual',
+    hydrationFromMeal_ml: Math.round(hydrationFromMeal_ml),  // NEW
   };
 }
 
@@ -346,18 +443,19 @@ export function useNutrition() {
   );
 
   const weeklyData = useMemo(() => {
-    const byDate: Record<string, { calories: number; protein: number; carbs: number; fat: number }> = {};
+    const byDate: Record<string, { calories: number; protein: number; carbs: number; fat: number; fiber: number }> = {};
 
     for (const meal of mealWindow) {
       const date = meal.logged_at.split('T')[0] ?? '';
       if (!date) continue;
       if (!byDate[date]) {
-        byDate[date] = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+        byDate[date] = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
       }
       byDate[date].calories += Number(meal.calories ?? 0);
       byDate[date].protein += Number(meal.protein_g ?? 0);
       byDate[date].carbs += Number(meal.carbs_g ?? 0);
       byDate[date].fat += Number(meal.fat_g ?? 0);
+      byDate[date].fiber += Number(meal.fiber_g ?? 0);
     }
 
     return Array.from({ length: 7 }, (_, index) => daysAgoISO(6 - index)).map((date) => ({
@@ -366,12 +464,14 @@ export function useNutrition() {
       protein: byDate[date]?.protein ?? 0,
       carbs: byDate[date]?.carbs ?? 0,
       fat: byDate[date]?.fat ?? 0,
+      fiber: byDate[date]?.fiber ?? 0,
     }));
   }, [mealWindow]);
 
   // Buscar alimentos
-  const searchFoods = useCallback(async (query: string): Promise<FoodItem[]> => {
+  const searchFoods = useCallback(async (query: string, options?: { limit?: number }): Promise<FoodItem[]> => {
     if (!query.trim() || query.length < 2) return [];
+    const limit = Math.max(1, Math.min(50, options?.limit ?? 20));
 
     return new Promise((resolve) => {
       if (searchDebounceRef.current) {
@@ -384,7 +484,7 @@ export function useNutrition() {
           const apiBase = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
           if (!isOnline) {
-            resolve(buildOfflineFoodCandidates(mealWindow, trimmedQuery));
+            resolve(buildOfflineFoodCandidates(mealWindow, trimmedQuery, limit));
             return;
           }
 
@@ -393,7 +493,7 @@ export function useNutrition() {
 
           if (apiBase && accessToken) {
             const response = await fetch(
-              `${apiBase}/api/food/search?q=${encodeURIComponent(trimmedQuery)}&limit=20`,
+              `${apiBase}/api/food/search?q=${encodeURIComponent(trimmedQuery)}&limit=${limit}`,
               {
                 headers: {
                   Authorization: `Bearer ${accessToken}`,
@@ -415,7 +515,7 @@ export function useNutrition() {
             .select('id, name, brand, barcode, calories_per_100g, protein_g, carbs_g, fat_g, fiber_g')
             .or(`is_global.eq.true,created_by.eq.${userId}`)
             .ilike('name', `%${trimmedQuery}%`)
-            .limit(20);
+            .limit(limit);
 
           resolve(data ?? []);
         } catch (error) {
@@ -638,10 +738,22 @@ export function useNutrition() {
     return null;
   })();
 
-  const { data: activitySnapshot = { stepCalories: 0, workoutCalories: 0 } } = useQuery({
+  const { data: activitySnapshot = {
+    stepCalories: 0,
+    workoutCalories: 0,
+    latestWorkoutStartedAt: null as string | null,
+    latestWorkoutEndedAt: null as string | null,
+  } } = useQuery({
     queryKey: ['nutrition_activity_snapshot', userId, todayISO()],
     queryFn: async () => {
-      if (!userId || !isOnline) return { stepCalories: 0, workoutCalories: 0 };
+      if (!userId || !isOnline) {
+        return {
+          stepCalories: 0,
+          workoutCalories: 0,
+          latestWorkoutStartedAt: null,
+          latestWorkoutEndedAt: null,
+        };
+      }
       const today = todayISO();
       const [stepsRes, workoutRes] = await Promise.all([
         supabase
@@ -651,7 +763,7 @@ export function useNutrition() {
           .eq('logged_date', today),
         supabase
           .from('workout_sessions')
-          .select('estimated_calories, started_at')
+          .select('estimated_calories, started_at, duration_min')
           .eq('user_id', userId)
           .gte('started_at', `${today}T00:00:00`)
           .lte('started_at', `${today}T23:59:59`),
@@ -662,8 +774,22 @@ export function useNutrition() {
         (sum, row) => sum + Number(row.estimated_calories ?? 0),
         0,
       );
+      const latestWorkout = ((workoutRes.data ?? []) as WorkoutCaloriesRow[])
+        .slice()
+        .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime())[0] ?? null;
+      const latestWorkoutEndedAt = latestWorkout
+        ? new Date(
+            new Date(latestWorkout.started_at).getTime() +
+              Math.max(0, Number(latestWorkout.duration_min ?? 45)) * 60 * 1000,
+          ).toISOString()
+        : null;
 
-      return { stepCalories, workoutCalories };
+      return {
+        stepCalories,
+        workoutCalories,
+        latestWorkoutStartedAt: latestWorkout?.started_at ?? null,
+        latestWorkoutEndedAt,
+      };
     },
     enabled: !!userId,
     staleTime: 60 * 1000,
@@ -689,6 +815,31 @@ export function useNutrition() {
     0,
     Math.round(Number(activitySnapshot.stepCalories ?? 0) + Number(activitySnapshot.workoutCalories ?? 0)),
   );
+  const workoutMealTypeSuggestion: MealType | null = (() => {
+    const now = Date.now();
+    const latestEndedAt = activitySnapshot.latestWorkoutEndedAt
+      ? new Date(activitySnapshot.latestWorkoutEndedAt).getTime()
+      : NaN;
+    const latestStartedAt = activitySnapshot.latestWorkoutStartedAt
+      ? new Date(activitySnapshot.latestWorkoutStartedAt).getTime()
+      : NaN;
+
+    if (Number.isFinite(latestEndedAt) && now - latestEndedAt >= 0 && now - latestEndedAt <= 2 * 60 * 60 * 1000) {
+      return hasEaten.post_workout ? null : 'post_workout';
+    }
+
+    if (
+      !hasEaten.pre_workout &&
+      !Number.isFinite(latestStartedAt) &&
+      new Date().getHours() >= 15 &&
+      new Date().getHours() <= 18 &&
+      Number(activitySnapshot.workoutCalories ?? 0) === 0
+    ) {
+      return 'pre_workout';
+    }
+
+    return null;
+  })();
   const nutritionMode = getNutritionMode(profile);
   const nutritionModeOption = getNutritionModeOption(nutritionMode);
   const proteinBoost =
@@ -861,6 +1012,36 @@ export function useNutrition() {
       accent: Colors.sleep,
       tags: ['cierre', 'ligera', 'saciedad'],
     },
+    {
+      id: 'pre-workout-snack',
+      meal_type: 'pre_workout' as MealType,
+      title: 'Pre-workout simple',
+      subtitle: 'Carbos rápidos y digestión liviana.',
+      food_name: 'Banana + yogur + miel',
+      rationale: 'Sirve para entrar con energía sin sentir la comida pesada antes de entrenar.',
+      calories: 260,
+      protein_g: 12,
+      carbs_g: 42,
+      fat_g: 4,
+      fiber_g: 3,
+      accent: Colors.workout,
+      tags: ['antes de entrenar', 'energía', 'liviano'],
+    },
+    {
+      id: 'post-workout-meal',
+      meal_type: 'post_workout' as MealType,
+      title: 'Post-workout base',
+      subtitle: 'Proteína y carbos para cerrar la sesión.',
+      food_name: 'Whey + arroz + fruta',
+      rationale: 'Recupera rápido y deja una estructura clara en la ventana posterior al entreno.',
+      calories: 430,
+      protein_g: 34,
+      carbs_g: 56,
+      fat_g: 7,
+      fiber_g: 4,
+      accent: Colors.workout,
+      tags: ['recuperación', 'después de entrenar', 'práctico'],
+    },
   ];
 
   // Buscar por código de barras (Open Food Facts API)
@@ -977,6 +1158,12 @@ export function useNutrition() {
         'success',
       );
       trackLogCreated('nutrition', 'manual', Date.now());
+      trackNutritionFoodLogged({
+        meal_type: input.meal_type ?? null,
+        calories: input.calories ?? null,
+        source: result.isOffline ? 'manual_offline' : 'manual',
+        is_offline: result.isOffline,
+      });
 
       if (!result.isOffline && isOnline) {
         void supabase.rpc('calculate_daily_score', { p_user_id: userId });
@@ -1215,6 +1402,7 @@ export function useNutrition() {
     calorieGoal, macroGoals,
     calorieBudget,
     activityCalories,
+    workoutMealTypeSuggestion,
     proteinBoost,
     weeklyData,
     frequentMeals,

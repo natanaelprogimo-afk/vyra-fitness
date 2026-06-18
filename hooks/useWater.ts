@@ -1,23 +1,36 @@
-// VYRA FITNESS - useWater Hook
-// Logica completa del módulo de hidratación.
+﻿// VYRA FITNESS - useWater Hook
+// Logica completa del modulo de hidratacion.
 // Cache local + sincronizacion diferida para hidratar sin internet.
-// Calcula hidratación equivalente segun tipo de bebida.
+// Calcula hidratacion equivalente segun tipo de bebida.
 
 
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useUIStore } from '@/stores/uiStore';
 import initSyncService from '@/services/sync';
 import { captureError } from '@/lib/sentry';
 import { todayISO } from '@/utils/dates';
 import { calculateHydrationEquivalent } from '@/utils/calculations';
-import { trackLogCreated } from '@/lib/analytics';
+import { trackLogCreated, trackWaterLogged } from '@/lib/analytics';
 import type { WaterLog, DrinkTypeId } from '@/types/modules';
 import { ErrorMessages } from '@/constants/strings';
 import { DRINK_TYPES } from '@/constants/modules';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
+import { getWaterDrinkLabel } from '@/lib/water';
+import { getWaterContext } from '@/lib/water-context';
+import {
+  buildCustomWaterLogMetaKey,
+  listCustomWaterDrinks,
+  listCustomWaterLogMeta,
+  saveCustomWaterDrinkPreset,
+  saveCustomWaterLogMeta,
+  type CustomWaterDrinkPreset,
+  type CustomWaterLogMeta,
+} from '@/lib/water-custom';
+import { fetchAutoWaterClimate, type WaterWeatherSnapshot } from '@/lib/water-weather';
 import { isRecoverableOfflineError } from '@/lib/offline-errors';
 import {
   cacheRemoteWaterLogs,
@@ -29,7 +42,7 @@ import {
 } from '@/lib/water-offline';
 
 interface HydrationGoalAdjustment {
-  source: 'steps' | 'fasting' | 'female_phase';
+  source: 'steps' | 'fasting' | 'female_phase' | 'climate';
   delta: number;
   reason: string;
 }
@@ -40,9 +53,13 @@ interface HydrationStreakInfo {
 }
 
 interface BeverageCompositionItem {
+  key: string;
   drinkType: DrinkTypeId | string;
+  label: string;
   amountMl: number;
   hydrationMl: number;
+  hydrationFactor: number | null;
+  isCustom: boolean;
 }
 
 interface WaterHourlyBucket {
@@ -88,6 +105,7 @@ function computeHydrationStreak(
 
 function computeBeverageComposition(
   rows: Array<{ drink_type: string; amount_ml: number; hydration_equivalent_ml: number; logged_at: string }>,
+  customLogMeta: Record<string, CustomWaterLogMeta>,
 ): BeverageCompositionItem[] {
   const from = new Date();
   from.setDate(from.getDate() - 6);
@@ -98,11 +116,19 @@ function computeBeverageComposition(
     const loggedMs = new Date(row.logged_at).getTime();
     if (Number.isNaN(loggedMs) || loggedMs < fromMs) continue;
 
-    const key = row.drink_type || 'water';
+    const logKey = buildCustomWaterLogMetaKey(row);
+    const meta = row.drink_type === 'other' ? customLogMeta[logKey] ?? null : null;
+    const key = meta
+      ? `custom:${meta.name.toLowerCase()}:${Math.round(meta.hydrationFactor * 100)}`
+      : (row.drink_type || 'water');
     const current = map.get(key) ?? {
+      key,
       drinkType: key,
+      label: meta?.name ?? getWaterDrinkLabel(row.drink_type || 'water'),
       amountMl: 0,
       hydrationMl: 0,
+      hydrationFactor: meta?.hydrationFactor ?? null,
+      isCustom: Boolean(meta),
     };
     current.amountMl += row.amount_ml ?? 0;
     current.hydrationMl += row.hydration_equivalent_ml ?? 0;
@@ -145,9 +171,122 @@ function buildHourlyDistribution(
 function getHydrationAlert(current: number, goal: number, hour: number): string | null {
   const pct = current / goal;
   if (pct >= 1)    return null;
-  if (hour >= 18 && pct < 0.5) return '¡Tomaste menos de la mitad! Intentá tomar 2 vasos ahora 💧';
-  if (hour >= 14 && pct < 0.3) return 'Ya es la tarde y tomaste poco. Acordate de hidratarte 💧';
+  if (hour >= 18 && pct < 0.5) return 'Tomaste menos de la mitad. Intenta tomar 2 vasos ahora.';
+  if (hour >= 14 && pct < 0.3) return 'Ya es la tarde y tomaste poco. Acordate de hidratarte.';
   return null;
+}
+
+// Adaptive reminder timing: analyze logging pattern and suggest next best time
+interface AdaptiveReminderSuggestion {
+  nextReminderHour: number;
+  nextReminderMinute: number;
+  reason: string;
+}
+
+function getAdaptiveReminderTime(
+  logs: Array<{ logged_at: string }>,
+  currentHour: number,
+): AdaptiveReminderSuggestion {
+  if (!logs.length) {
+    // Default: every 2 hours starting from 8am
+    const defaultNextHour = Math.min(currentHour + 2, 20);
+    return {
+      nextReminderHour: defaultNextHour,
+      nextReminderMinute: 0,
+      reason: 'Sin datos aún, recordatorio cada 2 horas',
+    };
+  }
+
+  // Analyze logging frequency last 14 days
+  const last14Days = logs.filter(log => {
+    const logDate = new Date(log.logged_at);
+    const now = new Date();
+    const diff = (now.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24);
+    return diff <= 14;
+  });
+
+  if (!last14Days.length) {
+    const defaultNextHour = Math.min(currentHour + 2, 20);
+    return {
+      nextReminderHour: defaultNextHour,
+      nextReminderMinute: 0,
+      reason: 'Menos de 2 semanas de datos',
+    };
+  }
+
+  // Calculate average time between logs
+  const hours: number[] = [];
+  for (const log of last14Days) {
+    hours.push(new Date(log.logged_at).getHours());
+  }
+  hours.sort((a, b) => a - b);
+
+  // Find biggest gap in logging pattern
+  let maxGap = 0;
+  let gapStartHour = currentHour + 2;
+  for (let i = 0; i < hours.length; i++) {
+    const nextHour = hours[(i + 1) % hours.length];
+    const gap = nextHour > hours[i] ? nextHour - hours[i] : (24 - hours[i]) + nextHour;
+    if (gap > maxGap && gap <= 8) {
+      maxGap = gap;
+      gapStartHour = hours[i] + Math.ceil(gap / 2);
+    }
+  }
+
+  if (maxGap === 0) {
+    // No pattern, suggest regular intervals
+    const nextHour = Math.min(currentHour + 2, 20);
+    return {
+      nextReminderHour: nextHour,
+      nextReminderMinute: 15,
+      reason: 'Recordatorio cada 2 horas',
+    };
+  }
+
+  // Suggested time is in the middle of the biggest gap
+  const nextHour = gapStartHour % 24;
+  return {
+    nextReminderHour: nextHour,
+    nextReminderMinute: Math.floor(Math.random() * 60),
+    reason: `Basado en tu patrón de la última quincena (brecha ~${maxGap}h)`,
+  };
+}
+
+// Offline climate fallback: Use cached data when offline
+interface OfflineClimateSnapshot {
+  temperatureC: number;
+  apparentTemperatureC: number;
+  humidityPct: number;
+  isOfflineEstimate: boolean;
+}
+
+function getOfflineClimateEstimate(history: Array<{ hydration_equivalent_ml: number; logged_at: string }>): OfflineClimateSnapshot {
+  // If no online data, use last 7 days pattern to estimate climate
+  const last7Days = history.filter(log => {
+    const logDate = new Date(log.logged_at);
+    const now = new Date();
+    const diff = (now.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24);
+    return diff <= 7;
+  });
+
+  const avgDailyMl = last7Days.length
+    ? last7Days.reduce((sum, log) => sum + (log.hydration_equivalent_ml ?? 0), 0) / 7
+    : 1500;
+
+  // Estimate temperature from hydration patterns:
+  // If drinking >2500ml/day on average: probably hot (~30°C)
+  // If drinking 1500-2000ml/day: moderate (~20°C)
+  // If drinking <1500ml/day: cool (~15°C)
+  let estimatedTemp = 20;
+  if (avgDailyMl > 2500) estimatedTemp = 28;
+  else if (avgDailyMl < 1200) estimatedTemp = 12;
+
+  return {
+    temperatureC: estimatedTemp,
+    apparentTemperatureC: estimatedTemp + 2, // Add wind chill assumption
+    humidityPct: 55, // Conservative estimate
+    isOfflineEstimate: true,
+  };
 }
 
 function buildLocalWaterLog(
@@ -169,15 +308,41 @@ function buildLocalWaterLog(
   };
 }
 
+interface WaterCustomDrinkInput {
+  name: string;
+  hydrationFactor: number;
+  presetId?: string | null;
+}
+
 export function useWater() {
   const queryClient = useQueryClient();
   const profile     = useAuthStore((s) => s.profile);
   const showToast   = useUIStore((s) => s.showToast);
   const isOnline    = useUIStore((s) => s.isOnline);
+  const waterAutoHeatAdjustment = useSettingsStore((s) => s.waterAutoHeatAdjustment);
   const userId      = profile?.id ?? '';
   const baseGoal    = profile?.water_goal_ml ?? 2500;
+  const waterContext = getWaterContext(profile);
+  const { data: customDrinks = [] } = useQuery<CustomWaterDrinkPreset[]>({
+    queryKey: ['water_custom_drinks', userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      return await listCustomWaterDrinks(userId);
+    },
+    enabled: !!userId,
+    staleTime: Infinity,
+  });
+  const { data: customLogMeta = {} } = useQuery<Record<string, CustomWaterLogMeta>>({
+    queryKey: ['water_custom_log_meta', userId],
+    queryFn: async () => {
+      if (!userId) return {};
+      return await listCustomWaterLogMeta(userId);
+    },
+    enabled: !!userId,
+    staleTime: Infinity,
+  });
 
-  // ─── Logs del día (desde Supabase cuando hay conexión, WDB offline) ──
+  // Logs del dia: Supabase online y cache local offline.
   const { data: logs = [], isLoading, refetch } = useQuery<WaterLog[]>({
     queryKey: ['water_logs', userId, todayISO()],
     queryFn:  async () => {
@@ -217,7 +382,7 @@ export function useWater() {
     refetchInterval: 60 * 1000,
   });
 
-  // ─── Totales del día ─────────────────────────────────────
+  // Totales del dia.
   const totalMl     = logs.reduce((s, l) => s + (l.amount_ml ?? 0), 0);
   const totalHydro  = logs.reduce((s, l) => s + (l.hydration_equivalent_ml ?? 0), 0);
   const { data: stepContext } = useQuery({
@@ -275,6 +440,21 @@ export function useWater() {
     staleTime: 60 * 60 * 1000,
   });
 
+  const { data: climateSnapshot } = useQuery<WaterWeatherSnapshot | null>({
+    queryKey: ['water_goal_context_climate', userId, waterAutoHeatAdjustment],
+    queryFn: async () => {
+      if (!userId || !waterAutoHeatAdjustment) return null;
+      return await fetchAutoWaterClimate();
+    },
+    enabled: !!userId && waterAutoHeatAdjustment,
+    staleTime: 2 * 60 * 60 * 1000,
+  });
+
+  const resolvedClimate =
+    climateSnapshot?.climate ??
+    (waterContext.auto.enabled ? waterContext.auto.climate : null) ??
+    null;
+
   const goalAdjustments: HydrationGoalAdjustment[] = [];
   if ((stepContext?.steps ?? 0) >= 15000) {
     goalAdjustments.push({
@@ -302,30 +482,75 @@ export function useWater() {
     goalAdjustments.push({
       source: 'female_phase',
       delta: 200,
-      reason: `Fase ${femaleContext.phase} (hidratación reforzada).`,
+      reason: `Fase ${femaleContext.phase} (hidratacion reforzada).`,
     });
+  }
+
+  if (waterAutoHeatAdjustment && resolvedClimate) {
+    const climateMap: Record<
+      NonNullable<typeof resolvedClimate>,
+      { delta: number; reason: string } | null
+    > = {
+      hot: {
+        delta: 450,
+        reason: climateSnapshot?.apparentTemperatureC
+          ? `Calor fuerte detectado (${Math.round(climateSnapshot.apparentTemperatureC)} deg de sensacion).`
+          : 'Calor fuerte detectado hoy.',
+      },
+      warm: {
+        delta: 250,
+        reason: climateSnapshot?.temperatureC
+          ? `Clima calido detectado (${Math.round(climateSnapshot.temperatureC)} deg).`
+          : 'Clima calido detectado hoy.',
+      },
+      humid: {
+        delta: 200,
+        reason: climateSnapshot?.humidityPct
+          ? `Humedad alta detectada (${Math.round(climateSnapshot.humidityPct)}%).`
+          : 'Humedad alta detectada hoy.',
+      },
+      dry: {
+        delta: 150,
+        reason: 'Ambiente seco detectado hoy.',
+      },
+      normal: null,
+    };
+    const climateAdjustment = climateMap[resolvedClimate];
+    if (climateAdjustment) {
+      goalAdjustments.push({
+        source: 'climate',
+        delta: climateAdjustment.delta,
+        reason: climateAdjustment.reason,
+      });
+    }
   }
 
   const goal = baseGoal + goalAdjustments.reduce((sum, item) => sum + item.delta, 0);
   const progressPct = Math.min(100, (totalHydro / goal) * 100);
   const remaining   = Math.max(0, goal - totalHydro);
 
-  // ─── Alerta según hora del día ───────────────────────────
+  // Alerta segun hora del dia.
   const hydrationAlert = getHydrationAlert(totalHydro, goal, new Date().getHours());
 
-  // ─── Log de agua ─────────────────────────────────────────
+  // â”€â”€â”€ Log de agua â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { mutate: logWater, isPending: isLogging } = useMutation({
     mutationFn: async ({
       amountMl,
       drinkType = 'water',
+      customDrink = null,
     }: {
-      amountMl:  number;
+      amountMl: number;
       drinkType?: DrinkTypeId;
+      customDrink?: WaterCustomDrinkInput | null;
     }) => {
       if (!userId) throw new Error('No user');
-      if (amountMl <= 0 || amountMl > 5000) throw new Error('Cantidad inválida');
+      if (amountMl <= 0 || amountMl > 5000) throw new Error('Cantidad invalida');
 
-      const hydrationEquivalent = calculateHydrationEquivalent(amountMl, drinkType);
+      const hydrationEquivalent = calculateHydrationEquivalent(
+        amountMl,
+        drinkType,
+        customDrink?.hydrationFactor,
+      );
       const loggedAtIso         = new Date().toISOString();
 
       if (isOnline) {
@@ -353,7 +578,7 @@ export function useWater() {
           throw error;
         }
       }
-        // Offline: escribir local y sincronizar cuando vuelva la conexión.
+        // Offline: escribir local y sincronizar cuando vuelva la conexion.
       const localId = await queueOfflineWaterLog(userId, {
         amount_ml: amountMl,
         drink_type: drinkType,
@@ -368,7 +593,7 @@ export function useWater() {
       };
     },
 
-    onSuccess: async ({ log, savedOffline }, { amountMl, drinkType = 'water' }) => {
+    onSuccess: async ({ log, savedOffline }, { amountMl, drinkType = 'water', customDrink = null }) => {
       const waterLogsKey = ['water_logs', userId, todayISO()] as const;
       const waterHistoryKey = ['water_history', userId] as const;
 
@@ -379,6 +604,15 @@ export function useWater() {
         [...current, log].sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime()),
       );
 
+      if (customDrink && userId) {
+        await saveCustomWaterLogMeta(userId, buildCustomWaterLogMetaKey(log), {
+          name: customDrink.name,
+          hydrationFactor: customDrink.hydrationFactor,
+          presetId: customDrink.presetId ?? null,
+        });
+        await queryClient.invalidateQueries({ queryKey: ['water_custom_log_meta', userId] });
+      }
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['water_logs'] }),
         queryClient.invalidateQueries({ queryKey: ['water_history'] }),
@@ -386,7 +620,7 @@ export function useWater() {
         queryClient.invalidateQueries({ queryKey: ['daily_score'] }),
       ]);
 
-      const hydro = calculateHydrationEquivalent(amountMl, drinkType);
+      const hydro = calculateHydrationEquivalent(amountMl, drinkType, customDrink?.hydrationFactor);
       const updatedLogs = queryClient.getQueryData<WaterLog[]>(waterLogsKey) ?? [];
       const newTotal =
         updatedLogs.reduce((sum, item) => sum + (item.hydration_equivalent_ml ?? 0), 0) || totalHydro + hydro;
@@ -394,15 +628,21 @@ export function useWater() {
       const drink =
         DRINK_TYPES.find((item) => item.id === drinkType) ??
         (drinkType === 'soda'
-          ? { emoji: '🥤' }
-          : { emoji: 'ðŸ’§' });
-      showToast(`+${amountMl}ml ${drink?.emoji ?? '💧'} — ${Math.round(newTotal)}/${goal}ml`, 'success');
+          ? { emoji: '\uD83E\uDD64' }
+          : { emoji: '\uD83D\uDCA7' });
+      showToast(`+${amountMl}ml ${drink?.emoji ?? '\uD83D\uDCA7'} - ${Math.round(newTotal)}/${goal}ml`, 'success');
 
       if (totalHydro < goal && newTotal >= goal) {
-        showToast('¡Meta de hidratación alcanzada!', 'success');
+        showToast('Meta de hidratacion alcanzada.', 'success');
       }
 
       trackLogCreated('water', savedOffline ? 'manual_offline' : 'manual', Date.now());
+      trackWaterLogged({
+        amount_ml: amountMl,
+        drink_type: drinkType,
+        source: savedOffline ? 'manual_offline' : 'manual',
+        is_offline: savedOffline,
+      });
 
       // Recalcular score
       if (!savedOffline && isOnline) {
@@ -416,7 +656,7 @@ export function useWater() {
     },
   });
 
-  // ─── Eliminar log ─────────────────────────────────────────
+  // â”€â”€â”€ Eliminar log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { mutate: deleteLog, isPending: isDeleting } = useMutation({
     mutationFn: async (logId: string) => {
       if (!userId) throw new Error('No user');
@@ -466,7 +706,7 @@ export function useWater() {
     },
   });
 
-  // ─── Historial (últimos 30 días) ──────────────────────────
+  // Historial: ultimos 30 dias.
   const { data: history = [] } = useQuery({
     queryKey: ['water_history', userId],
     queryFn:  async () => {
@@ -502,12 +742,13 @@ export function useWater() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Agrupar historial por día para el gráfico
+  // Agrupar historial por dia para el grafico.
   const weeklyData = groupByDay(history, 7);
   const monthData = groupByDay(history, 30);
   const hydrationStreak = computeHydrationStreak(monthData, baseGoal);
   const beverageComposition = computeBeverageComposition(
     history as Array<{ drink_type: string; amount_ml: number; hydration_equivalent_ml: number; logged_at: string }>,
+    customLogMeta,
   );
   const hourlyDistribution = buildHourlyDistribution(
     history as Array<{ logged_at: string; hydration_equivalent_ml: number }>,
@@ -518,6 +759,10 @@ export function useWater() {
 
     const hour = new Date().getHours();
     if (hour > 11) return null;
+
+    if (resolvedClimate === 'hot' || resolvedClimate === 'humid') {
+      return 'Hoy el clima ya empuja tu hidratacion para arriba. Empieza temprano para no correr atras despues.';
+    }
 
     const lastLog = history
       .slice()
@@ -533,12 +778,20 @@ export function useWater() {
     );
 
     if (hoursSinceLastDrink < 6) {
-      return 'Buen ritmo: mantenelo con un vaso ahora para sostener energía y foco.';
+      return 'Buen ritmo: mantenelo con un vaso ahora para sostener energia y foco.';
     }
 
     const cognitiveDrop = Math.round(Math.min(25, Math.max(10, (hoursSinceLastDrink - 4) * 2.5)));
     return `Llevas ~${Math.round(hoursSinceLastDrink)}h sin hidratarte. Tu foco puede bajar ~${cognitiveDrop}% ahora mismo.`;
   })();
+
+  const resolveDrinkLabel = (
+    row: Pick<WaterLog, 'drink_type' | 'amount_ml' | 'hydration_equivalent_ml' | 'logged_at'>,
+  ) => {
+    const logKey = buildCustomWaterLogMetaKey(row);
+    const meta = row.drink_type === 'other' ? customLogMeta[logKey] ?? null : null;
+    return meta?.name ?? getWaterDrinkLabel(row.drink_type);
+  };
 
   useEffect(() => {
     // Start background sync service (idempotent)
@@ -578,24 +831,34 @@ export function useWater() {
     hydrationAlert,
     morningContext,
     hydrationStreak,
+    climateSnapshot,
     beverageComposition,
+    customDrinks,
     hourlyDistribution,
     weeklyData,
     history,
     isLoading,
     isLogging,
     isDeleting,
+    resolveDrinkLabel,
+    saveCustomDrinkPreset: async (input: { id?: string | null; name: string; hydrationFactor: number }) => {
+      if (!userId) return null;
+      const preset = await saveCustomWaterDrinkPreset(userId, input);
+      await queryClient.invalidateQueries({ queryKey: ['water_custom_drinks', userId] });
+      return preset;
+    },
     addWaterLog: (amount_ml: number, drink_type: DrinkTypeId = 'water') =>
       logWater({ amountMl: amount_ml, drinkType: drink_type }),
     getDailyTotal: () => totalHydro,
     getWeeklyHistory: () => weeklyData,
-    logWater:   (amountMl: number, drinkType?: DrinkTypeId) => logWater({ amountMl, drinkType }),
+    logWater:   (amountMl: number, drinkType?: DrinkTypeId, customDrink?: WaterCustomDrinkInput | null) =>
+      logWater({ amountMl, drinkType, customDrink }),
     deleteLog,
     refetch,
   };
 }
 
-// ─── Helper: agrupar por día ──────────────────────────────
+// Helper: agrupar por dia.
 function groupByDay(
   logs: Array<{ logged_at: string; hydration_equivalent_ml: number }>,
   days: number
@@ -618,4 +881,3 @@ function groupByDay(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, total]) => ({ date, total }));
 }
-

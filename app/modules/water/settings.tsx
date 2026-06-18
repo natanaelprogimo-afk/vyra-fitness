@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
@@ -13,13 +13,21 @@ import { validateWaterGoal } from '@/utils/validators';
 import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontSize, FontFamily, Spacing } from '@/constants/theme';
+import { WaterModule } from '@/constants/strings';
+import {
+  getWaterContainerHint,
+  validateWaterContainerAmount,
+  WATER_DEFAULT_BOTTLE_ML,
+  WATER_DEFAULT_GLASS_ML,
+  WATER_DEFAULT_LARGE_GLASS_ML,
+} from '@/lib/water';
 
 const PRESET_GOALS = [
-  { label: '1.5L', value: 1500, desc: 'Actividad baja' },
-  { label: '2L', value: 2000, desc: 'Moderada' },
-  { label: '2.5L', value: 2500, desc: 'Recomendada' },
-  { label: '3L', value: 3000, desc: 'Atletas' },
-  { label: '3.5L', value: 3500, desc: 'Clima caluroso' },
+  { label: '1.5L', value: 1500, desc: WaterModule.dailyGoal.presets.low },
+  { label: '2L', value: 2000, desc: WaterModule.dailyGoal.presets.moderate },
+  { label: '2.5L', value: 2500, desc: WaterModule.dailyGoal.presets.recommended },
+  { label: '3L', value: 3000, desc: WaterModule.dailyGoal.presets.athlete },
+  { label: '3.5L', value: 3500, desc: WaterModule.dailyGoal.presets.hotClimate },
 ];
 
 export default function WaterSettingsScreen() {
@@ -37,29 +45,57 @@ export default function WaterSettingsScreen() {
   const [largeGlass, setLargeGlass] = useState(String(waterLargeGlassMl));
   const [bottle, setBottle] = useState(String(waterBottleMl));
   const [error, setError] = useState<string | null>(null);
+  const [glassError, setGlassError] = useState<string | null>(null);
+  const [largeGlassError, setLargeGlassError] = useState<string | null>(null);
+  const [bottleError, setBottleError] = useState<string | null>(null);
+
+  const goalNumber = useMemo(() => parseInt(goal, 10) || 0, [goal]);
+  const glassNumber = useMemo(() => parseInt(glass, 10) || 0, [glass]);
+  const largeGlassNumber = useMemo(() => parseInt(largeGlass, 10) || 0, [largeGlass]);
+  const bottleNumber = useMemo(() => parseInt(bottle, 10) || 0, [bottle]);
+
+  const resetContainers = () => {
+    setGlass(String(WATER_DEFAULT_GLASS_ML));
+    setLargeGlass(String(WATER_DEFAULT_LARGE_GLASS_ML));
+    setBottle(String(WATER_DEFAULT_BOTTLE_ML));
+    setGlassError(null);
+    setLargeGlassError(null);
+    setBottleError(null);
+  };
 
   const handleSave = async () => {
-    const ml = parseInt(goal, 10);
-    const err = validateWaterGoal(ml);
-    if (err) {
-      setError(err);
+    const nextGoalError = validateWaterGoal(goalNumber);
+    const nextGlassError = validateWaterContainerAmount('glass', glassNumber);
+    const nextLargeGlassError = validateWaterContainerAmount('largeGlass', largeGlassNumber);
+    const nextBottleError = validateWaterContainerAmount('bottle', bottleNumber);
+
+    setError(nextGoalError);
+    setGlassError(nextGlassError);
+    setLargeGlassError(nextLargeGlassError);
+    setBottleError(nextBottleError);
+
+    if (nextGoalError || nextGlassError || nextLargeGlassError || nextBottleError) {
       return;
     }
 
-    setError(null);
-    setWaterGlassMl(parseInt(glass, 10) || waterGlassMl);
-    setWaterLargeGlassMl(parseInt(largeGlass, 10) || waterLargeGlassMl);
-    setWaterBottleMl(parseInt(bottle, 10) || waterBottleMl);
-    const ok = await updateUserProfile({ water_goal_ml: ml });
-    if (ok) router.back();
+    setWaterGlassMl(glassNumber);
+    setWaterLargeGlassMl(largeGlassNumber);
+    setWaterBottleMl(bottleNumber);
+
+    const ok = await updateUserProfile({ water_goal_ml: goalNumber });
+    if (ok) {
+      router.back();
+    }
   };
 
   return (
     <SafeScreen scrollable>
-      <Header eyebrow="Ajustes" title="Agua" showBack color={Colors.water} />
+      <Header eyebrow={WaterModule.header.eyebrow} title={WaterModule.header.title} showBack color={Colors.water} />
 
-      <Text style={styles.sectionTitle}>Meta diaria</Text>
-      <Text style={styles.sectionSub}>Elige una base realista y deja que la app la ajuste según el contexto.</Text>
+      <Text style={styles.sectionTitle}>{WaterModule.dailyGoal.title}</Text>
+      <Text style={styles.sectionSub}>
+        {WaterModule.dailyGoal.description}
+      </Text>
 
       <View style={styles.presets}>
         {PRESET_GOALS.map((preset) => (
@@ -67,12 +103,12 @@ export default function WaterSettingsScreen() {
             key={preset.value}
             onPress={() => setGoal(preset.value.toString())}
             style={
-              parseInt(goal, 10) === preset.value
+              goalNumber === preset.value
                 ? [styles.presetCard, { borderColor: Colors.water, backgroundColor: `${Colors.water}12` }]
                 : styles.presetCard
             }
           >
-            <Text style={[styles.presetLabel, parseInt(goal, 10) === preset.value && { color: Colors.water }]}>
+            <Text style={[styles.presetLabel, goalNumber === preset.value && { color: Colors.water }]}>
               {preset.label}
             </Text>
             <Text style={styles.presetDesc}>{preset.desc}</Text>
@@ -81,64 +117,88 @@ export default function WaterSettingsScreen() {
       </View>
 
       <Input
-        label="Meta personalizada"
+        label={WaterModule.dailyGoal.customLabel}
         value={goal}
         onChangeText={setGoal}
         keyboardType="numeric"
-        unit="ml"
+        unit={WaterModule.dailyGoal.unit}
         error={error}
-        hint="Entre 500ml y 10.000ml"
+        hint={WaterModule.dailyGoal.customHint}
         style={styles.input}
       />
 
       <Card style={styles.infoCard}>
-        <Text style={styles.infoEmoji}>Ajuste</Text>
+        <Text style={styles.infoEmoji}>{WaterModule.infoCard.eyebrow}</Text>
         <Text style={styles.infoText}>
-          VYRA puede subir tu meta si hace calor, si estás en ayuno o si el día viene con mucha actividad.
+          {WaterModule.infoCard.body}
         </Text>
       </Card>
 
-      <Text style={styles.sectionTitle}>Objetos rápidos</Text>
-      <Text style={styles.sectionSub}>Ajusta una vez cuánto hay en tus recipientes reales.</Text>
+      <View style={styles.sectionHeaderRow}>
+        <View style={styles.sectionHeaderCopy}>
+          <Text style={styles.sectionTitle}>{WaterModule.containers.title}</Text>
+          <Text style={styles.sectionSub}>
+            {WaterModule.containers.description}
+          </Text>
+        </View>
+        <Pressable
+          onPress={resetContainers}
+          accessibilityRole="button"
+          accessibilityLabel={WaterModule.containers.resetA11y}
+          hitSlop={8}
+        >
+          <Text style={styles.sectionLink}>{WaterModule.containers.resetLabel}</Text>
+        </Pressable>
+      </View>
 
       <Input
-        label="Un vaso"
+        label={WaterModule.containers.glass}
         value={glass}
         onChangeText={setGlass}
         keyboardType="numeric"
-        unit="ml"
+        unit={WaterModule.dailyGoal.unit}
+        error={glassError}
+        hint={getWaterContainerHint('glass')}
         style={styles.input}
       />
       <Input
-        label="Vaso grande"
+        label={WaterModule.containers.largeGlass}
         value={largeGlass}
         onChangeText={setLargeGlass}
         keyboardType="numeric"
-        unit="ml"
+        unit={WaterModule.dailyGoal.unit}
+        error={largeGlassError}
+        hint={getWaterContainerHint('largeGlass')}
         style={styles.input}
       />
       <Input
-        label="Botella"
+        label={WaterModule.containers.bottle}
         value={bottle}
         onChangeText={setBottle}
         keyboardType="numeric"
-        unit="ml"
+        unit={WaterModule.dailyGoal.unit}
+        error={bottleError}
+        hint={getWaterContainerHint('bottle')}
         style={styles.input}
       />
 
       <Card style={styles.infoCard}>
-        <Text style={styles.infoEmoji}>Aviso</Text>
+        <Text style={styles.infoEmoji}>{WaterModule.warningCard.eyebrow}</Text>
         <Text style={styles.infoText}>
-          Los recordatorios viven en notificaciones generales. Desde aquí solo dejas afinada la parte operativa.
+          {WaterModule.warningCard.body}
         </Text>
       </Card>
 
-      <Button onPress={() => router.push(Routes.settings.notificationsSettings as never)} variant="secondary" fullWidth color={Colors.water}>
-        Abrir notificaciones
+      <Button onPress={() => router.push(Routes.settings.notificationsSettings)} variant="secondary" fullWidth color={Colors.water}>
+        {WaterModule.buttons.openNotifications}
+      </Button>
+
+      <Button onPress={() => router.push(Routes.settings.appearance)} variant="ghost" fullWidth color={Colors.water}>
+        {WaterModule.buttons.changeUnits}
       </Button>
 
       <Button onPress={handleSave} variant="primary" fullWidth size="lg" loading={isLoading} style={styles.cta}>
-        Guardar ajustes
+        {WaterModule.buttons.save}
       </Button>
     </SafeScreen>
   );
@@ -158,6 +218,21 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: Spacing[4],
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  sectionHeaderCopy: {
+    flex: 1,
+  },
+  sectionLink: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.water,
+    marginTop: Spacing[1],
+  },
   presets: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -165,7 +240,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing[5],
   },
   presetCard: {
-    width: '30%',
+    flexGrow: 1,
+    flexBasis: '30%',
+    minWidth: 96,
     alignItems: 'center',
     paddingVertical: Spacing[3],
   },
@@ -188,7 +265,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing[3],
     alignItems: 'flex-start',
-    backgroundColor: Colors.infoBg,
+    backgroundColor: Colors.info,
     borderColor: `${Colors.info}33`,
     marginBottom: Spacing[4],
   },

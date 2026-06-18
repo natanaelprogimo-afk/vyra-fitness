@@ -1,32 +1,36 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Modal, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { triggerImpactHaptic, triggerNotificationHaptic } from '@/lib/haptics';
 
-const DEFAULT_REST = 90;
 const RADIUS = 80;
 
 interface RestTimerModalProps {
   visible: boolean;
   onClose: () => void;
-  defaultSeconds?: number;
+  secondsLeft: number;
+  totalSeconds: number;
+  onAdjust: (deltaSeconds: number) => void;
   alertMode?: 'soft' | 'strong' | 'sound' | 'silent';
 }
 
 export function RestTimerModal({
   visible,
   onClose,
-  defaultSeconds = DEFAULT_REST,
+  secondsLeft,
+  totalSeconds,
+  onAdjust,
   alertMode = 'soft',
 }: RestTimerModalProps) {
-  const [timeLeft, setTimeLeft] = useState(defaultSeconds);
-  const [total, setTotal] = useState(defaultSeconds);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSecondRef = useRef<number | null>(null);
+  const finishAlertSentRef = useRef(false);
 
   const circumference = 2 * Math.PI * RADIUS;
-  const progress = total > 0 ? 1 - timeLeft / total : 0;
+  const safeTotal = Math.max(1, totalSeconds);
+  const safeSecondsLeft = Math.max(0, secondsLeft);
+  const progress = safeTotal > 0 ? 1 - safeSecondsLeft / safeTotal : 0;
   const strokeDashoffset = circumference * (1 - progress);
 
   async function triggerFinishAlert() {
@@ -48,37 +52,28 @@ export function RestTimerModal({
   }
 
   useEffect(() => {
-    if (visible) {
-      setTimeLeft(defaultSeconds);
-      setTotal(defaultSeconds);
-      intervalRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            void triggerFinishAlert();
-            return 0;
-          }
-
-          if (prev <= 4 && alertMode !== 'silent') {
-            void triggerImpactHaptic('light');
-          }
-
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+    if (!visible) {
+      lastSecondRef.current = null;
+      finishAlertSentRef.current = false;
+      return;
     }
 
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [alertMode, defaultSeconds, visible]);
+    if (safeSecondsLeft <= 0) {
+      if (!finishAlertSentRef.current) {
+        finishAlertSentRef.current = true;
+        void triggerFinishAlert();
+      }
+      lastSecondRef.current = 0;
+      return;
+    }
 
-  function adjust(delta: number) {
-    setTimeLeft((prev) => Math.max(5, Math.min(300, prev + delta)));
-    setTotal((prev) => Math.max(5, Math.min(300, prev + delta)));
-  }
+    if (safeSecondsLeft <= 4 && lastSecondRef.current !== safeSecondsLeft && alertMode !== 'silent') {
+      void triggerImpactHaptic('light');
+    }
+
+    finishAlertSentRef.current = false;
+    lastSecondRef.current = safeSecondsLeft;
+  }, [alertMode, safeSecondsLeft, visible]);
 
   function formatTime(value: number) {
     return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
@@ -96,7 +91,7 @@ export function RestTimerModal({
                 cx={100}
                 cy={100}
                 r={RADIUS}
-                stroke={Colors.bgElevated}
+                stroke={Colors.elevated}
                 strokeWidth={12}
                 fill="none"
               />
@@ -118,9 +113,9 @@ export function RestTimerModal({
             <View
               style={styles.circleCenter}
               accessible
-              accessibilityLabel={`Quedan ${timeLeft} segundos de descanso`}
+              accessibilityLabel={`Quedan ${safeSecondsLeft} segundos de descanso`}
             >
-              <Text style={styles.timeText}>{formatTime(timeLeft)}</Text>
+              <Text style={styles.timeText}>{formatTime(safeSecondsLeft)}</Text>
               <Text style={styles.timeLabel}>restantes</Text>
             </View>
           </View>
@@ -128,7 +123,7 @@ export function RestTimerModal({
           <View style={styles.controls}>
             <Pressable
               style={styles.adjustBtn}
-              onPress={() => adjust(-15)}
+              onPress={() => onAdjust(-15)}
               accessibilityRole="button"
               accessibilityLabel="Restar 15 segundos"
             >
@@ -146,7 +141,7 @@ export function RestTimerModal({
 
             <Pressable
               style={styles.adjustBtn}
-              onPress={() => adjust(15)}
+              onPress={() => onAdjust(15)}
               accessibilityRole="button"
               accessibilityLabel="Sumar 15 segundos"
             >
@@ -154,7 +149,7 @@ export function RestTimerModal({
             </Pressable>
           </View>
 
-          {timeLeft === 0 ? (
+          {safeSecondsLeft === 0 ? (
             <Pressable
               style={styles.goBtn}
               onPress={onClose}
@@ -217,7 +212,7 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   adjustBtn: {
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing[4],
     paddingVertical: Spacing[3],
@@ -249,3 +244,4 @@ const styles = StyleSheet.create({
 });
 
 export default RestTimerModal;
+

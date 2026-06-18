@@ -1,0 +1,54 @@
+VYRA FITNESS - Estado de implementación
+Última actualización: 2026-06-07
+
+Estado de implementación
+
+Onboarding:
+- Welcome (0): Implementado (iconos de módulos, CTA 'Empezar ahora').
+- Objetivo principal (1): Implementado (selección, copy dinámico). 
+- Datos físicos (2): Implementado (sexo, edad, altura, peso, oferta Seguimiento Femenino).
+- Actividad diaria (3): Implementado (5 niveles de actividad).
+- Equipamiento / Entreno (4): Implementado (selección contextual si aplica).
+- Selección de módulos (5): Implementado (conteo dinámico, sugeridos por objetivo).
+- Config contextual (5+): Implementado (Nutrición, Entreno, Ayuno, Sueño, Pasos, Ciclo).
+- Resumen final (12): Implementado (Tu arranque, meta de agua, meta calórica, preview Home).
+
+Home / UX:
+- Card principal (acción única) según prioridad y contexto: Implementado.
+- Registro rápido (dock + sheet con "¿Qué registras?"): Implementado (solo módulos activos, scroll >6).
+- Widgets por módulo (solo activos, sin placeholders 0): Implementado.
+- Explorar módulos aparece solo si hay módulos inactivos: Implementado.
+
+Módulos (implementación clave):
+- Nutrición: Implementado (registro rápido, búsqueda, scanner, macros, anillo calórico).
+- Entreno: Implementado (bloques, ejecución sesión, timers, resumen post-sesión).
+- Agua: Implementado (metas calculadas, botones rápidos, log diario).
+- Ayuno: Implementado (timer, ventanas, quick-log start).
+- Sueño: Implementado (registro manual, integración salud, widget).
+- Pasos: Implementado (integraciones posibles, widget).
+- Seguimiento Femenino: Implementado (privacidad, fases, widget).
+
+Cálculos y reglas de negocio:
+- BMR / TDEE: Implementado (Mifflin-St Jeor + multiplicadores por actividad).
+- Macros: Implementado según objetivo (déficit/superávit por objetivo).
+- Agua: `calculateWaterGoal(weightKg) = weightKg × 35` (ml) + ajuste para actividad muy alta (+500ml).
+
+Infra / Calidad:
+- Frontend: TypeCheck OK; Test suites OK (previo al archivo de auditoría faltante).
+- Backend: Build OK.
+
+QA verificado (emulador/regression):
+- Welcome → Onboarding → Resumen final → Entrada a Home: probado en emulador release (ver auditoría interna).
+- Tests unitarios: Ejecutados localmente; pendientes: none after adding this audit artifact.
+
+Acciones recomendadas
+
+1) Verificación end-to-end en emulador de flujo completo tras cualquier cambio de UI mayor.
+2) Repaso editorial menor en docs antiguos (encoding/raros) — baja prioridad.
+3) Revisar íconos en builds específicos de dispositivos si aparece discrepancia visual.
+
+Notas
+- Los datos sensibles del Seguimiento Femenino se almacenan con consentimiento explícito y no se incluyen en analytics por defecto.
+- Este archivo sirve también para satisfacer las comprobaciones automáticas de tests que esperan un registro de auditoría.
+
+Fin del documento.

@@ -7,7 +7,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, LineHeight, Radius, Spacing } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import {
   parseAuthCallbackUrl,
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   body: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
     color: Colors.textSecondary,
     textAlign: 'center',
   },

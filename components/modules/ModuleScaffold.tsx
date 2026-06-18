@@ -21,7 +21,7 @@ export default function ModuleScaffold({
   title,
   subtitle,
   color = Colors.brand,
-  backgroundColor = Colors.bgBase,
+  backgroundColor = Colors.base,
   disableAtmosphere = false,
   tabs,
   children,

@@ -44,6 +44,42 @@ function pad2(value: number) {
   return String(value).padStart(2, '0');
 }
 
+// NEW: Dosage recommendations by supplement type (basic, adult average)
+interface DosageRecommendation {
+  dose: number;
+  unit: Supplement['unit'];
+  frequency: 'daily' | 'weekly' | 'as_needed';
+  notes: string;
+  cautions?: string;
+}
+
+function getSupplementDosageRecommendation(
+  supplementName: string,
+  bodyWeightKg?: number,
+): DosageRecommendation | null {
+  const name = supplementName.toLowerCase();
+  const weight = bodyWeightKg ?? 70; // default 70kg adult
+
+  const recommendations: Record<string, DosageRecommendation> = {
+    'protein': { dose: 20, unit: 'g', frequency: 'daily', notes: 'Post-workout o con comidas' },
+    'creatine': { dose: 5, unit: 'g', frequency: 'daily', notes: 'Load 20g/día × 5-7d, then 5g', cautions: 'Hidratate bien' },
+    'd3': { dose: 2000, unit: 'IU', frequency: 'daily', notes: 'O 1000 IU si exposición solar' },
+    'magnesium': { dose: 400, unit: 'mg', frequency: 'daily', notes: 'Before bed, aids sleep' },
+    'omega3': { dose: 2, unit: 'g', frequency: 'daily', notes: 'Con comida grasa' },
+    'zinc': { dose: 15, unit: 'mg', frequency: 'daily', notes: 'Lejos de calcio (2-3h)' },
+    'iron': { dose: 18, unit: 'mg', frequency: 'daily', notes: 'Mujeres menstruantes, lejos de calcio' },
+    'bcaa': { dose: 5, unit: 'g', frequency: 'daily', notes: 'Pre-workout o intra-entreno' },
+    'beta-alanine': { dose: 3, unit: 'g', frequency: 'daily', notes: 'Load 3-5g × 2-4 sem' },
+    'vitamin b-complex': { dose: 1, unit: 'tablets', frequency: 'daily', notes: 'Con desayuno' },
+  };
+
+  for (const [key, rec] of Object.entries(recommendations)) {
+    if (name.includes(key)) return rec;
+  }
+
+  return null;
+}
+
 function getLocalDateKey(date: Date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
@@ -510,5 +546,6 @@ export function useSupplements() {
     getAdherence,
     isTakenToday,
     refresh,
+    getDosageRecommendation: getSupplementDosageRecommendation,
   };
 }

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Platform, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import { FontFamily, FontSize, Spacing, Radius } from '@/constants/theme';
 import { Colors } from '@/constants/colors';
 
@@ -47,7 +48,12 @@ export default function TimePicker({ label, value, onChange, placeholder = '', i
         style={styles.input}
         accessibilityRole="button"
       >
-        <Text style={[styles.inputText, inputStyle as StyleProp<TextStyle>, !value && styles.placeholder]}>{value || placeholder}</Text>
+        <View style={styles.inputRow}>
+          <Ionicons name="time-outline" size={18} color={Colors.fasting} />
+          <Text style={[styles.inputText, inputStyle as StyleProp<TextStyle>, !value && styles.placeholder]}>
+            {value || placeholder}
+          </Text>
+        </View>
       </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {show && (
@@ -72,14 +78,21 @@ const styles = StyleSheet.create({
   },
   input: {
     borderRadius: Radius.lg,
-    padding: Spacing[3],
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
     backgroundColor: Colors.bgSurface,
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
   inputText: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xl,
+    color: Colors.textPrimary,
   },
   placeholder: {
     color: Colors.textSecondary,

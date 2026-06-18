@@ -1,0 +1,259 @@
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  View,
+  TextInput,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  StatusBar,
+  FlatList,
+} from 'react-native';
+import { Stack } from 'expo-router';
+import SafeScreen from '@/components/ui/SafeScreen';
+import { Colors } from '@/constants/colors';
+import { FontFamily, FontSize, Spacing, Radius } from '@/constants/theme';
+import { useNutrition } from '@/hooks/useNutrition';
+import { useFasting } from '@/hooks/useFasting';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+export default function NutritionLogScreen() {
+  const insets = useSafeAreaInsets();
+  const { addFood, recentFoods, favoritefoods } = useNutrition();
+  const { activeSession } = useFasting();
+
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const inputRef = useRef<TextInput>(null);
+
+  // Auto-focus search on mount
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
+  // Search foods
+  useEffect(() => {
+    if (search.trim().length < 1) {
+      setResults([]);
+      return;
+    }
+    // Mock search - in real app, call API
+    setResults([]);
+  }, [search]);
+
+  const renderSearchResult = ({ item }: any) => (
+    <Pressable
+      style={styles.resultItem}
+      onPress={() => addFood(item)}
+    >
+      <View>
+        <Text style={styles.resultName}>{item.name}</Text>
+        <Text style={styles.resultMeta}>{item.calories} cal</Text>
+      </View>
+    </Pressable>
+  );
+
+  const renderRecent = ({ item }: any) => (
+    <Pressable
+      style={styles.pillButton}
+      onPress={() => addFood(item)}
+    >
+      <Text style={styles.pillText} numberOfLines={1}>{item.name}</Text>
+    </Pressable>
+  );
+
+  return (
+    <SafeScreen padHorizontal={false} padBottom={false}>
+      <StatusBar barStyle="light-content" />
+      <Stack.Screen options={{ title: 'Registrar comida' }} />
+
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[3] }]}>
+        <View style={styles.searchBox}>
+          <TextInput
+            ref={inputRef}
+            placeholder="¿Qué comiste?"
+            placeholderTextColor={Colors.textTertiary}
+            value={search}
+            onChangeText={setSearch}
+            style={styles.searchInput}
+            selectionColor={Colors.primary}
+          />
+        </View>
+
+        {activeSession && (
+          <View style={styles.fastingAlert}>
+            <Text style={styles.fastingAlertText}>
+              Estás en fasting activo ({activeSession.label})
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {search.trim().length > 0 ? (
+        <FlatList
+          data={results}
+          renderItem={renderSearchResult}
+          keyExtractor={(item, idx) => `${item.id}-${idx}`}
+          contentContainerStyle={styles.resultsList}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Sin resultados</Text>
+            </View>
+          }
+        />
+      ) : (
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {recentFoods.length > 0 && (
+            <View>
+              <Text style={styles.sectionTitle}>Recientes</Text>
+              <FlatList
+                data={recentFoods}
+                renderItem={renderRecent}
+                keyExtractor={(item, idx) => `recent-${idx}`}
+                numColumns={3}
+                scrollEnabled={false}
+                columnWrapperStyle={styles.pillRow}
+              />
+            </View>
+          )}
+
+          {favoritefoods.length > 0 && (
+            <View style={{ marginTop: Spacing[4] }}>
+              <Text style={styles.sectionTitle}>Favoritos</Text>
+              <FlatList
+                data={favoritefoods}
+                renderItem={renderRecent}
+                keyExtractor={(item, idx) => `fav-${idx}`}
+                numColumns={3}
+                scrollEnabled={false}
+                columnWrapperStyle={styles.pillRow}
+              />
+            </View>
+          )}
+
+          <View style={styles.secondaryActions}>
+            <Pressable style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>📷 Cámara</Text>
+            </Pressable>
+            <Pressable style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>🎤 Voz</Text>
+            </Pressable>
+            <Pressable style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>📱 Código</Text>
+            </Pressable>
+            <Pressable style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>✍️ Manual</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      )}
+    </SafeScreen>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    paddingHorizontal: Spacing[4],
+    paddingBottom: Spacing[4],
+    gap: Spacing[3],
+  },
+  searchBox: {
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[3],
+    borderWidth: 1,
+    borderColor: Colors.borderColor,
+  },
+  searchInput: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: Colors.textPrimary,
+    paddingVertical: Spacing[3],
+  },
+  fastingAlert: {
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgb(255, 193, 7)',
+  },
+  fastingAlertText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: 'rgb(255, 193, 7)',
+  },
+  resultsList: {
+    paddingHorizontal: Spacing[4],
+  },
+  resultItem: {
+    paddingVertical: Spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderColor,
+  },
+  resultName: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textPrimary,
+  },
+  resultMeta: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textSecondary,
+    marginTop: Spacing[1],
+  },
+  empty: {
+    paddingVertical: 60,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.regular,
+    color: Colors.textTertiary,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[4],
+  },
+  sectionTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing[2],
+  },
+  pillRow: {
+    gap: Spacing[2],
+    marginBottom: Spacing[2],
+  },
+  pillButton: {
+    flex: 1,
+    backgroundColor: Colors.bgElevated,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.borderColor,
+  },
+  pillText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  secondaryActions: {
+    marginTop: Spacing[6],
+    gap: Spacing[2],
+  },
+  actionButton: {
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderColor,
+  },
+  actionButtonText: {
+    fontSize: FontSize.base,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textPrimary,
+  },
+});

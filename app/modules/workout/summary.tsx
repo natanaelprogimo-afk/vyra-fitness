@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import RewardedUnlockCard from '@/components/ads/RewardedUnlockCard';
 import AnimatedNumber from '@/components/ui/AnimatedNumber';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import SafeScreen from '@/components/ui/SafeScreen';
 import MuscleSilhouette from '@/components/workout/MuscleSilhouette';
-import { preloadPlacement, showRewardedPlacement } from '@/lib/ads/runtime';
 import { buildWorkoutShareSvg, writeWorkoutShareSvgFile } from '@/lib/workout-share-image';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { useUIStore } from '@/stores/uiStore';
 import { useWorkout } from '@/hooks/useWorkout';
 import { formatDuration } from '@/utils/formatters';
 
@@ -74,10 +71,45 @@ function buildComparison(currentVolume: number, previousVolume: number | null) {
   return `${deltaPct > 0 ? '+' : ''}${deltaPct}% vs tu ultima sesion.`;
 }
 
+function buildCooldownPlan(muscleCounts: Record<string, number>) {
+  const topFocus = Object.entries(muscleCounts)
+    .sort((left, right) => right[1] - left[1])
+    .map(([key]) => key)[0] ?? 'full';
+
+  if (topFocus === 'legs') {
+    return {
+      title: 'Cierre para piernas',
+      body: 'Tres minutos para bajar pulsaciones y soltar cadera, glúteos y gemelos antes de seguir el día.',
+      moves: ['Estiramiento de flexor de cadera · 45s por lado', 'Glúteo sentado · 45s por lado', 'Gemelo en pared · 45s por lado'],
+    };
+  }
+
+  if (topFocus === 'back' || topFocus === 'shoulders') {
+    return {
+      title: 'Cierre para espalda y hombros',
+      body: 'Vale la pena salir con hombros más sueltos y respiración más baja para que la sesión cierre mejor.',
+      moves: ['Child pose con alcance lateral · 60s', 'Apertura de pecho en marco de puerta · 45s por lado', 'Respiración nasal + brazos arriba · 60s'],
+    };
+  }
+
+  if (topFocus === 'chest' || topFocus === 'arms') {
+    return {
+      title: 'Cierre para empuje',
+      body: 'Afloja pecho, bíceps y tríceps para que la tensión no se quede prendida después del bloque.',
+      moves: ['Apertura de pecho en pared · 45s por lado', 'Estiramiento de tríceps arriba · 45s por lado', 'Respiración larga tumbado · 60s'],
+    };
+  }
+
+  return {
+    title: 'Cool-down corto',
+    body: 'Un cierre breve sigue sumando: baja revoluciones, respira y deja que la recuperación arranque antes.',
+    moves: ['Respiración nasal lenta · 60s', 'Movilidad torácica suave · 60s', 'Estiramiento global de cadena posterior · 60s'],
+  };
+}
+
 export default function WorkoutDoneScreen() {
   const [isSharing, setIsSharing] = useState(false);
-  const [isUnlockingInsights, setIsUnlockingInsights] = useState(false);
-  const [extendedInsightsUnlocked, setExtendedInsightsUnlocked] = useState(false);
+  const extendedInsightsUnlocked = true;
   const params = useLocalSearchParams<{
     sessionId?: string;
     duration?: string;
@@ -87,7 +119,6 @@ export default function WorkoutDoneScreen() {
     name?: string;
   }>();
   const profile = useAuthStore((state) => state.profile);
-  const showToast = useUIStore((state) => state.showToast);
   const {
     history,
     exercises,
@@ -104,6 +135,11 @@ export default function WorkoutDoneScreen() {
   const name = typeof params.name === 'string' ? params.name : 'Entrenamiento';
   const detail = sessionId ? getSessionDetail(sessionId) : null;
   const activeProgram = getActiveProgram();
+  const programHistory = useMemo(() => {
+    if (!activeProgram) return [];
+    const routineIds = new Set(activeProgram.routine_ids);
+    return history.filter((entry) => entry.routine_id && routineIds.has(entry.routine_id));
+  }, [activeProgram, history]);
   const streak = Number(profile?.current_streak ?? profile?.streak ?? getConsistencyStats().currentStreak ?? 0);
   const freezeUsedYesterday = wasFreezeUsedYesterday(profile?.streak_freeze_last_used_at ?? null);
   const previousSession = history.find((entry) => entry.id !== sessionId) ?? null;
@@ -130,20 +166,22 @@ export default function WorkoutDoneScreen() {
     ? Math.max(1, (activeProgram.days_per_week || 4) * (activeProgram.duration_weeks || 4))
     : null;
   const completedProgramSessions = totalProgramSessions
-    ? Math.min(totalProgramSessions, history.length)
+    ? Math.min(totalProgramSessions, programHistory.length)
     : null;
   const programProgressPct = totalProgramSessions && completedProgramSessions !== null
     ? Math.min(100, Math.round((completedProgramSessions / totalProgramSessions) * 100))
     : null;
   const programDayLabel = completedProgramSessions && totalProgramSessions
-    ? `Dia ${completedProgramSessions} de ${totalProgramSessions}`
+    ? `Día ${completedProgramSessions} de ${totalProgramSessions}`
     : null;
   const xpEarned = Math.min(150, 25 + sets * 2 + prs * 10);
 
   const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const isHardestSessionThisWeek = history
-    .filter((entry) => new Date(entry.started_at).getTime() >= weekCutoff)
-    .every((entry) => entry.id === sessionId || Number(entry.total_volume_kg ?? 0) <= totalVolume);
+  const weekSessions = history.filter((entry) => new Date(entry.started_at).getTime() >= weekCutoff);
+  const otherWeekSessions = weekSessions.filter((entry) => entry.id !== sessionId);
+  const isHardestSessionThisWeek =
+    otherWeekSessions.length > 0 &&
+    otherWeekSessions.every((entry) => Number(entry.total_volume_kg ?? 0) <= totalVolume);
 
   const headerTitle = activeProgram && programDayLabel ? `${programDayLabel} completado` : 'Sesion completada';
   const headerSubtitle = freezeUsedYesterday
@@ -167,15 +205,10 @@ export default function WorkoutDoneScreen() {
     if (comparisonText) items.push(`Comparacion de carga: ${comparisonText}`);
     if (totalVolume > 0) items.push(`Volumen total registrado: ${Math.round(totalVolume).toLocaleString('es-UY')} kg.`);
     if (muscleLabels.length) items.push(`Musculos mas trabajados: ${muscleLabels.join(', ')}.`);
-    if (streak > 0) items.push(`Racha actual despues de esta sesion: ${streak} dia${streak === 1 ? '' : 's'}.`);
+    if (streak > 0) items.push(`Racha actual después de esta sesión: ${streak} día${streak === 1 ? '' : 's'}.`);
     return items;
   }, [comparisonText, muscleLabels, streak, totalVolume]);
-
-  useEffect(() => {
-    void preloadPlacement('workout_summary_extended').catch((e) => {
-      console.debug?.('[workout/summary] preloadPlacement failed', e);
-    });
-  }, []);
+  const cooldownPlan = useMemo(() => buildCooldownPlan(muscleCounts), [muscleCounts]);
 
   const handleShare = useCallback(async () => {
     const userName = profile?.name?.trim() || 'Usuario';
@@ -219,41 +252,12 @@ export default function WorkoutDoneScreen() {
 
       await Share.share({
         title: 'Compartir imagen',
-        message: `${name}\n${formatDuration(duration)} | ${sets} series | ${estimatedCalories} kcal\nRacha actual: ${streak} dia${streak === 1 ? '' : 's'}\nVYRA`,
+        message: `${name}\n${formatDuration(duration)} | ${sets} series | ${estimatedCalories} kcal\nRacha actual: ${streak} día${streak === 1 ? '' : 's'}\nVYRA`,
       });
     } finally {
       setIsSharing(false);
     }
   }, [comparisonText, duration, estimatedCalories, headerSubtitle, headerTitle, muscleLabels, name, profile?.name, programDayLabel, prs, sets, streak, totalVolume]);
-
-  const handleUnlockInsights = useCallback(async () => {
-    setIsUnlockingInsights(true);
-
-    try {
-      const outcome = await showRewardedPlacement('workout_summary_extended');
-      if (!outcome.shown) {
-        if (outcome.reason === 'capped') {
-          showToast('Ya viste varios extras hoy. Vuelve mas tarde para otro analisis.', 'info');
-          return;
-        }
-
-        showToast('El video recompensado no esta listo todavia. Intenta de nuevo en un momento.', 'error');
-        return;
-      }
-
-      if (!outcome.result.completed) {
-        showToast('Necesitas ver el video completo para desbloquear el analisis.', 'info');
-        return;
-      }
-
-      setExtendedInsightsUnlocked(true);
-      showToast('Analisis extendido desbloqueado.', 'success');
-    } catch {
-      showToast('No pudimos abrir el video recompensado ahora mismo.', 'error');
-    } finally {
-      setIsUnlockingInsights(false);
-    }
-  }, [showToast]);
 
   const handlePrimaryAction = () => {
     if (activeProgram) {
@@ -333,24 +337,11 @@ export default function WorkoutDoneScreen() {
           <View style={styles.streakRow}>
             <View>
               <Text style={styles.cardTitle}>Gamificacion</Text>
-              <Text style={styles.streakValue}>+{xpEarned} XP · Racha {streak} dia{streak === 1 ? '' : 's'}</Text>
+              <Text style={styles.streakValue}>+{xpEarned} XP · Racha {streak} día{streak === 1 ? '' : 's'}</Text>
             </View>
-            <Ionicons name="flame-outline" size={20} color={Colors.action} />
+            <Ionicons name="flame-outline" size={20} color={Colors.secondary} />
           </View>
         </Card>
-
-        {!extendedInsightsUnlocked ? (
-          <RewardedUnlockCard
-            title="Desbloquea el analisis extendido ahora"
-            body="Acabas de terminar. Mira el video recompensado ahora y abrimos la lectura fina de carga, PRs y foco muscular."
-            buttonLabel="Ver recompensa"
-            loading={isUnlockingInsights}
-            accent={Colors.workout}
-            onPress={() => {
-              void handleUnlockInsights();
-            }}
-          />
-        ) : null}
 
         <Card style={styles.insightsCard} shadow={false}>
           <Text style={styles.cardTitle}>Lo importante de hoy</Text>
@@ -372,7 +363,13 @@ export default function WorkoutDoneScreen() {
 
         <Card style={styles.silhouetteCard} shadow={false}>
           <Text style={styles.cardTitle}>Mapa muscular</Text>
-          <MuscleSilhouette counts={muscleCounts} musclesWorked={detail?.session?.muscles_worked ?? []} width={260} height={170} />
+          <MuscleSilhouette
+            counts={muscleCounts}
+            musclesWorked={detail?.session?.muscles_worked ?? []}
+            width={260}
+            height={170}
+            showSummary={false}
+          />
           {muscleLabels.length ? (
             <View style={styles.muscleRow}>
               {muscleLabels.map((label) => (
@@ -382,6 +379,20 @@ export default function WorkoutDoneScreen() {
               ))}
             </View>
           ) : null}
+        </Card>
+
+        <Card style={styles.cooldownCard} shadow={false}>
+          <Text style={styles.cooldownEyebrow}>Cierre sugerido · 3 min</Text>
+          <Text style={styles.cardTitle}>{cooldownPlan.title}</Text>
+          <Text style={styles.cooldownBody}>{cooldownPlan.body}</Text>
+          <View style={styles.cooldownList}>
+            {cooldownPlan.moves.map((move) => (
+              <View key={move} style={styles.insightRow}>
+                <View style={styles.insightDot} />
+                <Text style={styles.insightText}>{move}</Text>
+              </View>
+            ))}
+          </View>
         </Card>
 
         {extendedInsightsUnlocked ? (
@@ -471,7 +482,7 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.xs,
-    color: Colors.action,
+    color: Colors.secondary,
     textTransform: 'uppercase',
     letterSpacing: 1.3,
   },
@@ -643,6 +654,28 @@ const styles = StyleSheet.create({
   silhouetteCard: {
     gap: Spacing[3],
     alignItems: 'center',
+  },
+  cooldownCard: {
+    gap: Spacing[3],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.workout, 0.18),
+    backgroundColor: withOpacity(Colors.workout, 0.06),
+  },
+  cooldownEyebrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: Colors.workout,
+  },
+  cooldownBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  cooldownList: {
+    gap: Spacing[2],
   },
   muscleRow: {
     flexDirection: 'row',

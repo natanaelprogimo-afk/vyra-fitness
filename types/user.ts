@@ -25,21 +25,32 @@ export interface OnboardingData {
   name: string;
   age: number;
   goal: PrimaryGoal;
+  goal_detail?: string;
   gender: Gender;
   height_cm: number;
   weight_start_kg: number;
+  weight_current_kg?: number;
   weight_goal_kg?: number;
+  body_fat_current_pct?: number | null;
   activity_level: ActivityLevel;
   water_goal_ml: number;
   step_goal: number;
   sleep_goal_hours?: number;
+  nutrition_pattern?: string | null;
   equipment?: string;
+  equipment_inventory?: string[];
+  workout_limitations?: string[];
   active_modules?: string[];
   wake_time_minutes?: number;
   sleep_time_minutes?: number;
   fasting_protocol?: string | null;
+  female_health_enabled?: boolean;
+  female_onboarding_completed?: boolean;
+  female_cycle_length?: number | null;
+  female_last_period_date?: string | null;
   context_display_name?: string | null;
   notifications_permission_state?: 'granted' | 'denied' | 'skipped';
+  health_connect_enabled?: boolean;
   terms_accepted: boolean;
   privacy_accepted: boolean;
 }
@@ -91,6 +102,7 @@ export interface UserProfile {
   referral_code?: string | null;
   founding_member?: boolean;
   founding_member_rank?: number | null;
+  premium_until?: string | null;
 
   streak: number;
   best_streak: number;
@@ -328,46 +340,6 @@ export interface DailyScore {
   mental_pct: number;
 }
 
-// ─── GAMIFICACIÓN ────────────────────────────────────────────────────────────
-
-export type CoinTransactionType =
-  | 'earn_water'
-  | 'earn_steps'
-  | 'earn_sleep'
-  | 'earn_nutrition'
-  | 'earn_workout'
-  | 'earn_fasting'
-  | 'earn_mental'
-  | 'earn_daily_score'
-  | 'earn_streak_milestone'
-  | 'earn_badge'
-  | 'earn_ad_reward'
-  | 'earn_onboarding'
-  | 'earn_referral'
-  | 'spend_store';
-
-export interface CoinTransaction {
-  id: string;
-  user_id: string;
-  amount: number; // positivo = ganó, negativo = gastó
-  type: CoinTransactionType;
-  description: string;
-  reference_id: string | null;
-  created_at: string;
-}
-
-export type BadgeRarity = 'common' | 'rare' | 'epic' | 'legendary';
-
-export interface Achievement {
-  id: string;
-  user_id: string;
-  badge_id: string;
-  unlocked_at: string;
-  coins_earned: number;
-}
-
-// ─── SUSCRIPCIÓN ─────────────────────────────────────────────────────────────
-
 // ─── CICLO FEMENINO ──────────────────────────────────────────────────────────
 
 export type CyclePhase = 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
@@ -390,7 +362,5 @@ export interface FirstWeekTask {
   title: string;
   description: string;
   action: string;      // ruta Expo Router
-  coinReward: number;
-  xpReward: number;
   completed: boolean;
 }

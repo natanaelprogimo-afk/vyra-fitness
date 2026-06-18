@@ -6,16 +6,17 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Header } from '@/components/layout/Header';
-import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import Skeleton from '@/components/ui/Skeleton';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Spacing, Radius, FontFamily } from '@/constants/theme';
+import { SupplementFrequencyLabels, SupplementTimeSlots } from '@/constants/strings';
 import { useSupplements, type Supplement } from '@/hooks/useSupplements';
 import { useNutrition } from '@/hooks/useNutrition';
 import { triggerImpactHaptic } from '@/lib/haptics';
@@ -25,6 +26,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { AddSupplementSheet } from './components/AddSupplementSheet';
 
+const SUPPLEMENTS_ACCENT = Colors.supplements;
+
 const UNIT_LABELS: Record<string, string> = {
   mg: 'mg',
   g: 'g',
@@ -33,12 +36,6 @@ const UNIT_LABELS: Record<string, string> = {
   IU: 'UI',
   tablets: 'tabs.',
   scoops: 'scoops',
-};
-
-const FREQ_LABELS: Record<string, string> = {
-  daily: 'Diario',
-  weekly: 'Semanal',
-  as_needed: 'Según necesidad',
 };
 
 type WeeklyMatrix = Record<string, Record<string, 'taken' | 'missed' | 'na'>>;
@@ -67,17 +64,11 @@ function buildLast7Days() {
 }
 
 function getSlot(time: string | undefined) {
-  if (!time) return 'Sin horario';
+  if (!time) return SupplementTimeSlots.unscheduled;
   const hour = Number((time.split(':')[0] ?? '0').trim());
-  if (hour < 12) return 'Manana';
-  if (hour < 18) return 'Tarde';
-  return 'Noche';
-}
-
-function supplementCode(name: string) {
-  const cleaned = name.trim().split(' ').filter(Boolean);
-  if (cleaned.length === 1) return cleaned[0]!.slice(0, 2).toUpperCase();
-  return `${cleaned[0]![0] ?? ''}${cleaned[1]![0] ?? ''}`.toUpperCase();
+  if (hour < 12) return SupplementTimeSlots.morning;
+  if (hour < 18) return SupplementTimeSlots.afternoon;
+  return SupplementTimeSlots.evening;
 }
 
 function buildGroups(supplements: Supplement[]) {
@@ -93,7 +84,12 @@ function buildGroups(supplements: Supplement[]) {
     groups.set(slotLabel, list);
   });
 
-  return ['Manana', 'Tarde', 'Noche', 'Sin horario']
+  return [
+    SupplementTimeSlots.morning,
+    SupplementTimeSlots.afternoon,
+    SupplementTimeSlots.evening,
+    SupplementTimeSlots.unscheduled,
+  ]
     .map((label) => ({
       label,
       items: groups.get(label) ?? [],
@@ -103,10 +99,9 @@ function buildGroups(supplements: Supplement[]) {
 
 export default function SupplementsScreen() {
   const profile = useAuthStore((state) => state.profile);
-  const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.supplements));
-  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
   const {
     supplements,
+    todayLogs,
     loading,
     saving,
     markTaken,
@@ -160,10 +155,16 @@ export default function SupplementsScreen() {
       });
 
       const nextMatrix: WeeklyMatrix = {};
+      const todayKey = last7Days[last7Days.length - 1];
+      const takenToday = new Set(todayLogs.map((log) => log.supplement_id));
+
       supplements.forEach((supplement) => {
         nextMatrix[supplement.id] = {};
         last7Days.forEach((day) => {
-          const taken = takenMap.get(supplement.id)?.has(day) ?? false;
+          const taken =
+            day === todayKey
+              ? takenToday.has(supplement.id) || (takenMap.get(supplement.id)?.has(day) ?? false)
+              : (takenMap.get(supplement.id)?.has(day) ?? false);
           if (taken) {
             nextMatrix[supplement.id]![day] = 'taken';
           } else if (supplement.frequency === 'daily') {
@@ -180,9 +181,18 @@ export default function SupplementsScreen() {
     return () => {
       active = false;
     };
-  }, [last7Days, profile?.id, supplements]);
+  }, [last7Days, profile?.id, supplements, todayLogs]);
 
   const stackGroups = useMemo(() => buildGroups(supplements), [supplements]);
+  const todayTarget = totalDaily > 0 ? totalDaily : supplements.length;
+  const completionPct = Math.max(0, Math.min(100, Math.round((todayCount / Math.max(todayTarget, 1)) * 100)));
+  const nextPendingGroup = useMemo(
+    () => stackGroups.find((group) => group.items.some(({ supplement }) => !isTakenToday(supplement.id))) ?? stackGroups[0] ?? null,
+    [isTakenToday, stackGroups],
+  );
+  const nextPendingItem = nextPendingGroup?.items.find(({ supplement }) => !isTakenToday(supplement.id))
+    ?? nextPendingGroup?.items[0]
+    ?? null;
 
   const nutritionInsight = buildSupplementNutritionInsight({
     supplementCount: totalDaily,
@@ -205,26 +215,10 @@ export default function SupplementsScreen() {
     }
   };
 
-  if (!hasSeenIntro) {
-    return (
-      <SafeScreen padHorizontal={false} padBottom>
-        <Header title="Suplementos" showBack color={Colors.brand} />
-        <ModuleIntroScreen
-          accentColor={Colors.brand}
-          icon="Stack"
-          title="Suplementos"
-          body="Aqui ordenas tu stack, ves adherencia y mantienes avisos claros antes de empezar a tocar horarios o tomas."
-          ctaLabel="Ver mi stack"
-          onContinue={() => markModuleIntroSeen('supplements')}
-        />
-      </SafeScreen>
-    );
-  }
-
   if (loading) {
     return (
       <SafeScreen padHorizontal={false} padBottom>
-        <Header title="Suplementos" showBack color={Colors.brand} />
+        <Header title="Suplementos" showBack color={SUPPLEMENTS_ACCENT} />
         <ScrollView contentContainerStyle={styles.scroll}>
           <Skeleton height={80} style={styles.skeleton} />
           <Skeleton height={140} style={styles.skeleton} />
@@ -236,7 +230,7 @@ export default function SupplementsScreen() {
 
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Suplementos" showBack color={Colors.brand} />
+      <Header title="Suplementos" showBack color={SUPPLEMENTS_ACCENT} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {!supplementsDisclaimerAccepted ? (
@@ -248,7 +242,7 @@ export default function SupplementsScreen() {
             </Text>
             <Button
               onPress={() => setSupplementsDisclaimerAccepted(true)}
-              color={Colors.brand}
+              color={SUPPLEMENTS_ACCENT}
               fullWidth
             >
               Entendido, continuar
@@ -258,17 +252,29 @@ export default function SupplementsScreen() {
 
         {supplements.length > 0 ? (
           <Card style={styles.summaryCard}>
-            <Text style={styles.sectionTitle}>Stack de hoy</Text>
+            <View style={styles.summaryHeaderRow}>
+              <View>
+                <Text style={styles.summaryEyebrow}>Hoy</Text>
+                <Text style={styles.summaryTitle}>Que te toca tomar ahora</Text>
+              </View>
+              {dailyAdherenceStreak > 0 ? (
+                <View style={styles.streakBadge}>
+                  <Ionicons name="flame" size={12} color={SUPPLEMENTS_ACCENT} />
+                  <Text style={styles.streakBadgeText}>{dailyAdherenceStreak} d</Text>
+                </View>
+              ) : null}
+            </View>
+
             <View style={styles.summaryRow}>
               <View style={styles.summaryCircle}>
                 <Text style={styles.summaryNum}>{todayCount}</Text>
-                <Text style={styles.summaryDen}>/{Math.max(totalDaily, 1)}</Text>
+                <Text style={styles.summaryDen}>/{Math.max(todayTarget, 1)}</Text>
               </View>
               <View style={styles.summaryRight}>
                 <Text style={styles.summaryLabel}>
-                  {todayCount === totalDaily && totalDaily > 0
-                    ? 'Todo tomado hoy'
-                    : `Faltan ${Math.max(0, totalDaily - todayCount)} suplementos diarios`}
+                  {completionPct >= 100
+                    ? 'Todo tu stack del día está listo'
+                    : `Te faltan ${Math.max(0, todayTarget - todayCount)} tomas para cerrar el día`}
                 </Text>
                 <Text style={styles.summarySubLabel}>
                   {new Date().toLocaleDateString('es-UY', {
@@ -279,16 +285,33 @@ export default function SupplementsScreen() {
                 </Text>
               </View>
             </View>
-          </Card>
-        ) : null}
 
-        {dailyAdherenceStreak > 0 ? (
-          <Card style={styles.streakCard}>
-            <Text style={styles.streakTitle}>Racha de adherencia</Text>
-            <Text style={styles.streakValue}>{dailyAdherenceStreak} días</Text>
-            <Text style={styles.streakHint}>
-              Días seguidos tomando todo tu stack diario.
-            </Text>
+            <View style={styles.summaryProgressTrack}>
+              <View style={[styles.summaryProgressFill, { width: `${completionPct}%` }]} />
+            </View>
+
+            <View style={styles.summaryMetaRow}>
+              <View style={styles.summaryMetaPill}>
+                <Text style={styles.summaryMetaLabel}>Adherencia hoy</Text>
+                <Text style={styles.summaryMetaValue}>{completionPct}%</Text>
+              </View>
+              <View style={styles.summaryMetaPill}>
+                <Text style={styles.summaryMetaLabel}>Stack activo</Text>
+                <Text style={styles.summaryMetaValue}>{supplements.length} items</Text>
+              </View>
+            </View>
+
+            {nextPendingGroup ? (
+              <View style={styles.nextSlotCard}>
+                <Text style={styles.nextSlotEyebrow}>Próxima franja</Text>
+                <Text style={styles.nextSlotTitle}>{nextPendingGroup.label}</Text>
+                <Text style={styles.nextSlotBody}>
+                  {nextPendingItem
+                    ? `${nextPendingItem.supplement.name} · ${nextPendingItem.supplement.dose} ${UNIT_LABELS[nextPendingItem.supplement.unit]}${nextPendingItem.label && nextPendingItem.label !== 'Flexible' ? ` · ${nextPendingItem.label}` : ''}`
+                    : 'Todavía no hay tomas pendientes en esta franja.'}
+                </Text>
+              </View>
+            ) : null}
           </Card>
         ) : null}
 
@@ -300,28 +323,45 @@ export default function SupplementsScreen() {
         ))}
 
         <Card style={styles.stackCard}>
-          <Text style={styles.sectionTitle}>Stack visual</Text>
+          <Text style={styles.sectionTitle}>Por horario</Text>
+          <Text style={styles.sectionBody}>
+            Marca cada toma desde su franja real. Lo importante acá es saber qué sigue y qué ya quedó hecho.
+          </Text>
           {supplements.length === 0 ? (
             <EmptyState
-              icon="Pildoras"
+              emoji="💊"
               title="Sin suplementos"
               description="Agrega tu primer suplemento para ordenar tomas y adherencia."
-              ctaLabel="Agregar suplemento"
-              onCta={() => setShowAdd(true)}
+              compact
             />
           ) : (
             stackGroups.map((group) => (
-              <View key={group.label} style={styles.groupBlock}>
-                <Text style={styles.groupTitle}>
-                  {group.label}
-                  {group.items[0]?.label && group.items[0]?.label !== 'Flexible' ? ` (${group.items[0]!.label})` : ''}
-                </Text>
-                {group.items.map(({ supplement }) => {
+              <View key={group.label} style={styles.slotCard}>
+                <View style={styles.slotHeader}>
+                  <View style={styles.slotHeaderCopy}>
+                    <Text style={styles.groupTitle}>{group.label}</Text>
+                    <Text style={styles.slotHeaderHint}>
+                      {group.items[0]?.label && group.items[0]?.label !== 'Flexible'
+                        ? group.items[0]!.label
+                        : 'Sin horario exacto'}
+                    </Text>
+                  </View>
+                  <View style={styles.slotBadge}>
+                    <Text style={styles.slotBadgeText}>
+                      {group.items.filter(({ supplement }) => isTakenToday(supplement.id)).length}/{group.items.length}
+                    </Text>
+                  </View>
+                </View>
+                {group.items.map(({ supplement, label }) => {
                   const taken = isTakenToday(supplement.id);
                   return (
                     <Pressable
                       key={supplement.id}
-                      style={({ pressed }) => [styles.stackRow, pressed && styles.stackRowPressed]}
+                      style={({ pressed }) => [
+                        styles.stackRow,
+                        taken && styles.stackRowTaken,
+                        pressed && styles.stackRowPressed,
+                      ]}
                       onPress={() => void handleToggle(supplement)}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: taken }}
@@ -329,17 +369,24 @@ export default function SupplementsScreen() {
                       accessibilityHint="Marca si ya tomaste este suplemento hoy."
                     >
                       <View style={styles.stackLeft}>
-                        <View style={styles.codeBadge}>
-                          <Text style={styles.codeBadgeText}>{supplementCode(supplement.name)}</Text>
+                        <View style={[styles.checkCircle, taken && styles.checkCircleTaken]}>
+                          <Ionicons
+                            name={taken ? 'checkmark' : 'ellipse-outline'}
+                            size={18}
+                            color={taken ? Colors.black : SUPPLEMENTS_ACCENT}
+                          />
                         </View>
                         <View style={styles.stackCopy}>
                           <Text style={styles.stackName}>{supplement.name}</Text>
                           <Text style={styles.stackMeta}>
-                            {supplement.dose} {UNIT_LABELS[supplement.unit]} | {FREQ_LABELS[supplement.frequency]}
+                            {supplement.dose} {UNIT_LABELS[supplement.unit]} · {SupplementFrequencyLabels[supplement.frequency]}
+                            {label ? ` · ${label}` : ''}
                           </Text>
                         </View>
                       </View>
-                      <View style={[styles.dot, taken ? styles.dotTaken : styles.dotPending]} />
+                      <Text style={[styles.rowStateText, taken ? styles.rowStateTextTaken : styles.rowStateTextPending]}>
+                        {taken ? 'Tomado' : 'Tocar para marcar'}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -395,22 +442,32 @@ export default function SupplementsScreen() {
         >
           <Text style={styles.nutritionTitle}>{nutritionInsight.title}</Text>
           <Text style={styles.nutritionText}>{nutritionInsight.body}</Text>
-          <View style={styles.nutritionMetaRow}>
-            <Text style={styles.nutritionMeta}>Proteína: {Math.round(totals.protein)} g</Text>
-            <Text style={styles.nutritionMeta}>Kcal: {Math.round(totals.calories)}</Text>
-          </View>
+          {Math.round(totals.protein) > 0 || Math.round(totals.calories) > 0 ? (
+            <View style={styles.nutritionMetaRow}>
+              {Math.round(totals.protein) > 0 ? (
+                <Text style={styles.nutritionMeta}>Proteína: {Math.round(totals.protein)} g</Text>
+              ) : null}
+              {Math.round(totals.calories) > 0 ? (
+                <Text style={styles.nutritionMeta}>Kcal: {Math.round(totals.calories)}</Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.nutritionMetaEmpty}>
+              Los datos de proteína y calorías aparecen cuando registres tu primera comida del día.
+            </Text>
+          )}
           <Button
             label="Abrir nutrición"
             onPress={() => router.push('/modules/nutrition' as never)}
             size="sm"
-            color={Colors.brand}
+            color={SUPPLEMENTS_ACCENT}
           />
         </Card>
 
         <Button
           label="+ Agregar suplemento"
           onPress={() => setShowAdd(true)}
-          color={Colors.brand}
+          color={SUPPLEMENTS_ACCENT}
           style={styles.addBtn}
         />
       </ScrollView>
@@ -442,13 +499,13 @@ const styles = StyleSheet.create({
   onboardingCard: {
     gap: Spacing[3],
     borderWidth: 1,
-    borderColor: withOpacity(Colors.brand, 0.25),
-    backgroundColor: withOpacity(Colors.brand, 0.08),
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.25),
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.08),
   },
   onboardingEyebrow: {
     fontFamily: FontFamily.semibold,
     fontSize: 11,
-    color: Colors.brand,
+    color: SUPPLEMENTS_ACCENT,
     textTransform: 'uppercase',
     letterSpacing: 0.9,
   },
@@ -463,12 +520,43 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 19,
   },
-  summaryCard: {},
+  summaryCard: {
+    gap: Spacing[3],
+    borderWidth: 1,
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.22),
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.08),
+  },
+  summaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  summaryEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    color: SUPPLEMENTS_ACCENT,
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+    marginBottom: Spacing[1],
+  },
+  summaryTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
   sectionTitle: {
     fontFamily: FontFamily.bold,
     fontSize: 16,
     color: Colors.textPrimary,
     marginBottom: Spacing[3],
+  },
+  sectionBody: {
+    marginTop: -Spacing[2],
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -483,7 +571,7 @@ const styles = StyleSheet.create({
   summaryNum: {
     fontFamily: FontFamily.bold,
     fontSize: 42,
-    color: Colors.brand,
+    color: SUPPLEMENTS_ACCENT,
   },
   summaryDen: {
     fontFamily: FontFamily.medium,
@@ -505,28 +593,84 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textTransform: 'capitalize',
   },
-  streakCard: {
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.brand, 0.25),
-    backgroundColor: withOpacity(Colors.brand, 0.08),
+  summaryProgressTrack: {
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.white, 0.08),
+    overflow: 'hidden',
   },
-  streakTitle: {
+  summaryProgressFill: {
+    height: '100%',
+    borderRadius: Radius.full,
+    backgroundColor: SUPPLEMENTS_ACCENT,
+  },
+  summaryMetaRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  summaryMetaPill: {
+    flex: 1,
+    gap: 2,
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    backgroundColor: withOpacity(Colors.white, 0.04),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+  },
+  summaryMetaLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  summaryMetaValue: {
     fontFamily: FontFamily.bold,
     fontSize: 14,
-    color: Colors.brand,
-    marginBottom: Spacing[1],
-  },
-  streakValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 30,
     color: Colors.textPrimary,
-    lineHeight: 34,
   },
-  streakHint: {
-    marginTop: Spacing[1],
-    fontFamily: FontFamily.regular,
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1.5],
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.12),
+    borderWidth: 1,
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.22),
+  },
+  streakBadgeText: {
+    fontFamily: FontFamily.semibold,
     fontSize: 12,
+    color: SUPPLEMENTS_ACCENT,
+  },
+  nextSlotCard: {
+    gap: Spacing[1],
+    borderRadius: Radius.xl,
+    padding: Spacing[3],
+    backgroundColor: withOpacity(Colors.black, 0.18),
+    borderWidth: 1,
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.12),
+  },
+  nextSlotEyebrow: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  nextSlotTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 15,
+    color: Colors.textPrimary,
+  },
+  nextSlotBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
     color: Colors.textSecondary,
+    lineHeight: 19,
   },
   warningCard: {
     borderWidth: 1,
@@ -548,18 +692,57 @@ const styles = StyleSheet.create({
   stackCard: {
     gap: Spacing[3],
   },
+  slotCard: {
+    gap: Spacing[2],
+    borderRadius: Radius.xl,
+    padding: Spacing[3],
+    backgroundColor: withOpacity(Colors.white, 0.03),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+  },
+  slotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  slotHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  slotHeaderHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  slotBadge: {
+    minWidth: 48,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[1.5],
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.1),
+    borderWidth: 1,
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.18),
+  },
+  slotBadgeText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 12,
+    color: SUPPLEMENTS_ACCENT,
+  },
   groupBlock: {
     gap: Spacing[2],
   },
   groupTitle: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 14,
-    color: Colors.textSecondary,
+    fontFamily: FontFamily.bold,
+    fontSize: 15,
+    color: Colors.textPrimary,
   },
   stackRow: {
-    minHeight: 58,
+    minHeight: 66,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -571,24 +754,29 @@ const styles = StyleSheet.create({
   stackRowPressed: {
     opacity: 0.9,
   },
+  stackRowTaken: {
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.16),
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.05),
+  },
   stackLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[3],
     flex: 1,
   },
-  codeBadge: {
-    width: 38,
-    height: 38,
+  checkCircle: {
+    width: 42,
+    height: 42,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.brand, 0.12),
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.12),
+    borderWidth: 1,
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.22),
   },
-  codeBadgeText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 12,
-    color: Colors.brand,
+  checkCircleTaken: {
+    backgroundColor: SUPPLEMENTS_ACCENT,
+    borderColor: SUPPLEMENTS_ACCENT,
   },
   stackCopy: {
     flex: 1,
@@ -604,16 +792,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: Radius.full,
+  rowStateText: {
+    maxWidth: 88,
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    textAlign: 'right',
   },
-  dotTaken: {
-    backgroundColor: Colors.success,
+  rowStateTextTaken: {
+    color: SUPPLEMENTS_ACCENT,
   },
-  dotPending: {
-    backgroundColor: Colors.textMuted,
+  rowStateTextPending: {
+    color: Colors.textMuted,
   },
   matrixCard: {
     gap: Spacing[3],
@@ -665,8 +854,8 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
   },
   nutritionCardNeutral: {
-    borderColor: withOpacity(Colors.brand, 0.25),
-    backgroundColor: withOpacity(Colors.brand, 0.08),
+    borderColor: withOpacity(SUPPLEMENTS_ACCENT, 0.25),
+    backgroundColor: withOpacity(SUPPLEMENTS_ACCENT, 0.08),
   },
   nutritionCardPositive: {
     borderColor: withOpacity(Colors.success, 0.25),
@@ -694,6 +883,11 @@ const styles = StyleSheet.create({
   },
   nutritionMeta: {
     fontFamily: FontFamily.semibold,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  nutritionMetaEmpty: {
+    fontFamily: FontFamily.medium,
     fontSize: 12,
     color: Colors.textMuted,
   },

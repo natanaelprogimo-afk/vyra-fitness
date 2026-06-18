@@ -1,5 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Radius, Spacing } from '@/constants/theme';
 import { getOnboardingStepMeta, ONBOARDING_STEPS } from '@/constants/onboardingFlow';
@@ -10,54 +16,97 @@ interface OnboardingProgressProps {
 
 export default function OnboardingProgress({ pathname }: OnboardingProgressProps) {
   const meta = getOnboardingStepMeta(pathname);
+  const fillWidth = useSharedValue(0);
+
   if (!meta) return null;
 
+  const progress = Math.max(0, Math.min(1, meta.order / ONBOARDING_STEPS.length));
+
+  // Animate progress fill width
+  useEffect(() => {
+    fillWidth.value = withTiming(progress * 100, {
+      duration: 400,
+      easing: Easing.out(Easing.ease),
+    });
+  }, [progress, fillWidth]);
+
+  const animatedFillStyle = useAnimatedStyle(() => ({
+    width: `${fillWidth.value}%`,
+  }));
+
+  // Color gradient: starting from accent, transitioning to action at 50%, to success near end
+  const getProgressColor = () => {
+    if (progress < 0.5) {
+      return Colors.action;
+    } else if (progress < 0.85) {
+      return Colors.action;
+    }
+    return Colors.success;
+  };
+
   return (
-    <View style={styles.row}>
-      {ONBOARDING_STEPS.map((step) => {
-        const isActive = step.order === meta.order;
-        const isComplete = step.order < meta.order;
-        return (
-          <View key={step.pathname} style={styles.track}>
+    <View style={styles.container}>
+      <View style={styles.track}>
+        <Animated.View
+          style={[
+            styles.fill,
+            animatedFillStyle,
+            { backgroundColor: getProgressColor() },
+          ]}
+        />
+      </View>
+      <View style={styles.dots}>
+        {ONBOARDING_STEPS.map((_, index) => {
+          const stepProgress = (index + 1) / ONBOARDING_STEPS.length;
+          const isActive = index < meta.order;
+          const isCurrent = index === meta.order - 1;
+
+          return (
             <View
+              key={index}
               style={[
-                styles.fill,
-                isComplete && styles.fillComplete,
-                isActive && styles.fillActive,
+                styles.dot,
+                isActive && styles.dotActive,
+                isCurrent && styles.dotCurrent,
               ]}
             />
-          </View>
-        );
-      })}
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  container: {
     gap: Spacing[2],
   },
   track: {
-    flex: 1,
+    width: '100%',
     height: 3,
     borderRadius: Radius.full,
-    backgroundColor: Colors.elevated,
+    backgroundColor: withOpacity(Colors.white, 0.08),
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    width: '0%',
     borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.action, 0.22),
   },
-  fillComplete: {
-    width: '100%',
+  dots: {
+    flexDirection: 'row',
+    gap: Spacing[1],
+  },
+  dot: {
+    flex: 1,
+    height: 4,
+    borderRadius: Radius.full,
+    backgroundColor: withOpacity(Colors.white, 0.06),
+  },
+  dotActive: {
     backgroundColor: Colors.action,
   },
-  fillActive: {
-    width: '100%',
-    backgroundColor: Colors.action,
+  dotCurrent: {
+    backgroundColor: Colors.success,
+    height: 5,
   },
 });

@@ -25,7 +25,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const QA_LAB_ENABLED =
-  __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_INTERNAL_ROUTES === 'true';
 
 function buildTriggerDate(secondsFromNow = 4) {
   return new Date(Date.now() + secondsFromNow * 1000);

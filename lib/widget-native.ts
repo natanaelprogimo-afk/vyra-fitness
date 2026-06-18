@@ -1,6 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 
-type WidgetStatus = {
+export type WidgetStatus = {
   pinSupported: boolean;
   compactPinned: boolean;
   expandedPinned: boolean;
@@ -17,6 +17,7 @@ export async function getWidgetStatus(): Promise<WidgetStatus> {
   if (Platform.OS !== 'android' || !widgetControl?.getWidgetStatus) {
     return { pinSupported: false, compactPinned: false, expandedPinned: false };
   }
+
   return widgetControl.getWidgetStatus();
 }
 
@@ -24,5 +25,6 @@ export async function requestPinWidget(kind: 'compact' | 'expanded'): Promise<bo
   if (Platform.OS !== 'android' || !widgetControl?.requestPinWidget) {
     return false;
   }
+
   return widgetControl.requestPinWidget(kind);
 }

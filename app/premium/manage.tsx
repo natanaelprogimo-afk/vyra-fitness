@@ -1,4 +1,6 @@
+// REDESIGNED: 2026-05-23 — manage access reframed as a legacy compatibility hub
 import React from 'react';
+import { useEffect } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
@@ -8,9 +10,11 @@ import Button from '@/components/ui/Button';
 import NoticeCard from '@/components/ui/NoticeCard';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import SectionHeader from '@/components/ui/SectionHeader';
+import LinkRow from '@/components/ui/LinkRow';
 import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
-import { FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { trackPaywallViewed } from '@/lib/analytics';
 
 const ACTIVE_ZONES = [
   {
@@ -20,29 +24,35 @@ const ACTIVE_ZONES = [
     accent: Colors.brand,
   },
   {
-    title: 'Nutricion',
+    title: 'Nutrición',
     body: 'Scanner, historial y carga manual dentro del acceso actual.',
     route: Routes.nutrition.index,
     accent: Colors.nutrition,
   },
   {
     title: 'Readiness',
-    body: 'Balance diario, contexto del dia y senales utiles en un solo lugar.',
+    body: 'Balance diario, contexto del día y señales útiles en un solo lugar.',
     route: Routes.readiness,
     accent: Colors.steps,
   },
   {
-    title: 'Invitar',
-    body: 'Comparte tu codigo como flujo de comunidad, no como premio de pago.',
-    route: Routes.profile.referral,
+    title: 'Perfil',
+    body: 'Abre tu perfil y revisa identidad, progreso y cuenta.',
+    route: Routes.profile.sheet,
     accent: Colors.info,
   },
 ] as const;
 
 export default function ManageAccessScreen() {
+  useEffect(() => {
+    trackPaywallViewed({
+      surface: 'premium_manage',
+    });
+  }, []);
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
-      <Header title="Acceso incluido" showBack color={Colors.brand} />
+      <Header title="Gestion de acceso" showBack color={Colors.brand} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <NoticeCard
@@ -51,13 +61,23 @@ export default function ManageAccessScreen() {
           tone="info"
         />
 
-        <Card accentColor={Colors.brand}>
+        <Card accentColor={Colors.brand} style={styles.heroCard}>
           <Text style={styles.eyebrow}>Estado actual</Text>
-          <Text style={styles.heroTitle}>Tu cuenta ya tiene todo abierto.</Text>
+          <Text style={styles.heroTitle}>Tu cuenta ya entra completa.</Text>
           <Text style={styles.heroBody}>
-            Esta superficie queda como apoyo para rutas legacy y para explicar rapidamente que el
-            producto hoy funciona con acceso incluido.
+            Esta ruta deja de parecer una pantalla de pago. Ahora funciona como una explicacion
+            corta del acceso actual y como atajo a las capas donde mas se nota.
           </Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.metricPill}>
+              <Text style={styles.metricPillValue}>100%</Text>
+              <Text style={styles.metricPillLabel}>modulos abiertos</Text>
+            </View>
+            <View style={styles.metricPill}>
+              <Text style={styles.metricPillValue}>0</Text>
+              <Text style={styles.metricPillLabel}>planes por gestionar</Text>
+            </View>
+          </View>
         </Card>
 
         <Card style={styles.card}>
@@ -69,16 +89,14 @@ export default function ManageAccessScreen() {
 
           <View style={styles.zoneStack}>
             {ACTIVE_ZONES.map((item) => (
-              <Card
+              <LinkRow
                 key={item.title}
+                label={item.title}
+                description={item.body}
+                hint="Abrir"
                 onPress={() => router.push(item.route as never)}
-                style={styles.zoneCard}
-                accessibilityLabel={`Abrir ${item.title}`}
-                accessibilityHint={item.body}
-              >
-                <Text style={[styles.zoneTitle, { color: item.accent }]}>{item.title}</Text>
-                <Text style={styles.zoneBody}>{item.body}</Text>
-              </Card>
+                accentColor={item.accent}
+              />
             ))}
           </View>
         </Card>
@@ -86,9 +104,23 @@ export default function ManageAccessScreen() {
         <Card style={styles.card}>
           <SectionHeader
             eyebrow="Siguiente paso"
-            title="Monetizacion actual"
-            subtitle="El acceso sigue abierto y el soporte del producto ahora se apoya en anuncios discretos y opcionales."
+            title="Acceso actual"
+            subtitle="El acceso sigue abierto mientras ordenamos una experiencia premium mas limpia."
           />
+          <View style={styles.modelStack}>
+            <View style={styles.modelRow}>
+              <Text style={styles.modelLabel}>Tracking principal</Text>
+              <Text style={styles.modelValue}>Abierto</Text>
+            </View>
+            <View style={styles.modelRow}>
+              <Text style={styles.modelLabel}>Promocion</Text>
+              <Text style={styles.modelValue}>Fuera del producto</Text>
+            </View>
+            <View style={styles.modelRow}>
+              <Text style={styles.modelLabel}>Suscripcion</Text>
+              <Text style={styles.modelValue}>Pendiente</Text>
+            </View>
+          </View>
         </Card>
 
         <Button onPress={() => router.replace('/(tabs)' as never)} fullWidth color={Colors.brand}>
@@ -107,6 +139,9 @@ const styles = StyleSheet.create({
     paddingTop: Spacing[4],
     gap: Spacing[4],
   },
+  heroCard: {
+    gap: Spacing[3],
+  },
   card: {
     gap: Spacing[4],
   },
@@ -116,14 +151,12 @@ const styles = StyleSheet.create({
     color: Colors.brand,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginBottom: 6,
   },
   heroTitle: {
     fontFamily: FontFamily.display,
-    fontSize: 30,
-    lineHeight: 32,
+    fontSize: FontSize['3xl'],
+    lineHeight: 34,
     color: Colors.textPrimary,
-    marginBottom: 6,
   },
   heroBody: {
     fontFamily: FontFamily.regular,
@@ -131,21 +164,58 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: Colors.textSecondary,
   },
+  heroMetrics: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  metricPill: {
+    flex: 1,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface2,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    gap: 4,
+  },
+  metricPillValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xl,
+    color: Colors.textPrimary,
+  },
+  metricPillLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
   zoneStack: {
     gap: Spacing[2],
   },
-  zoneCard: {
-    gap: 4,
+  modelStack: {
+    gap: Spacing[2],
+  },
+  modelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+    minHeight: 44,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
     backgroundColor: Colors.surface2,
   },
-  zoneTitle: {
-    fontFamily: FontFamily.bold,
+  modelLabel: {
+    flex: 1,
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.sm,
+    color: Colors.textPrimary,
   },
-  zoneBody: {
+  modelValue: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
     color: Colors.textSecondary,
   },
 });

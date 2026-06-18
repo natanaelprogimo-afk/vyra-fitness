@@ -26,10 +26,18 @@ type StepSeed = {
 };
 
 const STEP_SEEDS: readonly StepSeed[] = [
-  { pathname: Routes.auth.onboarding.goals, stepKey: 'goal', label: 'Nombre y objetivo', order: 1 },
-  { pathname: Routes.auth.onboarding.equipment, stepKey: 'equipment', label: 'Equipo', order: 2 },
-  { pathname: Routes.auth.onboarding.modules, stepKey: 'modules', label: 'Modulos', order: 3 },
-  { pathname: Routes.auth.onboarding.ready, stepKey: 'ready', label: 'Todo listo', order: 4 },
+  { pathname: Routes.auth.onboarding.goal, stepKey: 'goal', label: 'Objetivo principal', order: 1 },
+  { pathname: Routes.auth.onboarding.age, stepKey: 'body_basics', label: 'Base fisica', order: 2 },
+  { pathname: Routes.auth.onboarding.activity, stepKey: 'activity', label: 'Actividad', order: 3 },
+  { pathname: Routes.auth.onboarding.modules, stepKey: 'modules', label: 'Módulos activos', order: 4 },
+  { pathname: Routes.auth.onboarding.nutrition, stepKey: 'nutrition', label: 'Nutrición', order: 5 },
+  { pathname: Routes.auth.onboarding.equipment, stepKey: 'equipment', label: 'Entorno de entreno', order: 6 },
+  { pathname: Routes.auth.onboarding.equipmentInventory, stepKey: 'equipment_inventory', label: 'Material de entreno', order: 7 },
+  { pathname: Routes.auth.onboarding.fasting, stepKey: 'fasting', label: 'Ayuno', order: 8 },
+  { pathname: Routes.auth.onboarding.sleep, stepKey: 'sleep', label: 'Sueño', order: 9 },
+  { pathname: Routes.auth.onboarding.steps, stepKey: 'steps', label: 'Pasos', order: 10 },
+  { pathname: Routes.auth.onboarding.female, stepKey: 'female', label: 'Seguimiento femenino', order: 11 },
+  { pathname: Routes.auth.onboarding.ready, stepKey: 'ready', label: 'Finalizando', order: 12 },
 ] as const;
 
 function normalizeOnboardingPath(pathname: string | null | undefined) {

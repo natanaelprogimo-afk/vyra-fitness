@@ -70,6 +70,7 @@ export default function ProgressBar({
               backgroundColor: color,
               height,
               borderRadius: height / 2,
+              minWidth: clampedValue > 0 ? 4 : 0,
             },
             barStyle,
           ]}
@@ -132,7 +133,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   bar: {
-    minWidth: 4,
+    minWidth: 0,
   },
   macroTrack: {
     flexDirection: 'row',

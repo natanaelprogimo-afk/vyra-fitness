@@ -1,8 +1,10 @@
+// REDESIGNED: 2026-05-21 - link rows are denser and closer to settings canon
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, withOpacity } from '@/constants/colors';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { triggerImpactHaptic } from '@/lib/haptics';
 
 interface LinkRowProps {
   label: string;
@@ -18,27 +20,45 @@ export default function LinkRow({
   description,
   hint,
   icon = 'chevron-forward',
-  accentColor = Colors.brand,
+  accentColor = Colors.info,
   onPress,
 }: LinkRowProps) {
   return (
     <Pressable
-      onPress={onPress}
-      style={styles.row}
+      onPress={() => {
+        void triggerImpactHaptic('light');
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.row,
+        pressed ? styles.rowPressed : null,
+      ]}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={description ?? hint}
     >
+      <View style={[styles.iconShell, { backgroundColor: withOpacity(accentColor, 0.12) }]}>
+        <Ionicons name="ellipse" size={10} color={accentColor} />
+      </View>
+
       <View style={styles.copy}>
-        <Text style={styles.label}>{label}</Text>
-        {description ? <Text style={styles.description}>{description}</Text> : null}
+        <Text style={styles.label} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+          {label}
+        </Text>
+        {description ? (
+          <Text style={styles.description} numberOfLines={2} maxFontSizeMultiplier={1.2}>
+            {description}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.meta}>
-        {hint ? <Text style={[styles.hint, { color: accentColor }]}>{hint}</Text> : null}
-        <View style={styles.iconWrap}>
-          <Ionicons name={icon} size={16} color={accentColor} />
-        </View>
+        {hint ? (
+          <Text style={[styles.hint, { color: Colors.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.1}>
+            {hint}
+          </Text>
+        ) : null}
+        <Ionicons name={icon} size={16} color={accentColor} />
       </View>
     </Pressable>
   );
@@ -46,44 +66,51 @@ export default function LinkRow({
 
 const styles = StyleSheet.create({
   row: {
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing[3],
-    minHeight: 56,
     paddingVertical: Spacing[3],
+    paddingHorizontal: Spacing[1],
+    borderRadius: Radius.lg,
+  },
+  rowPressed: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  iconShell: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   copy: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   label: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
     color: Colors.textPrimary,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.md,
+    lineHeight: 20,
   },
   description: {
+    color: Colors.textSecondary,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     lineHeight: 18,
-    color: Colors.textSecondary,
   },
   meta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[2],
+    flexShrink: 0,
   },
   hint: {
-    fontFamily: FontFamily.semibold,
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-  },
-  iconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.brand, 0.08),
+    lineHeight: 16,
   },
 });
-

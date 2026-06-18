@@ -1,6 +1,8 @@
-﻿import { useEffect } from 'react';
+import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { Tabs, router } from 'expo-router';
 import TabBar from '@/components/layout/TabBar';
+import { Colors } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -24,16 +26,24 @@ export default function TabsLayout() {
     }
 
     if (!isOnboarded) {
-      router.replace(Routes.auth.onboarding.goals as never);
+      router.replace(Routes.auth.onboarding.transition as never);
     }
   }, [hasResolvedProfile, isAuthenticated, isInitialized, isOnboarded]);
+
+  if (!isInitialized || (isAuthenticated && !hasResolvedProfile)) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bgPrimary }}>
+        <ActivityIndicator size="small" color={Colors.action} />
+      </View>
+    );
+  }
 
   return (
     <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio' }} />
-      <Tabs.Screen name="explore" options={{ title: 'Explorar' }} />
+      <Tabs.Screen name="explore" options={{ title: 'Plan' }} />
       <Tabs.Screen name="progress" options={{ title: 'Progreso' }} />
+      <Tabs.Screen name="weight" options={{ title: 'Peso' }} />
     </Tabs>
   );
 }
-

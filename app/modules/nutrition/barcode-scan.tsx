@@ -29,6 +29,8 @@ export default function BarcodeNutritionScreen() {
   const [showScanner, setShowScanner] = useState(true);
   const [foundFood, setFoundFood] = useState<FoodItem | null>(null);
   const [amount, setAmount] = useState('100');
+  const amountGrams = Number.parseFloat(amount) || 100;
+  const amountFactor = amountGrams / 100;
 
   const handleBarcodeScanned = async (barcode: string) => {
     try {
@@ -53,19 +55,16 @@ export default function BarcodeNutritionScreen() {
   const handleAddFood = () => {
     if (!foundFood) return;
 
-    const grams = parseFloat(amount) || 100;
-    const factor = grams / 100;
-
     logMeal({
       meal_type: mealType,
       food_name: foundFood.name,
       food_id: foundFood.id,
-      amount_g: grams,
-      calories: foundFood.calories_per_100g * factor,
-      protein_g: foundFood.protein_g * factor,
-      carbs_g: foundFood.carbs_g * factor,
-      fat_g: foundFood.fat_g * factor,
-      fiber_g: foundFood.fiber_g * factor,
+      amount_g: amountGrams,
+      calories: foundFood.calories_per_100g * amountFactor,
+      protein_g: foundFood.protein_g * amountFactor,
+      carbs_g: foundFood.carbs_g * amountFactor,
+      fat_g: foundFood.fat_g * amountFactor,
+      fiber_g: foundFood.fiber_g * amountFactor,
       source: 'barcode',
     });
 
@@ -127,26 +126,33 @@ export default function BarcodeNutritionScreen() {
             <View style={styles.macrosGrid}>
               <MacroIndicator
                 label="Kcal"
-                value={Math.round(foundFood.calories_per_100g * (parseFloat(amount) / 100))}
+                value={Math.round(foundFood.calories_per_100g * amountFactor)}
                 color={Colors.nutrition}
+                wide
               />
               <MacroIndicator
                 label="Proteína"
-                value={Math.round(foundFood.protein_g * (parseFloat(amount) / 100))}
+                value={Math.round(foundFood.protein_g * amountFactor)}
                 unit="g"
                 color={Colors.error}
               />
               <MacroIndicator
                 label="Carbos"
-                value={Math.round(foundFood.carbs_g * (parseFloat(amount) / 100))}
+                value={Math.round(foundFood.carbs_g * amountFactor)}
                 unit="g"
                 color={Colors.fasting}
               />
               <MacroIndicator
                 label="Grasas"
-                value={Math.round(foundFood.fat_g * (parseFloat(amount) / 100))}
+                value={Math.round(foundFood.fat_g * amountFactor)}
                 unit="g"
                 color={Colors.warning}
+              />
+              <MacroIndicator
+                label="Fibra"
+                value={Math.round(foundFood.fiber_g * amountFactor)}
+                unit="g"
+                color={Colors.success}
               />
             </View>
 
@@ -184,14 +190,16 @@ function MacroIndicator({
   value,
   unit = '',
   color,
+  wide = false,
 }: {
   label: string;
   value: number;
   unit?: string;
   color: string;
+  wide?: boolean;
 }) {
   return (
-    <View style={styles.macroItem}>
+    <View style={[styles.macroItem, wide && styles.macroItemWide]}>
       <Text style={[styles.macroValue, { color }]}>
         {value}
         {unit}
@@ -270,6 +278,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     paddingVertical: Spacing[3],
     paddingHorizontal: Spacing[3],
+  },
+  macroItemWide: {
+    flexBasis: '100%',
   },
   macroValue: {
     fontFamily: FontFamily.bold,

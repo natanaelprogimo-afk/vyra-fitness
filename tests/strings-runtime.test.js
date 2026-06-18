@@ -13,19 +13,19 @@ describe('runtime localized strings', () => {
   test('returns Portuguese strings when locale is pt-BR', () => {
     const strings = getLocalizedStrings('pt-BR');
 
-    expect(strings.AuthStrings.welcome.cta).toBe('Comecar gratis');
+    expect(strings.AuthStrings.welcome.cta).toBe('Criar conta gratis');
     expect(strings.General.settings).toBe('Ajustes');
   });
 
   test('proxy namespaces follow the active i18n language', async () => {
     await i18nModule.default.changeLanguage('en');
-    expect(AuthStrings.welcome.cta).toBe('Start free');
+    expect(AuthStrings.welcome.cta).toBe('Create free account');
     expect(ErrorMessages.loginFailed).toBe(
       'I could not sign you in. Check your details and try again.',
     );
 
     await i18nModule.default.changeLanguage('pt');
-    expect(AuthStrings.welcome.cta).toBe('Comecar gratis');
+    expect(AuthStrings.welcome.cta).toBe('Criar conta gratis');
     expect(ErrorMessages.loginFailed).toBe(
       'Nao consegui entrar. Revise seus dados e tente novamente.',
     );

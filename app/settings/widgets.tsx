@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
 
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 
 import SafeScreen from '@/components/ui/SafeScreen';
 
@@ -13,11 +13,10 @@ import { Header } from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 
 import Button from '@/components/ui/Button';
-import NoticeCard from '@/components/ui/NoticeCard';
 
 import { Colors, withOpacity } from '@/constants/colors';
 
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, LineHeight, Radius, Spacing } from '@/constants/theme';
 
 import {
   buildLegacyProfileContextUpdate,
@@ -29,7 +28,6 @@ import { supabase } from '@/lib/supabase';
 
 import { useAuthStore } from '@/stores/authStore';
 
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useUIStore } from '@/stores/uiStore';
 
 import { useReadiness } from '@/hooks/useReadiness';
@@ -270,12 +268,13 @@ function routeForWidgetFocus(focus: WidgetFocus) {
 
 
 export default function WidgetSettingsScreen() {
+  if (!(__DEV__ && process.env.EXPO_PUBLIC_ENABLE_INTERNAL_ROUTES === 'true')) {
+    return <Redirect href={Routes.settings.index as never} />;
+  }
 
   const { profile, updateProfile } = useAuthStore();
 
   const showToast = useUIStore((state) => state.showToast);
-  const hasSeenGuide = useSettingsStore((state) => Boolean(state.moduleIntroSeen.widgets));
-  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
 
   const [selected, setSelected] = useState<WidgetFocus>(getWidgetFocus(profile));
 
@@ -433,9 +432,9 @@ export default function WidgetSettingsScreen() {
       : coverageState.returnMode;
 
   const coachTitle = installedCount === 0
-    ? 'El primer widget debería mostrar algo realmente útil apenas desbloqueas.'
+    ? 'El primer panel debería mostrar algo realmente útil apenas desbloqueas.'
     : installedCount === 1
-      ? 'Ya tienes un widget activo, pero aún puedes dejar la vista mucho más completa.'
+      ? 'Ya tienes un panel activo, pero aún puedes dejar la vista mucho más completa.'
       : dayScore !== null && dayScore < 65
         ? 'Hoy conviene una vista simple, clara y sin seguir tocando ajustes.'
         : selected === 'summary'
@@ -452,12 +451,12 @@ export default function WidgetSettingsScreen() {
 
     (installedCount === 0
 
-      ? 'El widget vale la pena cuando te evita abrir la app solo para mirar lo importante.'
-      : `Ahora mismo tienes ${installedCount} widget${installedCount === 1 ? '' : 's'} activo${installedCount === 1 ? '' : 's'} y el foco principal está en ${selectedOption.title.toLowerCase()}.`);
+      ? 'El panel vale la pena cuando te evita abrir la app solo para mirar lo importante.'
+      : `Ahora mismo tienes ${installedCount} panel${installedCount === 1 ? '' : 'es'} activo${installedCount === 1 ? '' : 's'} y el foco principal está en ${selectedOption.title.toLowerCase()}.`);
 
   const coachHint = installedCount === 0
     ? widgetStatus.pinSupported
-      ? 'Empieza por el widget compacto y luego decide si también te sirve el expandido.'
+      ? 'Empieza por el panel compacto y luego decide si también te sirve el expandido.'
       : 'Agregalo manualmente desde la pantalla de inicio y luego vuelve para ajustar el foco.'
     : installedCount === 1
       ? 'Si tienes espacio, completa con el segundo formato para depender menos de abrir la app.'
@@ -563,7 +562,7 @@ export default function WidgetSettingsScreen() {
 
     } catch {
 
-      showToast('No se pudo actualizar el enfoque del widget.', 'error');
+      showToast('No se pudo actualizar el enfoque del panel.', 'error');
 
     } finally {
 
@@ -587,17 +586,17 @@ export default function WidgetSettingsScreen() {
 
       if (accepted) {
 
-        showToast(kind === 'compact' ? 'Se abrio la solicitud para agregar el widget compacto.' : 'Se abrio la solicitud para agregar el widget expandido.', 'success');
+        showToast(kind === 'compact' ? 'Se abrio la solicitud para agregar el panel compacto.' : 'Se abrio la solicitud para agregar el panel expandido.', 'success');
 
       } else {
 
-        showToast('Tu telefono no permitio agregar el widget desde aquí.', 'warning');
+        showToast('Tu telefono no permitio agregar el panel desde aqui.', 'warning');
 
       }
 
     } catch {
 
-      showToast('No se pudo abrir la solicitud del widget.', 'error');
+      showToast('No se pudo abrir la solicitud del panel.', 'error');
 
     } finally {
 
@@ -673,16 +672,6 @@ export default function WidgetSettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {!hasSeenGuide ? (
-          <NoticeCard
-            title="Como leer Widgets"
-            body="Primero eliges el foco principal, despues decides que vista te conviene fuera de la app. Piensalo como una portada corta, no como otro dashboard."
-            tone="info"
-            actionLabel="Entendido"
-            onAction={() => markModuleIntroSeen('widgets')}
-          />
-        ) : null}
-
         <Card style={styles.routeCard} accentColor={Colors.brand}>
 
           <Text style={styles.routeEyebrow}>Resumen rápido</Text>
@@ -713,7 +702,7 @@ export default function WidgetSettingsScreen() {
 
               value={returnMode}
 
-              hint={`${installedCount}/2 widgets`}
+              hint={`${installedCount}/2 paneles`}
 
               accent={installedCount === 0 ? Colors.warning : Colors.brand}
 
@@ -773,7 +762,7 @@ export default function WidgetSettingsScreen() {
 
               <Text style={styles.eyebrow}>Pantalla de inicio</Text>
 
-              <Text style={styles.heroTitle} numberOfLines={3}>El widget maestro ya puede priorizar justo el dato que más consultas fuera de la app.</Text>
+              <Text style={styles.heroTitle} numberOfLines={3}>El panel maestro ya puede priorizar justo el dato que más consultas fuera de la app.</Text>
 
               <Text style={styles.heroBody} numberOfLines={2}>Desde aquí decides que quieres ver primero y que formato te sirve más fuera de la app.</Text>
 
@@ -805,7 +794,7 @@ export default function WidgetSettingsScreen() {
 
         <Card style={styles.launcherCard} accentColor={Colors.steps}>
 
-          <Text style={styles.launcherEyebrow}>Widgets activos</Text>
+          <Text style={styles.launcherEyebrow}>Paneles activos</Text>
 
           <Text style={styles.launcherTitle}>{launcherTitle}</Text>
 
@@ -915,11 +904,11 @@ export default function WidgetSettingsScreen() {
 
               <Text style={styles.sectionTitle}>Agregar a la pantalla de inicio</Text>
 
-              <Text style={styles.sectionBody}>Si tu telefono lo permite, puedes agregar el widget sin salir de VYRA.</Text>
+              <Text style={styles.sectionBody}>Si tu telefono lo permite, puedes agregar el panel sin salir de VYRA.</Text>
 
             </View>
 
-            <Button size="utility" variant="secondary" color={Colors.steps} onPress={() => void refreshWidgetStatus()}>
+            <Button size="sm" variant="secondary" color={Colors.steps} onPress={() => void refreshWidgetStatus()}>
 
               Actualizar
 
@@ -977,7 +966,7 @@ export default function WidgetSettingsScreen() {
 
                   </View>
 
-                  <Button size="utility" onPress={() => void handlePinWidget(item.id)} disabled={pinningKind !== null} color={Colors.steps}>
+                  <Button size="sm" onPress={() => void handlePinWidget(item.id)} disabled={pinningKind !== null} color={Colors.steps}>
 
                     {pinningKind === item.id ? 'Abriendo...' : 'Agregar'}
 
@@ -999,7 +988,7 @@ export default function WidgetSettingsScreen() {
 
               <Ionicons name="information-circle-outline" size={16} color={Colors.textMuted} />
 
-              <Text style={styles.noteText}>Si tu telefono no lo permite desde aquí, agrega el widget manualmente desde la pantalla de inicio.</Text>
+              <Text style={styles.noteText}>Si tu telefono no lo permite desde aquí, agrega el atajo manualmente desde la pantalla de inicio.</Text>
 
             </View>
 
@@ -1011,7 +1000,7 @@ export default function WidgetSettingsScreen() {
 
         <Card>
 
-          <Text style={styles.sectionTitle}>Enfoque del widget maestro</Text>
+          <Text style={styles.sectionTitle}>Enfoque del panel maestro</Text>
 
           <Text style={styles.sectionBody}>Elige que historia quieres ver primero cada vez que desbloqueas el telefono.</Text>
 
@@ -1097,9 +1086,9 @@ const styles = StyleSheet.create({
 
   eyebrow: { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.steps },
 
-  heroTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: 28 },
+  heroTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: LineHeight.px28 },
 
-  heroBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  heroBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   heroBadge: { width: 46, height: 46, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: withOpacity(Colors.steps, 0.14) },
 
@@ -1115,9 +1104,9 @@ const styles = StyleSheet.create({
 
   routeEyebrow: { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.brand },
 
-  routeTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: 28 },
+  routeTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: LineHeight.px28 },
 
-  routeBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  routeBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   routeStatsRow: { flexDirection: 'row', gap: Spacing[2] },
 
@@ -1137,7 +1126,7 @@ const styles = StyleSheet.create({
 
   routeActionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
 
-  routeActionHint: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  routeActionHint: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   routeButtons: { flexDirection: 'row', gap: Spacing[2], flexWrap: 'wrap' },
 
@@ -1145,9 +1134,9 @@ const styles = StyleSheet.create({
 
   launcherEyebrow: { fontFamily: FontFamily.bold, fontSize: FontSize.xs, color: Colors.steps },
 
-  launcherTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: 28 },
+  launcherTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.xl, color: Colors.textPrimary, lineHeight: LineHeight.px28 },
 
-  launcherBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  launcherBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   formatGrid: { gap: Spacing[3] },
 
@@ -1165,9 +1154,9 @@ const styles = StyleSheet.create({
 
   formatPillText: { fontFamily: FontFamily.medium, fontSize: FontSize.xs },
 
-  formatBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textPrimary },
+  formatBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textPrimary },
 
-  formatHint: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: 18, color: Colors.textSecondary },
+  formatHint: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: LineHeight.px18, color: Colors.textSecondary },
 
   launcherAction: { borderRadius: Radius.lg, borderWidth: 1, borderColor: withOpacity(Colors.steps, 0.24), backgroundColor: withOpacity(Colors.steps, 0.1), padding: Spacing[3], gap: 4 },
 
@@ -1175,7 +1164,7 @@ const styles = StyleSheet.create({
 
   launcherActionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
 
-  launcherActionHint: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  launcherActionHint: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing[3], marginBottom: Spacing[4] },
 
@@ -1183,7 +1172,7 @@ const styles = StyleSheet.create({
 
   sectionTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.lg, color: Colors.textPrimary, marginBottom: Spacing[2] },
 
-  sectionBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  sectionBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   widgetStack: { gap: Spacing[3] },
 
@@ -1193,7 +1182,7 @@ const styles = StyleSheet.create({
 
   widgetTitle: { fontFamily: FontFamily.bold, fontSize: FontSize.base, color: Colors.textPrimary },
 
-  widgetBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: 20, color: Colors.textSecondary },
+  widgetBody: { fontFamily: FontFamily.regular, fontSize: FontSize.sm, lineHeight: LineHeight.px20, color: Colors.textSecondary },
 
   widgetActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing[3] },
 
@@ -1207,7 +1196,7 @@ const styles = StyleSheet.create({
 
   noteRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing[2], marginTop: Spacing[3] },
 
-  noteText: { flex: 1, fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: 18, color: Colors.textMuted },
+  noteText: { flex: 1, fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: LineHeight.px18, color: Colors.textMuted },
 
   optionStack: { gap: Spacing[2] },
 
@@ -1229,7 +1218,7 @@ const styles = StyleSheet.create({
 
   optionTitleActive: { color: Colors.steps },
 
-  optionBody: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: 18, color: Colors.textSecondary },
+  optionBody: { fontFamily: FontFamily.regular, fontSize: FontSize.xs, lineHeight: LineHeight.px18, color: Colors.textSecondary },
 
   optionDot: { width: 18, height: 18, borderRadius: Radius.full, borderWidth: 2, borderColor: Colors.border },
 

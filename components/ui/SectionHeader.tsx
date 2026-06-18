@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    gap: 2,
+    gap: Spacing[1],
   },
   eyebrow: {
     fontFamily: FontFamily.semibold,

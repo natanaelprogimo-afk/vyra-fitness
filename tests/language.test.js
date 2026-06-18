@@ -12,7 +12,7 @@ describe('language helpers', () => {
   });
 
   test('falls back to spanish for unknown or empty locales', () => {
-    expect(resolveSupportedLanguage('fr-FR')).toBe('es');
+    expect(resolveSupportedLanguage('xx-XX')).toBe('es');
     expect(resolveSupportedLanguage('')).toBe('es');
     expect(resolveSupportedLanguage(null)).toBe('es');
     expect(resolveSupportedLanguage(undefined)).toBe('es');

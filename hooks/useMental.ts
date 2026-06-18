@@ -40,6 +40,20 @@ interface EmotionalDrift {
   message: string | null;
 }
 
+interface CrisisAlert {
+  level: 'none' | 'warning' | 'critical';
+  message: string | null;
+  suggestedAction: string | null;
+  emergencyResources: EmergencyResource[];
+}
+
+interface EmergencyResource {
+  label: string;
+  phone: string;
+  url?: string;
+  country: string;
+}
+
 type MentalRow = Record<string, unknown>;
 
 function getErrorMessage(error: unknown): string {
@@ -83,6 +97,75 @@ export function getMentalScoreInfo(score: number): { label: string; color: strin
   if (score >= 55) return { label: 'Regular',     color: '#FFD43B', emoji: '😐' };
   if (score >= 40) return { label: 'Bajo',        color: '#FF922B', emoji: '😕' };
   return                  { label: 'Necesitás apoyo', color: '#FF6B6B', emoji: '😔' };
+}
+
+// Crisis detection: Identify dangerous patterns
+function detectCrisisLevel(history: MentalEntry[]): CrisisAlert {
+  if (history.length < 3) return { level: 'none', message: null, suggestedAction: null, emergencyResources: [] };
+
+  const last3 = history.slice(-3);
+  const last7 = history.slice(-7);
+
+  // CRITICAL PATTERNS:
+  // 1. Mood 1 for 3+ consecutive days
+  const moodCritical = last3.every(e => e.mood <= 1);
+  
+  // 2. Mood 1-2 AND stress 8-10 for last 7 days
+  const stressCritical = last7.every(e => e.mood <= 2 && e.stress >= 8);
+  
+  // 3. Energy <2 for 5+ consecutive days (severe lethargy)
+  const energyCritical = last7.slice(-5).every(e => e.energy <= 2);
+  
+  // 4. Sudden drop: mood from 4+ to 1 in 1-2 days
+  const last2 = history.slice(-2);
+  const suddenCrash = last2.length === 2 &&
+    last2[0].mood >= 4 && last2[1].mood <= 1;
+
+  // WARNING PATTERNS:
+  // 1. Mood 1-2 for last 2 days
+  const moodWarning = last3.slice(-2).every(e => e.mood <= 2);
+  
+  // 2. Stress consistently 7+ and mood <3
+  const stressWarning = last7.every(e => e.stress >= 7 && e.mood <= 3);
+
+  const isCritical = moodCritical || stressCritical || energyCritical || suddenCrash;
+  const isWarning = moodWarning || stressWarning;
+
+  const emergencyResources: EmergencyResource[] = [
+    // Argentina
+    { label: 'Línea Piedad (ARG)', phone: '135', country: 'AR' },
+    { label: 'Teléfono de la Esperanza (ARG)', phone: '0800-345-1339', country: 'AR', url: 'https://telefonodelaesperanza.org' },
+    // Spain
+    { label: 'Teléfono de la Esperanza (ES)', phone: '914 59 00 50', country: 'ES', url: 'https://www.telefonodelaesperanza.org' },
+    // Mexico
+    { label: 'Centro de Atención Psicosocial (MX)', phone: '5255-5259-8121', country: 'MX' },
+    // Chile
+    { label: 'Fono Esperanza (CL)', phone: '600-360-0100', country: 'CL' },
+    // Colombia
+    { label: 'Línea de Prevención del Suicidio (CO)', phone: '01-8000-112-123', country: 'CO' },
+    // Global
+    { label: 'International Association (International)', phone: 'https://www.iasp.info/resources/Crisis_Centres/', country: 'GLOBAL', url: 'https://findahelpline.com' },
+  ];
+
+  if (isCritical) {
+    return {
+      level: 'critical',
+      message: '⚠️ URGENTE: Detectamos un patrón que sugiere crisis emocional. Necesitás apoyo profesional YA.',
+      suggestedAction: 'Llamá a una línea de crisis o contactá a un profesional de salud mental inmediatamente.',
+      emergencyResources,
+    };
+  }
+
+  if (isWarning) {
+    return {
+      level: 'warning',
+      message: '⚠️ Estamos notando patrones preocupantes. Considerá contactar a un profesional.',
+      suggestedAction: 'Hablá con un psicólogo o consejero. Si necesitás ayuda inmediata, hay líneas disponibles.',
+      emergencyResources,
+    };
+  }
+
+  return { level: 'none', message: null, suggestedAction: null, emergencyResources: [] };
 }
 
 export function useMental() {
@@ -323,6 +406,7 @@ export function useMental() {
   }, [avgEnergy, avgStress, saveCheckin]);
 
   const emotionalDrift = detectEmotionalDrift();
+  const crisisAlert = detectCrisisLevel(history);
 
   return {
     todayEntry,
@@ -348,5 +432,7 @@ export function useMental() {
     emotionalDrift,
     strictSensitiveMode,
     saveCheckinAsync,
+    crisisAlert,
+    detectCrisisLevel: () => crisisAlert,
   };
 }

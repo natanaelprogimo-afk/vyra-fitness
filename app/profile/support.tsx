@@ -1,35 +1,32 @@
 import React, { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Application from 'expo-application';
-import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import LinkRow from '@/components/ui/LinkRow';
 import NoticeCard from '@/components/ui/NoticeCard';
 import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Colors, withOpacity } from '@/constants/colors';
-import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 const FAQS = [
   {
     q: 'Como funciona la lectura diaria?',
-    a: 'La lectura diaria resume hidratacion, movimiento, sueno, nutricion y cierre mental para darte contexto util. Sirve para orientar el dia, no como diagnostico.',
+    a: 'La lectura diaria resume hidratación, movimiento, sueño, nutrición y cierre mental para darte contexto útil. Sirve para orientar el día, no como diagnóstico.',
   },
   {
     q: 'Funciona sin internet?',
-    a: 'Si, pero de forma parcial. Agua, sueno, peso, nutricion y el historial local de entreno aguantan mejor sin conexion; otras lecturas, notificaciones e integraciones siguen necesitando backend.',
+    a: 'Sí, pero de forma parcial. Agua, sueño, peso, nutrición y el historial local de entreno aguantan mejor sin conexión; otras lecturas, notificaciones e integraciones siguen necesitando backend.',
   },
   {
     q: 'Como funciona el acceso hoy?',
-    a: 'Hoy todas las funciones siguen incluidas. La monetizacion actual se apoya en anuncios discretos y opcionales fuera de los flujos sensibles.',
+    a: 'Hoy todas las funciones principales siguen incluidas mientras afinamos el producto. La experiencia se mantiene centrada en utilidad real y no en ruido extra.',
   },
   {
     q: 'Mis datos son privados?',
-    a: 'Si. Tus datos de salud quedan ligados solo a tu cuenta y no se mezclan con los de otras personas. La informacion del ciclo tiene una capa extra de privacidad.',
+    a: 'Sí. Tus datos de salud quedan ligados solo a tu cuenta y no se mezclan con los de otras personas. La información del ciclo tiene una capa extra de privacidad.',
   },
   {
     q: 'Como exporto mis datos?',
@@ -48,7 +45,7 @@ export default function SupportScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <NoticeCard
           title="Soporte con contexto"
-          body="Ademas del email, tienes acceso rapido al centro del sistema para revisar backend, sync, widgets y notificaciones antes de escalar un problema."
+          body="Si algo no funciona, escribenos con lo que estabas intentando hacer y revisamos el caso sin pedirte que diagnostiques la app."
           tone="info"
         />
 
@@ -68,12 +65,6 @@ export default function SupportScreen() {
             color={Colors.brand}
           />
 
-          <LinkRow
-            label="Centro del sistema"
-            description="Backend, sync, widgets, notificaciones adaptativas y resumen IA semanal."
-            onPress={() => router.push(Routes.settings.systemHealth as never)}
-            hint="QA"
-          />
         </Card>
 
         <Card style={styles.card}>

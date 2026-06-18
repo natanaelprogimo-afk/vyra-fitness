@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import SafeScreen from '@/components/ui/SafeScreen';
@@ -10,18 +10,12 @@ import ScreenFooterSpacer from '@/components/ui/ScreenFooterSpacer';
 import SectionHeader from '@/components/ui/SectionHeader';
 import SettingToggleRow from '@/components/ui/SettingToggleRow';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, LineHeight, Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
-import { getAdConsent, setAdConsent } from '@/lib/ad-consent';
-import { NativeModules } from 'react-native';
 import { buildProfileContextUpdate, getProfileContextMemory } from '@/lib/profile-context';
 import { supabase } from '@/lib/supabase';
 import type { UserProfile } from '@/types/user';
-
-type VyraUnityAdsPrivacyModule = {
-  setPersonalizedAdsAllowed?: (allowed: boolean) => Promise<void> | void;
-};
 
 type ConsentKey = 'mental' | 'female' | 'journal';
 type PrivacyKey = ConsentKey | 'strict_sensitive_mode';
@@ -49,8 +43,8 @@ const DATA_VISIBILITY_ROWS: DataVisibilityRow[] = [
   {
     title: 'Cuenta y preferencias',
     storage: 'Cuenta',
-    hint: 'Lo básico para que la app abra con tu idioma, unidades, widgets y notificaciones como las dejaste.',
-    examples: 'Nombre, email, idioma, tema, unidades, tipo de notificaciones y ajustes de widgets.',
+    hint: 'Lo basico para que la app abra con tu idioma, unidades y notificaciones como las dejaste.',
+    examples: 'Nombre, email, idioma, tema, unidades y tipo de notificaciones.',
   },
   {
     title: 'Historial de salud y fitness',
@@ -68,7 +62,7 @@ const DATA_VISIBILITY_ROWS: DataVisibilityRow[] = [
     title: 'Datos locales del dispositivo',
     storage: 'Solo en tu teléfono',
     hint: 'Sirven para que la app siga usable con soporte offline parcial y para proteger reingreso y accesos rápidos.',
-    examples: 'Caches por módulo, historial local de workout, bloqueo biométrico y estado de widgets.',
+    examples: 'Caches por módulo, historial local de workout y bloqueo biométrico.',
   },
 ];
 
@@ -98,25 +92,6 @@ export default function PrivacyCenterScreen() {
 
   const consents = useMemo(() => getConsents(profile), [profile]);
   const strictSensitiveMode = useMemo(() => getStrictSensitiveMode(profile), [profile]);
-  const [adPersonalized, setAdPersonalized] = React.useState<boolean | null>(null);
-  const [savingAdConsent, setSavingAdConsent] = React.useState(false);
-
-  React.useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const c = await getAdConsent();
-        if (!mounted) return;
-        setAdPersonalized(c === 'personalized');
-      } catch {
-        // ignore
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
   async function updatePrivacySetting(key: PrivacyKey, value: boolean) {
     if (!profile?.id) return;
 
@@ -210,30 +185,6 @@ export default function PrivacyCenterScreen() {
                 disabled={savingKey !== null}
               />
             ))}
-            <SettingToggleRow
-              title="Anuncios personalizados"
-              description="Permitir anuncios personalizados (mejores recomendaciones). Requerido para personalizar anuncios."
-              value={adPersonalized ?? false}
-              onValueChange={async (value) => {
-                setSavingAdConsent(true);
-                try {
-                  await setAdConsent(value ? 'personalized' : 'non_personalized');
-                  // Inform native runtime (best-effort)
-                  try {
-                    await (NativeModules.VyraUnityAds as VyraUnityAdsPrivacyModule | undefined)?.setPersonalizedAdsAllowed?.(value);
-                  } catch {
-                    // ignore native failures
-                  }
-                  setAdPersonalized(value);
-                  showToast('Preferencia de anuncios actualizada.', 'success');
-                } catch {
-                  showToast('No se pudo actualizar la preferencia de anuncios.', 'error');
-                } finally {
-                  setSavingAdConsent(false);
-                }
-              }}
-              disabled={savingKey !== null || savingAdConsent}
-            />
           </View>
         </Card>
 
@@ -341,13 +292,13 @@ const styles = StyleSheet.create({
   dataRowHint: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: LineHeight.px18,
     color: Colors.textSecondary,
   },
   dataRowExamples: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: LineHeight.px18,
     color: Colors.textMuted,
   },
   strictCard: {
@@ -370,7 +321,7 @@ const styles = StyleSheet.create({
   strictInfoBody: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    lineHeight: LineHeight.px18,
     color: Colors.textSecondary,
   },
   linksCard: {

@@ -1,25 +1,26 @@
+// REDESIGNED: 2026-05-20 - button system aligned to exhaustive redesign tokens
 import React from 'react';
 import {
-  Pressable,
-  Text,
   ActivityIndicator,
+  Pressable,
   StyleSheet,
-  type ViewStyle,
-  type TextStyle,
+  Text,
   type PressableProps,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
-  withTiming,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontFamily, FontSize, Radius, Shadows, Spacing } from '@/constants/theme';
 import { triggerImpactHaptic } from '@/lib/haptics';
 import { useAccessibilityPreferences } from '@/hooks/useAccessibilityPreferences';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'premium' | 'coin';
-export type ButtonSize = 'sm' | 'md' | 'lg' | 'small' | 'large' | 'utility' | 'primary';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'premium';
+export type ButtonSize = 'sm' | 'md' | 'lg';  // Simplified: removed duplicate size names
 
 type BaseButtonPressableProps = PressableProps;
 
@@ -60,22 +61,23 @@ export default function Button({
   ...rest
 }: ButtonProps) {
   const scale = useSharedValue(1);
-  const displayContent = children ?? label;
   const { reduceMotionEnabled } = useAccessibilityPreferences();
+  const variantStyles = getVariantStyles(variant, color);
+  const sizeStyles = SIZE_STYLES[size];
+  const content = children ?? label;
 
-  const animStyle = useAnimatedStyle(() => ({
+  const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const handlePressIn = () => {
-    if (disabled || loading) return;
-    if (reduceMotionEnabled) return;
-    scale.value = withTiming(0.97, { duration: 80 });
+    if (disabled || loading || reduceMotionEnabled) return;
+    scale.value = withSpring(0.97, { damping: 15, stiffness: 180 });
   };
 
   const handlePressOut = () => {
     if (reduceMotionEnabled) return;
-    scale.value = withTiming(1, { duration: 100 });
+    scale.value = withSpring(1, { damping: 16, stiffness: 190 });
   };
 
   const handlePress = () => {
@@ -86,11 +88,9 @@ export default function Button({
     onPress();
   };
 
-  const variantStyles = getVariantStyles(variant, color);
-  const sizeStyles = SIZE_STYLES[normalizeButtonSize(size)];
-
   return (
     <AnimatedPressable
+      {...rest}
       onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
@@ -101,14 +101,13 @@ export default function Button({
         busy: loading,
         ...(rest.accessibilityState ?? {}),
       }}
-      {...rest}
       style={[
         styles.base,
         sizeStyles.container,
         variantStyles.container,
         fullWidth && styles.fullWidth,
         (disabled || loading) && styles.disabled,
-        animStyle,
+        animatedStyle,
         style,
       ]}
     >
@@ -119,9 +118,10 @@ export default function Button({
           {icon && !iconRight ? <Animated.View style={styles.iconLeft}>{icon}</Animated.View> : null}
           <Text
             style={[styles.text, sizeStyles.text, variantStyles.text, textStyle]}
-            maxFontSizeMultiplier={1.35}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.3}
           >
-            {displayContent}
+            {content}
           </Text>
           {icon && iconRight ? <Animated.View style={styles.iconRight}>{icon}</Animated.View> : null}
         </>
@@ -135,160 +135,129 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: Spacing[2],
     borderRadius: Radius.md,
+    borderWidth: 1,
   },
   fullWidth: {
     width: '100%',
   },
   disabled: {
-    opacity: 0.45,
+    opacity: 0.35,
   },
   iconLeft: {
-    marginRight: Spacing[2],
+    marginRight: Spacing[1],
   },
   iconRight: {
-    marginLeft: Spacing[2],
+    marginLeft: Spacing[1],
   },
   text: {
-    fontFamily: FontFamily.bold,
-    letterSpacing: 0.3,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.md,
     textAlign: 'center',
   },
 });
 
-const SIZE_STYLES: Record<ButtonSize, { container: ViewStyle; text: TextStyle }> = {
+const SIZE_STYLES: Record<'sm' | 'md' | 'lg', { container: ViewStyle; text: TextStyle }> = {
   sm: {
-    container: { minHeight: 48, paddingHorizontal: Spacing[4] },
-    text: { fontSize: FontSize.md },
-  },
-  small: {
-    container: { minHeight: 48, paddingHorizontal: Spacing[4] },
-    text: { fontSize: FontSize.md },
+    container: { minHeight: 44, paddingHorizontal: Spacing[4] },
+    text: { fontSize: FontSize.sm },
   },
   md: {
-    container: { minHeight: 56, paddingHorizontal: Spacing[5] },
-    text: { fontSize: FontSize.lg },
-  },
-  lg: {
-    container: { minHeight: 60, paddingHorizontal: Spacing[5] },
-    text: { fontSize: FontSize.lg },
-  },
-  large: {
-    container: { minHeight: 60, paddingHorizontal: Spacing[5] },
-    text: { fontSize: FontSize.lg },
-  },
-  utility: {
-    container: { minHeight: 48, paddingHorizontal: Spacing[4] },
+    container: { minHeight: 52, paddingHorizontal: Spacing[6] },
     text: { fontSize: FontSize.md },
   },
-  primary: {
-    container: { minHeight: 56, paddingHorizontal: Spacing[5] },
+  lg: {
+    container: { minHeight: 56, paddingHorizontal: Spacing[6] },
     text: { fontSize: FontSize.lg },
   },
 };
 
-function normalizeButtonSize(size: ButtonSize): ButtonSize {
-  if (size === 'small') return 'sm';
-  if (size === 'large') return 'lg';
-  if (size === 'primary') return 'md';
-  return size;
+function getContrastTextColor(backgroundColor: string) {
+  const normalized = backgroundColor.replace('#', '');
+  if (normalized.length !== 6) return Colors.black;
+  const value = Number.parseInt(normalized, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.72 ? Colors.black : Colors.white;
 }
 
 function getVariantStyles(
   variant: ButtonVariant,
   color?: string,
 ): { container: ViewStyle; text: TextStyle; loaderColor: string } {
-  const resolvedColor =
-    color ??
-    (variant === 'danger'
-      ? Colors.error
-      : variant === 'premium'
-        ? Colors.textPrimary
-        : variant === 'coin'
-          ? Colors.textPrimary
-          : Colors.action);
+  const primaryBg = color ?? Colors.primary;
+  const primaryText = getContrastTextColor(primaryBg);
 
-  switch (variant) {
-    case 'primary':
-      return {
-        container: {
-          backgroundColor: resolvedColor,
-        },
-        text: {
-          color: Colors.white,
-          fontFamily: FontFamily.bold,
-        },
-        loaderColor: Colors.white,
-      };
-    case 'secondary':
-      return {
-        container: {
-          backgroundColor: Colors.bgElevated,
-          borderWidth: 1,
-          borderColor: Colors.border2,
-        },
-        text: {
-          color: Colors.textPrimary,
-          fontFamily: FontFamily.semibold,
-        },
-        loaderColor: Colors.textPrimary,
-      };
-    case 'ghost':
-      return {
-        container: {
-          backgroundColor: 'transparent',
-        },
-        text: {
-          color: color ?? Colors.textSecondary,
-          fontFamily: FontFamily.medium,
-        },
-        loaderColor: color ?? Colors.textSecondary,
-      };
-    case 'danger':
-      return {
-        container: {
-          backgroundColor: Colors.errorBg,
-          borderWidth: 1,
-          borderColor: withOpacity(Colors.error, 0.2),
-        },
-        text: {
-          color: Colors.error,
-        },
-        loaderColor: Colors.error,
-      };
-    case 'premium':
-      return {
-        container: {
-          backgroundColor: Colors.elevated,
-          borderWidth: 1,
-          borderColor: withOpacity(Colors.white, 0.08),
-        },
-        text: {
-          color: Colors.textPrimary,
-        },
-        loaderColor: Colors.textPrimary,
-      };
-    case 'coin':
-      return {
-        container: {
-          backgroundColor: Colors.elevated,
-          borderWidth: 1,
-          borderColor: withOpacity(Colors.white, 0.08),
-        },
-        text: {
-          color: Colors.textPrimary,
-        },
-        loaderColor: Colors.textPrimary,
-      };
-    default:
-      return {
-        container: {
-          backgroundColor: Colors.action,
-        },
-        text: {
-          color: Colors.white,
-        },
-        loaderColor: Colors.white,
-      };
+  if (variant === 'primary') {
+    return {
+      container: {
+        backgroundColor: primaryBg,
+        borderColor: primaryBg,
+        ...(color
+          ? {
+              ...Shadows.brand,
+              shadowColor: color,
+              shadowOpacity: 0.16,
+            }
+          : {}),
+      },
+      text: {
+        color: primaryText,
+      },
+      loaderColor: primaryText,
+    };
   }
+
+  if (variant === 'secondary') {
+    return {
+      container: {
+        backgroundColor: color ? withOpacity(color, 0.12) : 'rgba(255,255,255,0.10)',
+        borderColor: color ? withOpacity(color, 0.3) : 'rgba(255,255,255,0.16)',
+      },
+      text: {
+        color: color ?? Colors.textPrimary,
+      },
+      loaderColor: color ?? Colors.textPrimary,
+    };
+  }
+
+  if (variant === 'ghost') {
+    return {
+      container: {
+        backgroundColor: Colors.transparent,
+        borderColor: Colors.transparent,
+      },
+      text: {
+        color: color ?? Colors.textSecondary,
+      },
+      loaderColor: color ?? Colors.textSecondary,
+    };
+  }
+
+  if (variant === 'danger') {
+    return {
+      container: {
+        backgroundColor: 'rgba(255,59,48,0.15)',
+        borderColor: 'rgba(255,59,48,0.30)',
+      },
+      text: {
+        color: Colors.error,
+      },
+      loaderColor: Colors.error,
+    };
+  }
+
+  return {
+    container: {
+      backgroundColor: Colors.premiumBg,
+      borderColor: withOpacity(Colors.premium, 0.28),
+    },
+    text: {
+      color: Colors.textPrimary,
+    },
+    loaderColor: Colors.textPrimary,
+  };
 }

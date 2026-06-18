@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,33 +10,42 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Header from '@/components/layout/Header';
-import ModuleIntroScreen from '@/components/modules/ModuleIntroScreen';
+import { router } from 'expo-router';
 import CycleDisc from '@/components/female/CycleDisc';
+import FemaleModuleTabs from '@/components/female/FemaleModuleTabs';
+import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
+import NoticeCard from '@/components/ui/NoticeCard';
 import SafeScreen from '@/components/ui/SafeScreen';
 import { Colors, withOpacity } from '@/constants/colors';
-import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Routes } from '@/constants/routes';
+import { FontFamily, FontSize, Radius, Spacing, ComponentHeight, ComponentWidth, LineHeight } from '@/constants/theme';
+import { FemaleSymptoms, FemaleMoods } from '@/constants/strings';
 import { useFemaleHealth } from '@/hooks/useFemaleHealth';
-import { useWorkout } from '@/hooks/useWorkout';
+import { useWorkout, type Routine } from '@/hooks/useWorkout';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUIStore } from '@/stores/uiStore';
 
-const SYMPTOMS = [
-  { id: 'colicos', label: 'Cólicos', icon: 'Calor' },
-  { id: 'hinchazon', label: 'Hinchazón', icon: 'Agua' },
-  { id: 'fatiga', label: 'Fatiga', icon: 'Bateria' },
-  { id: 'migrana', label: 'Migrana', icon: 'Cabeza' },
-  { id: 'cambios de humor', label: 'Humor', icon: 'Ánimo' },
-  { id: 'energía alta', label: 'Energía alta', icon: 'Rayo' },
+const SETUP_CYCLE_OPTIONS = [21, 24, 26, 28, 30, 32, 35] as const;
+const SETUP_PERIOD_OFFSETS = [0, 1, 2, 3, 5, 7] as const;
+const PREDICTION_DAYS = 14;
+
+const SYMPTOM_METADATA = [
+  { id: 'colicos', emoji: '🔥' },
+  { id: 'hinchazon', emoji: '💧' },
+  { id: 'fatiga', emoji: '🪫' },
+  { id: 'migrana', emoji: '🤕' },
+  { id: 'cambios_humor', emoji: '😤' },
+  { id: 'energia_alta', emoji: '⚡' },
 ] as const;
 
-const MOODS = [
-  { id: '1', emoji: ':(' },
-  { id: '2', emoji: ':|' },
-  { id: '3', emoji: ':)' },
-  { id: '4', emoji: 'B)' },
-  { id: '5', emoji: '<3' },
+const MOOD_METADATA = [
+  { id: '1' as const, emoji: '😔' },
+  { id: '2' as const, emoji: '😐' },
+  { id: '3' as const, emoji: '🙂' },
+  { id: '4' as const, emoji: '😄' },
+  { id: '5' as const, emoji: '🥰' },
 ] as const;
 
 function addDays(date: Date, amount: number) {
@@ -43,30 +54,67 @@ function addDays(date: Date, amount: number) {
   return next;
 }
 
+function formatShortDate(date: Date) {
+  return date.toLocaleDateString('es-UY', {
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function getSafeCycleLength(value: number | null | undefined) {
+  return Math.max(21, Math.min(35, Math.round(value ?? 28)));
+}
+
+function getSafeBleedDays(value: number | null | undefined) {
+  return Math.max(3, Math.min(8, Math.round(value ?? 5)));
+}
+
+function getOvulationDayIndex(cycleLength: number) {
+  return Math.max(10, Math.min(cycleLength - 11, cycleLength - 14));
+}
+
+function resolvePhaseForCycleDay(
+  cycleDayZeroBased: number,
+  cycleLength: number,
+  bleedDays: number,
+) {
+  const safeCycleLength = getSafeCycleLength(cycleLength);
+  const safeBleedDays = getSafeBleedDays(bleedDays);
+  const normalized = ((cycleDayZeroBased % safeCycleLength) + safeCycleLength) % safeCycleLength;
+  const ovulationIndex = getOvulationDayIndex(safeCycleLength);
+  const ovulationStart = Math.max(safeBleedDays + 4, ovulationIndex - 1);
+  const ovulationEnd = Math.min(safeCycleLength - 1, ovulationIndex + 1);
+
+  if (normalized < safeBleedDays) return 'menstrual';
+  if (normalized < ovulationStart) return 'follicular';
+  if (normalized <= ovulationEnd) return 'ovulation';
+  return 'luteal';
+}
+
 function phaseMeta(phase: string) {
   switch (phase) {
     case 'menstrual':
       return {
         title: 'Fase menstrual',
-        description: 'Momento para bajar exigencia, sumar recuperación y escuchar energía real.',
+        description: 'Conviene bajar exigencia, sumar recuperacion y escuchar energia real.',
         energy: 38,
-        bestFor: 'Recuperación y carga suave',
+        bestFor: 'Recuperacion, movilidad y tecnica',
         compatibility: 2,
         color: '#F87171',
       };
     case 'ovulation':
       return {
         title: 'Fase ovulatoria',
-        description: 'Ventana de energía alta. Buen momento para entrenar fuerte o subir intensidad.',
+        description: 'Ventana de energia alta. Buen momento para entrenar fuerte o subir intensidad.',
         energy: 86,
-        bestFor: 'Entrenar fuerte',
+        bestFor: 'Fuerza, potencia e intensidad alta',
         compatibility: 5,
         color: Colors.female,
       };
     case 'luteal':
       return {
         title: 'Fase lutea',
-        description: 'Conviene consistencia, carga moderada y margen extra de recuperación.',
+        description: 'Suele rendir mejor la consistencia, la carga moderada y un poco mas de recuperacion.',
         energy: 56,
         bestFor: 'Consistencia y control de carga',
         compatibility: 3,
@@ -75,7 +123,7 @@ function phaseMeta(phase: string) {
     default:
       return {
         title: 'Fase folicular',
-        description: 'Suele haber buena tolerancia al progreso y al trabajo con más empuje.',
+        description: 'Suele haber buena tolerancia al progreso y al trabajo con mas empuje.',
         energy: 78,
         bestFor: 'Progresar carga y volumen',
         compatibility: 4,
@@ -84,17 +132,81 @@ function phaseMeta(phase: string) {
   }
 }
 
-function phaseForFutureDay(dayIndex: number, cycleLength: number) {
-  const normalized = cycleLength > 0 ? dayIndex % cycleLength : dayIndex;
-  if (normalized < 5) return 'menstrual';
-  if (normalized < 13) return 'follicular';
-  if (normalized < 16) return 'ovulation';
-  return 'luteal';
+function formatOffsetLabel(daysAgo: number) {
+  if (daysAgo === 0) return 'Hoy';
+  if (daysAgo === 1) return 'Ayer';
+  return `Hace ${daysAgo} dias`;
+}
+
+function buildCompatibilityDots(level: number) {
+  return `${'●'.repeat(Math.max(0, level))}${'○'.repeat(Math.max(0, 5 - level))}`;
+}
+
+function formatCycleWindow(startDay: number, endDay: number) {
+  return `Días ${startDay}-${endDay}`;
+}
+
+function routinePhaseScore(routine: Routine, phase: string) {
+  const haystack = `${routine.name} ${routine.goal_tag ?? ''} ${routine.split_tag ?? ''}`.toLowerCase();
+  const minutes = Number(routine.estimated_duration_min ?? 35);
+  let score = routine.is_primary ? 1 : 0;
+
+  if (phase === 'menstrual') {
+    if (haystack.includes('movilidad') || haystack.includes('recupe') || haystack.includes('casa') || haystack.includes('express')) score += 6;
+    if (haystack.includes('continuidad')) score += 4;
+    if (minutes <= 35) score += 3;
+    if (haystack.includes('fuerza') || haystack.includes('hipertrofia')) score -= 3;
+  } else if (phase === 'luteal') {
+    if (haystack.includes('continuidad') || haystack.includes('casa') || haystack.includes('full body')) score += 5;
+    if (haystack.includes('glúteos') || haystack.includes('core')) score += 2;
+    if (minutes <= 45) score += 2;
+  } else if (phase === 'ovulation') {
+    if (haystack.includes('fuerza') || haystack.includes('hipertrofia') || haystack.includes('upper') || haystack.includes('lower')) score += 5;
+    if (haystack.includes('cardio')) score += 2;
+    if (minutes >= 35) score += 2;
+    if (routine.is_primary) score += 2;
+  } else {
+    if (haystack.includes('fuerza') || haystack.includes('full body') || haystack.includes('cardio')) score += 4;
+    if (haystack.includes('continuidad')) score += 2;
+    if (minutes >= 30) score += 1;
+  }
+
+  return score;
+}
+
+function pickRoutineForPhase(routines: Routine[], phase: string, fallback: Routine | null) {
+  const source = routines.length ? routines : fallback ? [fallback] : [];
+  if (!source.length) return fallback;
+
+  return [...source].sort((left, right) => {
+    const scoreDiff = routinePhaseScore(right, phase) - routinePhaseScore(left, phase);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (left.estimated_duration_min ?? 999) - (right.estimated_duration_min ?? 999);
+  })[0] ?? fallback;
+}
+
+function buildWorkoutBridgeBody(phase: string, routine: Routine | null) {
+  const routineLine = routine
+    ? `${routine.name} · ${routine.estimated_duration_min ?? 30} min.`
+    : 'Todavía no hay una rutina clara en tu biblioteca.';
+
+  if (phase === 'menstrual') {
+    return `Hoy conviene una entrada suave y sostenida. ${routineLine}`;
+  }
+  if (phase === 'luteal') {
+    return `Sirve más sostener consistencia que perseguir un pico. ${routineLine}`;
+  }
+  if (phase === 'ovulation') {
+    return `Esta suele ser tu mejor ventana para intensidad alta si el resto acompaña. ${routineLine}`;
+  }
+  return `Tu fase hoy tolera progreso y algo más de empuje. ${routineLine}`;
 }
 
 export default function FemaleHealthScreen() {
-  const hasSeenIntro = useSettingsStore((state) => Boolean(state.moduleIntroSeen.female));
-  const markModuleIntroSeen = useSettingsStore((state) => state.markModuleIntroSeen);
+  const femalePeriodDuration = useSettingsStore((state) => state.femalePeriodDuration);
+  const femaleDisclaimerAccepted = useSettingsStore((state) => state.femaleDisclaimerAccepted);
+  const setFemaleDisclaimerAccepted = useSettingsStore((state) => state.setFemaleDisclaimerAccepted);
+  const showToast = useUIStore((state) => state.showToast);
   const {
     cycleLength,
     currentPhase,
@@ -109,30 +221,43 @@ export default function FemaleHealthScreen() {
     isSavingSetup,
     log,
     isLogging,
+    history,
+    symptomPredictions,
   } = useFemaleHealth();
-  const { activeSession } = useWorkout();
+  const { activeSession, routines, getRecommendedRoutine } = useWorkout();
 
+  const safeCycleLength = getSafeCycleLength(cycleLength);
+  const safeBleedDays = getSafeBleedDays(femalePeriodDuration);
   const [showSensitive, setShowSensitive] = useState(!strictSensitiveMode);
-  const [setupCycle, setSetupCycle] = useState(cycleLength || 28);
+  const [setupCycle, setSetupCycle] = useState(safeCycleLength);
+  const [setupOffsetDays, setSetupOffsetDays] = useState<number>(0);
   const [logOpen, setLogOpen] = useState(false);
   const [predictionOpen, setPredictionOpen] = useState(false);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [symptomSeverity, setSymptomSeverity] = useState<Record<string, number>>({});
   const [selectedMood, setSelectedMood] = useState<string>('3');
   const [notes, setNotes] = useState('');
-  const sensitiveHidden = !showSensitive;
 
+  useEffect(() => {
+    setShowSensitive(!strictSensitiveMode);
+  }, [strictSensitiveMode]);
+
+  useEffect(() => {
+    setSetupCycle(safeCycleLength);
+  }, [safeCycleLength]);
+
+  const todayIndex = Math.max(0, Math.min(safeCycleLength - 1, daysInPhase));
   const phaseTone = phaseMeta(currentPhase);
-  const todayIndex = Math.max(0, Math.min(cycleLength - 1, daysInPhase));
   const ovulationDate = useMemo(() => {
-    const diff = daysInPhase <= 14 ? 14 - daysInPhase : cycleLength - daysInPhase + 14;
-    return addDays(new Date(), diff);
-  }, [cycleLength, daysInPhase]);
-
+    const ovulationIndex = getOvulationDayIndex(safeCycleLength);
+    const diff = ovulationIndex - todayIndex;
+    return addDays(new Date(), diff >= 0 ? diff : safeCycleLength + diff);
+  }, [safeCycleLength, todayIndex]);
   const predictionRows = useMemo(
     () =>
-      Array.from({ length: 7 }, (_, offset) => {
-        const phase = phaseForFutureDay(todayIndex + offset, cycleLength || 28);
+      Array.from({ length: PREDICTION_DAYS }, (_, offset) => {
+        const cycleDay = todayIndex + offset;
+        const phase = resolvePhaseForCycleDay(cycleDay, safeCycleLength, safeBleedDays);
         const meta = phaseMeta(phase);
         return {
           offset,
@@ -143,24 +268,19 @@ export default function FemaleHealthScreen() {
           bestFor: meta.bestFor,
         };
       }),
-    [cycleLength, todayIndex],
+    [safeBleedDays, safeCycleLength, todayIndex],
   );
-
-  if (!hasSeenIntro) {
-    return (
-      <SafeScreen padHorizontal={false} padBottom>
-        <Header title="Ciclo" showBack />
-        <ModuleIntroScreen
-          accentColor={Colors.female}
-          icon="Ciclo"
-          title="Seguimiento femenino"
-          body="Registra la fase, cómo te sientes y deja que VYRA conecte ciclo, entreno y energía."
-          ctaLabel="Entrar al módulo"
-          onContinue={() => markModuleIntroSeen('female')}
-        />
-      </SafeScreen>
-    );
-  }
+  const todayLog = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return history.find((entry) => entry.logged_at.startsWith(today)) ?? null;
+  }, [history]);
+  const recentLogs = useMemo(() => history.slice(0, 5), [history]);
+  const recommendedRoutine = useMemo(() => getRecommendedRoutine(), [getRecommendedRoutine, routines, history]);
+  const phaseRoutine = useMemo(
+    () => pickRoutineForPhase(routines, currentPhase, recommendedRoutine.routine),
+    [currentPhase, recommendedRoutine.routine, routines],
+  );
+  const topPrediction = symptomPredictions[0] ?? null;
 
   const toggleSymptom = (symptom: string) => {
     setSelectedSymptoms((current) =>
@@ -177,31 +297,70 @@ export default function FemaleHealthScreen() {
     );
   };
 
+  const handleSaveSetup = async () => {
+    const startDate = addDays(new Date(), -setupOffsetDays)
+      .toISOString()
+      .split('T')[0];
+    const ok = await saveCycleSetup(startDate ?? '', setupCycle);
+    if (ok) {
+      showToast('Ciclo base guardado.', 'success');
+      return;
+    }
+    showToast('No pudimos guardar el inicio del ciclo.', 'error');
+  };
+
+  const handleSaveLog = async () => {
+    await log(
+      currentPhase,
+      selectedSymptoms,
+      notes.trim() || undefined,
+      symptomSeverity,
+      Number(selectedMood),
+    );
+    setLogOpen(false);
+    setSelectedSymptoms([]);
+    setSymptomSeverity({});
+    setSelectedMood('3');
+    setNotes('');
+  };
+
   return (
     <SafeScreen padHorizontal={false} padBottom>
       <Header
-        title="Ciclo"
+        title="Salud femenina"
         showBack
-        rightAction={
+        rightAction={(
           <Pressable
             onPress={() => setShowSensitive((value) => !value)}
             accessibilityRole="button"
             accessibilityLabel={showSensitive ? 'Ocultar datos sensibles' : 'Mostrar datos sensibles'}
-            accessibilityHint="Activa o tapa la información privada del ciclo."
+            accessibilityHint="Activa o tapa la informacion privada del ciclo."
             accessibilityState={{ expanded: showSensitive }}
             hitSlop={8}
           >
             <Text style={styles.headerLink}>{showSensitive ? 'Ocultar' : 'Ver'}</Text>
           </Pressable>
-        }
+        )}
       />
 
+      <FemaleModuleTabs active="cycle" />
+
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {sensitiveHidden ? (
+        {!femaleDisclaimerAccepted ? (
+          <NoticeCard
+            title="Falta confirmar el disclaimer medico"
+            body="Este modulo acompana tu lectura diaria, pero no reemplaza evaluacion profesional."
+            tone="warning"
+            actionLabel="Confirmar ahora"
+            onAction={() => setFemaleDisclaimerAccepted(true)}
+          />
+        ) : null}
+
+        {!showSensitive ? (
           <Card style={styles.lockCard} shadow={false}>
-            <Text style={styles.lockTitle}>Toca para ver tu información del ciclo</Text>
+            <Text style={styles.lockTitle}>Tu informacion sensible esta oculta</Text>
             <Text style={styles.lockBody}>
-              El modo privado tapa fase, predicciones y síntomas hasta que tú decidas abrirlos.
+              El modo privado tapa fase, predicciones y sintomas hasta que tu decidas abrirlos.
             </Text>
             <Button onPress={() => setShowSensitive(true)} fullWidth>
               Mostrar ahora
@@ -213,31 +372,59 @@ export default function FemaleHealthScreen() {
           <Card style={styles.setupCard} shadow={false}>
             <Text style={styles.sectionTitle}>Inicializa tu ciclo</Text>
             <Text style={styles.sectionBody}>
-              Marca el inicio reciente para calcular fase, predicciones y contexto diario.
+              Marca cuando empezo el ultimo periodo y el largo real de tu ciclo para calcular fase y predicciones.
             </Text>
-            <View style={styles.setupRow}>
-              {[26, 28, 30].map((value) => (
-                <Pressable
-                  key={value}
-                  style={[styles.setupChip, setupCycle === value && styles.setupChipActive]}
-                  onPress={() => setSetupCycle(value)}
-                  accessibilityRole="radio"
-                  accessibilityLabel={`${value} días`}
-                  accessibilityState={{ selected: setupCycle === value }}
-                  hitSlop={8}
-                >
-                  <Text style={[styles.setupChipText, setupCycle === value && styles.setupChipTextActive]}>
-                    {value} días
-                  </Text>
-                </Pressable>
-              ))}
+
+            <View style={styles.setupBlock}>
+              <Text style={styles.label}>Duracion del ciclo</Text>
+              <View style={styles.setupWrap}>
+                {SETUP_CYCLE_OPTIONS.map((value) => {
+                  const active = setupCycle === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      style={[styles.setupChip, active && styles.setupChipActive]}
+                      onPress={() => setSetupCycle(value)}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${value} dias`}
+                      accessibilityState={{ checked: active }}
+                      hitSlop={8}
+                    >
+                      <Text style={[styles.setupChipText, active && styles.setupChipTextActive]}>
+                        {value} dias
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-            <Button
-              onPress={() => void saveCycleSetup(new Date().toISOString().split('T')[0] ?? '', setupCycle)}
-              loading={isSavingSetup}
-              fullWidth
-            >
-              Usar hoy como inicio
+
+            <View style={styles.setupBlock}>
+              <Text style={styles.label}>Inicio del ultimo periodo</Text>
+              <View style={styles.setupWrap}>
+                {SETUP_PERIOD_OFFSETS.map((value) => {
+                  const active = setupOffsetDays === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      style={[styles.setupChip, active && styles.setupChipActive]}
+                      onPress={() => setSetupOffsetDays(value)}
+                      accessibilityRole="radio"
+                      accessibilityLabel={formatOffsetLabel(value)}
+                      accessibilityState={{ checked: active }}
+                      hitSlop={8}
+                    >
+                      <Text style={[styles.setupChipText, active && styles.setupChipTextActive]}>
+                        {formatOffsetLabel(value)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <Button onPress={() => void handleSaveSetup()} loading={isSavingSetup} fullWidth>
+              Guardar inicio del ciclo
             </Button>
           </Card>
         ) : null}
@@ -245,128 +432,341 @@ export default function FemaleHealthScreen() {
         {showSensitive && isInCycle ? (
           <>
             <Card style={styles.discCard} shadow={false}>
-              <Pressable
-                style={styles.discRow}
-                onPress={() => setPredictionOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir predicciones de ${phaseTone.title}`}
-                accessibilityHint="Muestra los próximos siete días del ciclo."
-              >
-                <CycleDisc cycleLength={cycleLength} currentDay={todayIndex} phaseLabel={currentPhase} />
+              <View style={styles.heroTopRow}>
+                <View>
+                  <Text style={styles.heroEyebrow}>Hoy</Text>
+                  <Text style={styles.heroTitle}>Tu ciclo en contexto</Text>
+                </View>
+                <Pressable
+                  onPress={() => setPredictionOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Abrir predicciones de ${phaseTone.title}`}
+                  accessibilityHint="Muestra las proximas dos semanas del ciclo."
+                  hitSlop={8}
+                >
+                  <Text style={styles.phaseLink}>Ver 2 semanas</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.discRow}>
+                <CycleDisc cycleLength={safeCycleLength} currentDay={todayIndex} phaseLabel={currentPhase} />
                 <View style={styles.discCopy}>
                   <Text style={[styles.phaseTitle, { color: phaseTone.color }]}>{phaseTone.title}</Text>
-                  <Text style={styles.phaseSubtitle}>Día {daysInPhase + 1} de tu ciclo</Text>
+                  <Text style={styles.phaseSubtitle}>Día {todayIndex + 1} de {safeCycleLength}</Text>
                   <Text style={styles.phaseDescription}>{phaseTone.description}</Text>
-                  <Text style={styles.phaseLink}>Toca el disco para ver los próximos 7 días</Text>
                 </View>
-              </Pressable>
-            </Card>
+              </View>
 
-            <Card style={styles.energyCard} shadow={false}>
-              <View style={styles.energyHeader}>
-                <Text style={styles.sectionTitle}>Energía esperada</Text>
-                <Text style={styles.energyValue}>{phaseTone.energy}%</Text>
+              <View style={styles.todayMetricRow}>
+                <View style={styles.todayMetricCard}>
+                  <Text style={styles.todayMetricLabel}>Energia</Text>
+                  <Text style={styles.todayMetricValue}>{phaseTone.energy}%</Text>
+                </View>
+                <View style={styles.todayMetricCard}>
+                  <Text style={styles.todayMetricLabel}>Mejor para</Text>
+                  <Text style={styles.todayMetricText}>{phaseTone.bestFor}</Text>
+                </View>
               </View>
+
               <View style={styles.energyTrack}>
-                <View style={[styles.energyFill, { width: `${phaseTone.energy}%`, backgroundColor: phaseTone.color }]} />
+                <View
+                  style={[
+                    styles.energyFill,
+                    { width: `${phaseTone.energy}%`, backgroundColor: phaseTone.color },
+                  ]}
+                />
               </View>
-              <Text style={styles.sectionBody}>Mejor para: {phaseTone.bestFor}</Text>
-              <Text style={styles.sectionBody}>
-                Compatibilidad workout: {'o'.repeat(phaseTone.compatibility)}{' '}
-                {'o'.repeat(Math.max(0, 5 - phaseTone.compatibility))}
+              <Text style={styles.compatibilityLine}>
+                Compatibilidad con entreno: {buildCompatibilityDots(phaseTone.compatibility)}
               </Text>
               {activeSession ? (
-                <Text style={styles.compatibilityText}>La sesión activa de hoy es compatible con esta fase.</Text>
+                <Text style={styles.compatibilityText}>
+                  Ya tienes una sesión activa. Conviene ajustar la intensidad según esta fase.
+                </Text>
               ) : null}
             </Card>
 
+            <Card style={styles.checkinCard} shadow={false}>
+              <View style={styles.checkinHeader}>
+                <View style={styles.checkinCopy}>
+                  <Text style={styles.sectionTitle}>Como te sientes hoy</Text>
+                  <Text style={styles.sectionBody}>
+                    {todayLog
+                      ? 'Ya registraste tu estado de hoy. Si algo cambio, puedes ajustarlo en un toque.'
+                      : 'Haz un check-in corto para que el ciclo quede conectado con energia, sintomas y entreno.'}
+                  </Text>
+                </View>
+                <Button onPress={() => setLogOpen(true)} color={Colors.female} size="sm">
+                  {todayLog ? 'Actualizar' : 'Registrar'}
+                </Button>
+              </View>
+
+              {todayLog ? (
+                <View style={styles.todayLogCard}>
+                  <Text style={styles.todayLogTitle}>
+                    {todayLog.mood
+                      ? `${MOOD_METADATA.find((item) => item.id === String(todayLog.mood))?.emoji ?? '🙂'} ${FemaleMoods[String(todayLog.mood)] ?? 'Estado guardado'}`
+                      : 'Estado guardado hoy'}
+                  </Text>
+                  <Text style={styles.todayLogBody}>
+                    {todayLog.symptoms?.length
+                      ? `${todayLog.symptoms.length} síntoma${todayLog.symptoms.length === 1 ? '' : 's'} registrados`
+                      : 'Sin síntomas marcados por ahora'}
+                    {todayLog.notes ? ` · ${todayLog.notes}` : ''}
+                  </Text>
+                </View>
+              ) : topPrediction ? (
+                <View style={styles.todayLogCard}>
+                  <Text style={styles.todayLogTitle}>Patrón probable de esta ventana</Text>
+                  <Text style={styles.todayLogBody}>{topPrediction.insight}</Text>
+                </View>
+              ) : (
+                <View style={styles.todayLogCard}>
+                  <Text style={styles.todayLogTitle}>Todavía estás construyendo tu patrón</Text>
+                  <Text style={styles.todayLogBody}>
+                    Cuando acumules más registros, acá vas a ver señales útiles para anticiparte mejor.
+                  </Text>
+                </View>
+              )}
+            </Card>
+
             <Card style={[styles.contextCard, { borderColor: withOpacity(phaseTone.color, 0.28) }]} shadow={false}>
-              <Text style={styles.sectionTitle}>Contexto del día</Text>
-              <Text style={styles.sectionBody}>{phaseGuidance.training}</Text>
-              <Text style={styles.sectionBody}>{phaseGuidance.nutrition}</Text>
-              <Text style={styles.sectionBody}>{phaseGuidance.fasting}</Text>
+              <Text style={styles.sectionTitle}>Lo que más te conviene hoy</Text>
+
+              <View style={styles.contextBlock}>
+                <Text style={styles.contextLabel}>Entrenamiento</Text>
+                <Text style={styles.sectionBody}>{phaseGuidance.training}</Text>
+              </View>
+
+              <View style={styles.contextBlock}>
+                <Text style={styles.contextLabel}>Nutricion</Text>
+                <Text style={styles.sectionBody}>{phaseGuidance.nutrition}</Text>
+              </View>
+
+              <View style={styles.contextBlock}>
+                <Text style={styles.contextLabel}>Ayuno</Text>
+                <Text style={styles.sectionBody}>{phaseGuidance.fasting}</Text>
+              </View>
+            </Card>
+
+            <Card style={styles.workoutBridgeCard} shadow={false}>
+              <Text style={styles.sectionTitle}>Entreno conectado</Text>
+              <Text style={styles.sectionBody}>{buildWorkoutBridgeBody(currentPhase, phaseRoutine)}</Text>
+              <Text style={styles.workoutBridgeHint}>
+                {phaseRoutine
+                  ? `Foco sugerido hoy: ${phaseRoutine.goal_tag ?? phaseRoutine.split_tag ?? 'continuidad'}.`
+                  : 'Cuando guardes o actives rutinas, este módulo te va a empujar una opción más precisa por fase.'}
+              </Text>
+              {phaseRoutine ? (
+                <View style={styles.workoutBridgeAction}>
+                  <Button
+                    onPress={() =>
+                      router.push({
+                        pathname: Routes.workout.preview,
+                        params: { routineId: phaseRoutine.id, name: phaseRoutine.name },
+                      } as never)
+                    }
+                    color={Colors.female}
+                    fullWidth
+                  >
+                    Abrir rutina sugerida
+                  </Button>
+                </View>
+              ) : null}
+            </Card>
+
+            <Card style={styles.predictionCard} shadow={false}>
+              <Text style={styles.sectionTitle}>Predicciones base</Text>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Proximo periodo</Text>
+                <Text style={styles.predictionValue}>
+                  {nextPeriodDate ? formatShortDate(new Date(`${nextPeriodDate}T12:00:00`)) : '--'}
+                </Text>
+              </View>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Ovulacion estimada</Text>
+                <Text style={styles.predictionValue}>{formatShortDate(ovulationDate)}</Text>
+              </View>
+              <View style={styles.predictionRow}>
+                <Text style={styles.predictionLabel}>Duracion del ciclo</Text>
+                <Text style={styles.predictionValue}>{safeCycleLength} dias</Text>
+              </View>
             </Card>
 
             {imminentPhaseNotice ? (
-              <Card style={styles.noticeCard} shadow={false}>
-                <Text style={styles.sectionBody}>{imminentPhaseNotice}</Text>
-              </Card>
+              <NoticeCard
+                title="Cambio de fase cerca"
+                body={imminentPhaseNotice}
+                tone="info"
+              />
             ) : null}
 
             {cycleIrregularity.message ? (
-              <Card style={styles.noticeCard} shadow={false}>
-                <Text style={styles.sectionBody}>{cycleIrregularity.message}</Text>
-              </Card>
+              <NoticeCard
+                title="Conviene revisar la variacion del ciclo"
+                body={cycleIrregularity.message}
+                tone="warning"
+              />
             ) : null}
 
-            <Button onPress={() => setLogOpen(true)} fullWidth>
-              Registrar hoy
-            </Button>
+            <Card style={styles.patternCard} shadow={false}>
+              <View style={styles.historyHeader}>
+                <View style={styles.patternCopy}>
+                  <Text style={styles.sectionTitle}>Patrón aprendido</Text>
+                  <Text style={styles.sectionBody}>
+                    {topPrediction
+                      ? 'VYRA ya está leyendo síntomas que se repiten cerca del mismo momento del ciclo.'
+                      : 'Todavía faltan más registros para volver predictivo este módulo.'}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: Routes.profile.exportData,
+                      params: { preset: 'female' },
+                    } as never)
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Compartir ciclo con médico"
+                  hitSlop={8}
+                >
+                  <Text style={styles.historyLink}>Compartir con médico</Text>
+                </Pressable>
+              </View>
 
-            <Card style={styles.predictionCard} shadow={false}>
-              <Text style={styles.sectionTitle}>Predicciones</Text>
-              <View style={styles.predictionRow}>
-                <Text style={styles.predictionLabel}>Proxima menstruacion</Text>
-                <Text style={styles.predictionValue}>
-                  {nextPeriodDate
-                    ? new Date(`${nextPeriodDate}T00:00:00`).toLocaleDateString('es-UY', {
-                        day: 'numeric',
-                        month: 'short',
-                      })
-                    : '--'}
+              {symptomPredictions.length ? (
+                <View style={styles.patternList}>
+                  {symptomPredictions.map((prediction) => (
+                    <View key={`${prediction.symptom}-${prediction.startDay}`} style={styles.patternItem}>
+                      <View style={styles.patternTop}>
+                        <Text style={styles.patternTitle}>{prediction.insight}</Text>
+                        <Text style={styles.patternBadge}>
+                          {prediction.confidence === 'alta' ? 'Alta' : 'Media'}
+                        </Text>
+                      </View>
+                      <Text style={styles.patternMeta}>
+                        {formatCycleWindow(prediction.startDay, prediction.endDay)} · aparece en {prediction.occurrenceCount} registros · intensidad media {prediction.avgSeverity}/5
+                      </Text>
+                      <Text style={styles.patternMeta}>
+                        Próxima ventana estimada: {formatShortDate(new Date(`${prediction.nextDateStart}T12:00:00`))} a {formatShortDate(new Date(`${prediction.nextDateEnd}T12:00:00`))}
+                      </Text>
+                      <Text style={styles.patternHint}>{prediction.trainingHint}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.sectionBody}>
+                  En cuanto registres síntomas en más días y más ciclos, acá va a aparecer algo del estilo “este mes probablemente tengas fatiga entre ciertos días”.
                 </Text>
+              )}
+            </Card>
+
+            {todayLog ? (
+              <NoticeCard
+                title="Hoy ya registraste tu estado"
+                body="Puedes volver a abrir el registro para ajustar síntomas, humor o notas del día."
+                tone="success"
+              />
+            ) : null}
+
+            <Card style={styles.historyCard} shadow={false}>
+              <View style={styles.historyHeader}>
+                <Text style={styles.sectionTitle}>Registros recientes</Text>
+                <Pressable
+                  onPress={() => router.push(Routes.profile.exportData)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Exportar historial del ciclo"
+                  hitSlop={8}
+                >
+                  <Text style={styles.historyLink}>Exportar</Text>
+                </Pressable>
               </View>
-              <View style={styles.predictionRow}>
-                <Text style={styles.predictionLabel}>Proxima ovulacion</Text>
-                <Text style={styles.predictionValue}>
-                  {ovulationDate.toLocaleDateString('es-UY', {
-                    day: 'numeric',
-                    month: 'short',
+
+              {recentLogs.length ? (
+                <View style={styles.historyList}>
+                  {recentLogs.map((entry) => {
+                    const mood = entry.mood ? MOOD_METADATA.find((item) => item.id === String(entry.mood)) : null;
+                    return (
+                      <View key={entry.id} style={styles.historyItem}>
+                        <View style={styles.historyTop}>
+                          <Text style={styles.historyDate}>
+                            {new Date(entry.logged_at).toLocaleDateString('es-UY', {
+                              weekday: 'short',
+                              day: 'numeric',
+                              month: 'short',
+                            })}
+                          </Text>
+                          <Text style={styles.historyPhase}>{phaseMeta(entry.phase).title}</Text>
+                        </View>
+                        <Text style={styles.historyMeta}>
+                          {mood ? `${mood.emoji} ${FemaleMoods[mood.id]}` : 'Sin humor guardado'}
+                          {entry.symptoms?.length ? ` · ${entry.symptoms.length} sintoma${entry.symptoms.length === 1 ? '' : 's'}` : ''}
+                        </Text>
+                        {entry.notes ? <Text style={styles.historyNotes}>{entry.notes}</Text> : null}
+                      </View>
+                    );
                   })}
+                </View>
+              ) : (
+                <Text style={styles.sectionBody}>
+                  Aun no hay suficientes registros pasados para ver patrones del ciclo.
                 </Text>
-              </View>
-              <View style={styles.predictionRow}>
-                <Text style={styles.predictionLabel}>Duración promedio</Text>
-                <Text style={styles.predictionValue}>{cycleLength} días</Text>
-              </View>
+              )}
             </Card>
           </>
         ) : null}
       </ScrollView>
 
-      <Modal visible={logOpen} transparent animationType="slide" onRequestClose={() => setLogOpen(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal
+        visible={logOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!isLogging) setLogOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalSheet}>
-            <Text style={styles.sectionTitle}>Registrar hoy</Text>
-            <View style={styles.symptomWrap}>
-              {SYMPTOMS.map((symptom) => {
-                const active = selectedSymptoms.includes(symptom.id);
-                return (
-                  <Pressable
-                    key={symptom.id}
-                    style={[styles.symptomChip, active && styles.symptomChipActive]}
-                    onPress={() => toggleSymptom(symptom.id)}
-                    accessibilityRole="checkbox"
-                    accessibilityLabel={symptom.label}
-                    accessibilityState={{ checked: active }}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.symptomIcon}>{symptom.icon}</Text>
-                    <Text style={[styles.symptomChipText, active && styles.symptomChipTextActive]}>
-                      {symptom.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.sectionTitle}>Registrar hoy</Text>
 
-            {selectedSymptoms.map((symptom) => (
-              <View key={`severity-${symptom}`} style={styles.severityBlock}>
-                <Text style={styles.label}>{SYMPTOMS.find((item) => item.id === symptom)?.label ?? symptom}</Text>
-                <View style={styles.severityRow}>
-                  {[1, 2, 3, 4, 5].map((value) => {
-                    const active = (symptomSeverity[symptom] ?? 3) === value;
-                    return (
+              <View style={styles.symptomWrap}>
+                {SYMPTOM_METADATA.map((symptom) => {
+                  const active = selectedSymptoms.includes(symptom.id);
+                  const label = FemaleSymptoms[symptom.id];
+                  return (
+                    <Pressable
+                      key={symptom.id}
+                      style={[styles.symptomChip, active && styles.symptomChipActive]}
+                      onPress={() => toggleSymptom(symptom.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={label}
+                      accessibilityState={{ checked: active }}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.symptomIcon}>{symptom.emoji}</Text>
+                      <Text style={[styles.symptomChipText, active && styles.symptomChipTextActive]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {selectedSymptoms.map((symptom) => (
+                <View key={`severity-${symptom}`} style={styles.severityBlock}>
+                  <Text style={styles.label}>{FemaleSymptoms[symptom] ?? symptom}</Text>
+                  <View style={styles.severityRow}>
+                    {[1, 2, 3, 4, 5].map((value) => {
+                      const active = (symptomSeverity[symptom] ?? 3) === value;
+                      return (
                         <Pressable
                           key={`${symptom}-${value}`}
                           style={[styles.severityChip, active && styles.severityChipActive]}
@@ -377,95 +777,98 @@ export default function FemaleHealthScreen() {
                             }))
                           }
                           accessibilityRole="radio"
-                          accessibilityLabel={`${SYMPTOMS.find((item) => item.id === symptom)?.label ?? symptom}, intensidad ${value}`}
+                          accessibilityLabel={`${Object.entries(FemaleSymptoms).find((item) => item[0] === symptom)?.[1] ?? symptom}, intensidad ${value}`}
                           accessibilityState={{ selected: active }}
                           hitSlop={8}
                         >
-                        <Text style={[styles.severityChipText, active && styles.severityChipTextActive]}>
-                          {value}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                          <Text style={[styles.severityChipText, active && styles.severityChipTextActive]}>
+                            {value}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
+              ))}
+
+              <Text style={styles.label}>Estado emocional</Text>
+              <View style={styles.moodRow}>
+                {MOOD_METADATA.map((mood) => {
+                  const active = selectedMood === mood.id;
+                  const label = FemaleMoods[mood.id];
+                  return (
+                    <Pressable
+                      key={mood.id}
+                      style={[styles.moodChip, active && styles.moodChipActive]}
+                      onPress={() => setSelectedMood(mood.id)}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`Estado emocional ${label}`}
+                      accessibilityState={{ selected: active }}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+                      <Text style={styles.moodLabel}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            ))}
 
-            <Text style={styles.label}>Estado emocional</Text>
-            <View style={styles.moodRow}>
-              {MOODS.map((mood) => {
-                const active = selectedMood === mood.id;
-                return (
-                  <Pressable
-                    key={mood.id}
-                    style={[styles.moodChip, active && styles.moodChipActive]}
-                    onPress={() => setSelectedMood(mood.id)}
-                    accessibilityRole="radio"
-                    accessibilityLabel={`Estado emocional ${mood.emoji}`}
-                    accessibilityState={{ selected: active }}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.moodEmoji}>{mood.emoji}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+              <Text style={styles.label}>Notas</Text>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Algo que quieras recordar hoy"
+                placeholderTextColor={Colors.textMuted}
+                multiline
+                style={styles.notesInput}
+              />
 
-            <Text style={styles.label}>Notas</Text>
-            <TextInput
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Algo que quieras recordar hoy"
-              placeholderTextColor={Colors.textMuted}
-              multiline
-              style={styles.notesInput}
-            />
-
-            <Button
-              onPress={() => {
-                log(currentPhase, [...selectedSymptoms, `estado:${selectedMood}`], notes.trim() || undefined, symptomSeverity);
-                setLogOpen(false);
-                setSelectedSymptoms([]);
-                setSymptomSeverity({});
-                setSelectedMood('3');
-                setNotes('');
-              }}
-              loading={isLogging}
-              fullWidth
-            >
-              Guardar
-            </Button>
-            <Button onPress={() => setLogOpen(false)} variant="ghost" fullWidth>
-              Cerrar
-            </Button>
+              <Button onPress={() => void handleSaveLog()} loading={isLogging} fullWidth>
+                Guardar
+              </Button>
+              <Button onPress={() => setLogOpen(false)} variant="ghost" disabled={isLogging} fullWidth>
+                Cerrar
+              </Button>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={predictionOpen} transparent animationType="fade" onRequestClose={() => setPredictionOpen(false)}>
+      <Modal
+        visible={predictionOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPredictionOpen(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <Text style={styles.sectionTitle}>Próximos 7 días</Text>
-            {predictionRows.map((row) => (
-              <View key={`prediction-${row.offset}`} style={styles.predictionListRow}>
-                <View style={styles.predictionListCopy}>
-                  <Text style={styles.predictionListDate}>
-                    {row.date.toLocaleDateString('es-UY', {
-                      weekday: 'short',
-                      day: 'numeric',
-                      month: 'short',
-                    })}
-                  </Text>
-                  <Text style={styles.predictionListMeta}>{row.title}</Text>
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.sectionTitle}>Proximas 2 semanas</Text>
+              {predictionRows.map((row) => (
+                <View key={`prediction-${row.offset}`} style={styles.predictionListRow}>
+                  <View style={styles.predictionListCopy}>
+                    <Text style={styles.predictionListDate}>
+                      {row.date.toLocaleDateString('es-UY', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                    </Text>
+                    <Text style={styles.predictionListMeta}>{row.title}</Text>
+                    <Text style={styles.predictionListHint}>{row.bestFor}</Text>
+                  </View>
+                  <View style={styles.predictionBadge}>
+                    <Text style={styles.predictionBadgeText}>{row.energy}%</Text>
+                  </View>
                 </View>
-                <View style={styles.predictionBadge}>
-                  <Text style={styles.predictionBadgeText}>{row.energy}%</Text>
-                </View>
-              </View>
-            ))}
-            <Button onPress={() => setPredictionOpen(false)} fullWidth>
-              Cerrar
-            </Button>
+              ))}
+              <Button onPress={() => setPredictionOpen(false)} fullWidth>
+                Cerrar
+              </Button>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -501,6 +904,14 @@ const styles = StyleSheet.create({
   setupCard: {
     gap: Spacing[3],
   },
+  setupBlock: {
+    gap: Spacing[2],
+  },
+  setupWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
   sectionTitle: {
     fontFamily: FontFamily.bold,
     fontSize: FontSize.md,
@@ -510,36 +921,54 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
     color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  setupRow: {
-    flexDirection: 'row',
-    gap: Spacing[3],
+    lineHeight: LineHeight.px20,
   },
   setupChip: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bgElevated,
+    minHeight: ComponentHeight.inputSm,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
+    paddingHorizontal: Spacing[3],
     alignItems: 'center',
     justifyContent: 'center',
   },
   setupChipActive: {
-    backgroundColor: withOpacity(Colors.action, 0.1),
-    borderColor: Colors.actionBorder,
+    backgroundColor: withOpacity(Colors.female, 0.12),
+    borderColor: withOpacity(Colors.female, 0.3),
   },
   setupChipText: {
     fontFamily: FontFamily.medium,
-    fontSize: FontSize.base,
+    fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
   setupChipTextActive: {
-    color: Colors.action,
+    color: Colors.female,
   },
   discCard: {
     gap: Spacing[4],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.female, 0.18),
+    backgroundColor: withOpacity(Colors.female, 0.08),
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  heroEyebrow: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 11,
+    color: Colors.female,
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+    marginBottom: Spacing[1],
+  },
+  heroTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
+    color: Colors.textPrimary,
   },
   discRow: {
     flexDirection: 'row',
@@ -563,7 +992,39 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: FontSize.base,
     color: Colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: LineHeight.px20,
+  },
+  todayMetricRow: {
+    flexDirection: 'row',
+    gap: Spacing[2],
+  },
+  todayMetricCard: {
+    flex: 1,
+    gap: 4,
+    borderRadius: Radius.xl,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+    backgroundColor: withOpacity(Colors.black, 0.14),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+  },
+  todayMetricLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  todayMetricValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 24,
+    color: Colors.textPrimary,
+  },
+  todayMetricText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 13,
+    color: Colors.textPrimary,
+    lineHeight: 18,
   },
   phaseLink: {
     fontFamily: FontFamily.medium,
@@ -583,34 +1044,91 @@ const styles = StyleSheet.create({
   },
   energyValue: {
     fontFamily: FontFamily.bold,
-    fontSize: 28,
+    fontSize: FontSize['2xl'],
     color: Colors.textPrimary,
   },
   energyTrack: {
     width: '100%',
-    height: 10,
+    height: LineHeight.px10,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     overflow: 'hidden',
   },
   energyFill: {
     height: '100%',
     borderRadius: Radius.full,
   },
-  compatibilityText: {
+  compatibilityLine: {
     fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
     color: Colors.textPrimary,
+    letterSpacing: 1,
+  },
+  compatibilityText: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  checkinCard: {
+    gap: Spacing[3],
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.female, 0.14),
+    backgroundColor: withOpacity(Colors.white, 0.03),
+  },
+  checkinHeader: {
+    gap: Spacing[3],
+  },
+  checkinCopy: {
+    gap: Spacing[1],
+  },
+  todayLogCard: {
+    gap: Spacing[1],
+    borderRadius: Radius.xl,
+    padding: Spacing[3],
+    backgroundColor: withOpacity(Colors.black, 0.14),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.white, 0.06),
+  },
+  todayLogTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  todayLogBody: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
   },
   contextCard: {
-    gap: Spacing[2],
-    backgroundColor: withOpacity(Colors.female, 0.08),
+    gap: Spacing[3],
+    backgroundColor: withOpacity(Colors.white, 0.03),
   },
-  noticeCard: {
-    gap: Spacing[2],
+  workoutBridgeCard: {
+    gap: Spacing[3],
+    borderColor: withOpacity(Colors.female, 0.18),
+    backgroundColor: withOpacity(Colors.female, 0.06),
+  },
+  contextBlock: {
+    gap: 4,
+  },
+  contextLabel: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
   predictionCard: {
     gap: Spacing[3],
+  },
+  patternCard: {
+    gap: Spacing[3],
+  },
+  patternCopy: {
+    flex: 1,
+    gap: 4,
   },
   predictionRow: {
     flexDirection: 'row',
@@ -627,19 +1145,122 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.textPrimary,
   },
+  historyCard: {
+    gap: Spacing[3],
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  historyLink: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    color: Colors.female,
+  },
+  workoutBridgeHint: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    lineHeight: LineHeight.px20,
+  },
+  workoutBridgeAction: {
+    paddingTop: 4,
+  },
+  patternList: {
+    gap: Spacing[3],
+  },
+  patternItem: {
+    gap: 6,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.elevated,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+  },
+  patternTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing[2],
+  },
+  patternTitle: {
+    flex: 1,
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    lineHeight: LineHeight.px20,
+  },
+  patternBadge: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.xs,
+    color: Colors.female,
+  },
+  patternMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  patternHint: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+    lineHeight: 18,
+  },
+  historyList: {
+    gap: Spacing[3],
+  },
+  historyItem: {
+    gap: 4,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.elevated,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+  },
+  historyTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+  },
+  historyDate: {
+    fontFamily: FontFamily.semibold,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  historyPhase: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  historyMeta: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  historyNotes: {
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    lineHeight: LineHeight.px20,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
+    maxHeight: '88%',
     backgroundColor: Colors.bgSurface,
     borderTopLeftRadius: Radius.xl,
     borderTopRightRadius: Radius.xl,
+  },
+  modalContent: {
+    gap: Spacing[3],
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[5],
     paddingBottom: Spacing[8],
-    gap: Spacing[3],
   },
   symptomWrap: {
     flexDirection: 'row',
@@ -647,9 +1268,9 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
   },
   symptomChip: {
-    minHeight: 42,
+    minHeight: ComponentHeight.symptomButton,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[3],
@@ -664,8 +1285,7 @@ const styles = StyleSheet.create({
   },
   symptomIcon: {
     fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
+    fontSize: FontSize.base,
   },
   symptomChipText: {
     fontFamily: FontFamily.medium,
@@ -691,9 +1311,9 @@ const styles = StyleSheet.create({
   },
   severityChip: {
     flex: 1,
-    minHeight: 38,
+    minHeight: ComponentHeight.cycleSymptomsButton,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     alignItems: 'center',
@@ -717,27 +1337,32 @@ const styles = StyleSheet.create({
   },
   moodChip: {
     flex: 1,
-    minHeight: 52,
+    minHeight: ComponentHeight.cyclePhaseButton,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    paddingVertical: Spacing[2],
   },
   moodChipActive: {
     backgroundColor: withOpacity(Colors.female, 0.12),
     borderColor: withOpacity(Colors.female, 0.3),
   },
   moodEmoji: {
-    fontFamily: FontFamily.semibold,
-    fontSize: 20,
-    color: Colors.textPrimary,
+    fontSize: FontSize['lg+'],
+  },
+  moodLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
   },
   notesInput: {
-    minHeight: 92,
+    minHeight: ComponentHeight.cycleNotesButton,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderWidth: 1,
     borderColor: Colors.border,
     paddingHorizontal: Spacing[4],
@@ -761,14 +1386,20 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: FontSize.base,
     color: Colors.textPrimary,
+    textTransform: 'capitalize',
   },
   predictionListMeta: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
+  predictionListHint: {
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
   predictionBadge: {
-    minWidth: 54,
+    minWidth: ComponentWidth.cycleSymptomButton,
     borderRadius: Radius.full,
     backgroundColor: withOpacity(Colors.female, 0.12),
     paddingHorizontal: Spacing[3],

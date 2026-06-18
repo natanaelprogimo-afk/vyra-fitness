@@ -1,5 +1,6 @@
 import { useMemo, useCallback } from 'react';
 import { useWorkoutStore, useWorkoutActiveSession } from '@/stores/workoutStore';
+import { useAuthStore } from '@/stores/authStore';
 
 export type {
   ActiveSession,
@@ -22,6 +23,14 @@ export type {
 } from '@/lib/workout-types';
 
 export function useWorkout() {
+  const workoutCycleKey = useAuthStore((state) =>
+    [
+      state.profile?.female_health_enabled ? '1' : '0',
+      state.profile?.female_last_period_date ?? '',
+      state.profile?.female_cycle_length ?? '',
+      state.profile?.gender ?? '',
+    ].join('|'),
+  );
   const exercises = useWorkoutStore((state) => state.exercises);
   const routines = useWorkoutStore((state) => state.routines);
   const routineTemplates = useWorkoutStore((state) => state.routineTemplates);
@@ -74,6 +83,7 @@ export function useWorkout() {
   const getSessionDetail = useWorkoutStore((state) => state.getSessionDetail);
   const getFatigueRisk = useWorkoutStore((state) => state.getFatigueRisk);
   const updateSettings = useWorkoutStore((state) => state.updateSettings);
+  const addExerciseToActiveSession = useWorkoutStore((state) => state.addExerciseToActiveSession);
   const setCurrentExerciseIndex = useWorkoutStore((state) => state.setCurrentExerciseIndex);
   const startRestTimer = useWorkoutStore((state) => state.startRestTimer);
   const clearRestTimer = useWorkoutStore((state) => state.clearRestTimer);
@@ -84,7 +94,7 @@ export function useWorkout() {
   const clearSummary = useWorkoutStore((state) => state.clearSummary);
   const activeSession = useWorkoutActiveSession();
 
-  const fatigueRisk = useMemo(() => getFatigueRisk(), [getFatigueRisk, history]);
+  const fatigueRisk = useMemo(() => getFatigueRisk(), [getFatigueRisk, history, workoutCycleKey]);
 
   return {
     programs,
@@ -124,6 +134,7 @@ export function useWorkout() {
     cloneTemplateAsRoutine,
     toggleFavoriteExercise,
     updateSettings,
+    addExerciseToActiveSession,
     setCurrentExerciseIndex,
     startRestTimer,
     clearRestTimer,

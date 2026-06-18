@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: Colors.border2,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     alignItems: 'center',
   },
   badgeText: {

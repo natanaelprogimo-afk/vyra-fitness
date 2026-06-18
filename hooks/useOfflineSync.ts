@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { getDatabase, isDatabaseLayerEnabled, syncPendingChanges } from '@/database';
 import { captureError } from '@/lib/sentry';
 
 const SYNC_TABLES = [
@@ -30,7 +29,6 @@ function isOnlineState(state: NetInfoState): boolean {
 export function useOfflineSync() {
   const profile = useAuthStore((s) => s.profile);
   const userId = profile?.id ?? '';
-  const queueEnabled = isDatabaseLayerEnabled();
 
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
@@ -38,20 +36,10 @@ export function useOfflineSync() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // DEPRECATED: WatermelonDB removed, using online-only until SyncQueue is implemented
   const refreshPendingCount = useCallback(async () => {
-    if (!queueEnabled) {
-      setPendingCount(0);
-      return;
-    }
-
-    try {
-      const db = getDatabase();
-      const queue = await db.get('sync_queue').query().fetch();
-      setPendingCount(queue.length);
-    } catch {
-      setPendingCount(0);
-    }
-  }, [queueEnabled]);
+    setPendingCount(0);
+  }, []);
 
   const markSyncedAtForUnsyncedRows = useCallback(async () => {
     if (!userId) return 0;
@@ -96,9 +84,9 @@ export function useOfflineSync() {
     setError(null);
 
     try {
-      await syncPendingChanges();
+      // DEPRECATED: WatermelonDB sync removed
+      // Use SyncQueue.processPending() when implemented
       await markSyncedAtForUnsyncedRows();
-      await refreshPendingCount();
       setLastSyncedAt(new Date().toISOString());
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Sync failed';
@@ -109,7 +97,7 @@ export function useOfflineSync() {
     } finally {
       setSyncing(false);
     }
-  }, [markSyncedAtForUnsyncedRows, refreshPendingCount, syncing, userId]);
+  }, [markSyncedAtForUnsyncedRows, syncing, userId]);
 
   useEffect(() => {
     void refreshPendingCount();
@@ -143,20 +131,18 @@ export function useOfflineSync() {
   const status = useMemo(() => {
     if (syncing) return 'syncing';
     if (!isOnline) return 'offline';
-    if (!queueEnabled) return 'limited';
     if (pendingCount > 0) return 'pending';
     return 'idle';
-  }, [isOnline, pendingCount, queueEnabled, syncing]);
+  }, [isOnline, pendingCount, syncing]);
 
-  const syncModeLabel = queueEnabled ? 'global' : 'parcial';
-  const syncModeDescription = queueEnabled
-    ? 'La cola offline global esta disponible y puede vaciar cambios pendientes.'
-    : 'La cola offline global sigue en reconstruccion. Agua, sueno, peso y nutricion usan persistencia local por modulo, mientras workout sigue siendo local-first.';
+  const syncModeLabel = 'online-only';
+  const syncModeDescription =
+    'Using online-only mode. SyncQueue for offline-first will be implemented in Phase 2.';
 
   return {
     isOnline,
     syncing,
-    queueEnabled,
+    queueEnabled: false,
     pendingCount,
     lastSyncedAt,
     error,

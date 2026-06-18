@@ -1,26 +1,30 @@
-﻿import React, { useState } from 'react';
+// REDESIGNED: 2026-05-20 - input states and density aligned to redesign system
+import React, { useMemo, useState } from 'react';
 import {
-  View,
-  TextInput,
-  Text,
   Pressable,
   StyleSheet,
+  Text,
+  TextInput,
+  View,
   type TextInputProps,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors } from '@/constants/colors';
-import { FontSize, FontFamily, Radius, Spacing } from '@/constants/theme';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { Colors, withOpacity } from '@/constants/colors';
+import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
   label?: string;
   error?: string | null;
   hint?: string;
+  size?: 'md' | 'compact';
   iconLeft?: React.ReactNode;
   iconRight?: React.ReactNode;
   onPressRight?: () => void;
   style?: ViewStyle | ViewStyle[];
-  inputStyle?: object;
+  inputStyle?: TextStyle | TextStyle[];
   disabled?: boolean;
   unit?: string;
   secureToggleAccessibilityLabel?: string;
@@ -31,6 +35,7 @@ export default function Input({
   label,
   error,
   hint,
+  size = 'md',
   iconLeft,
   iconRight,
   onPressRight,
@@ -41,23 +46,58 @@ export default function Input({
   secureTextEntry,
   secureToggleAccessibilityLabel = 'Mostrar u ocultar contraseña',
   rightAccessibilityLabel = 'Acción de campo',
+  value,
+  defaultValue,
+  onChangeText,
   ...props
 }: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isSecure, setIsSecure] = useState(secureTextEntry ?? false);
-  const borderColor = isFocused ? Colors.action : error ? Colors.error : Colors.bgOverlay;
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
+
+  const currentValue = value ?? uncontrolledValue;
+
+  const fieldColors = useMemo(() => {
+    if (disabled) {
+      return {
+        backgroundColor: withOpacity(Colors.white, 0.03),
+        borderColor: withOpacity(Colors.white, 0.06),
+      };
+    }
+
+    if (error) {
+      return {
+        backgroundColor: withOpacity(Colors.error, 0.05),
+        borderColor: withOpacity(Colors.error, 0.6),
+      };
+    }
+
+    if (isFocused) {
+      return {
+        backgroundColor: Colors.surface3,
+        borderColor: Colors.brand,
+      };
+    }
+
+    return {
+      backgroundColor: Colors.surface2,
+      borderColor: withOpacity(Colors.white, 0.1),
+    };
+  }, [disabled, error, isFocused]);
 
   return (
     <View style={[styles.wrapper, style]}>
-      {label ? <Text style={[styles.label, { color: Colors.textMuted }]}>{label}</Text> : null}
+      {label ? (
+        <Text style={styles.label} numberOfLines={1} maxFontSizeMultiplier={1.25}>
+          {label}
+        </Text>
+      ) : null}
 
       <View
         style={[
           styles.container,
-          {
-            borderColor,
-            backgroundColor: Colors.bgElevated,
-          },
+          size === 'compact' ? styles.containerCompact : null,
+          fieldColors,
           disabled && styles.disabled,
         ]}
       >
@@ -65,16 +105,24 @@ export default function Input({
 
         <TextInput
           {...props}
+          value={value}
+          defaultValue={defaultValue}
+          onChangeText={(nextValue) => {
+            if (value === undefined) {
+              setUncontrolledValue(nextValue);
+            }
+            onChangeText?.(nextValue);
+          }}
           style={[
             styles.input,
-            { color: Colors.textPrimary },
-            iconLeft ? styles.inputWithIconLeft : null,
-            unit ? styles.inputWithUnit : null,
+            size === 'compact' ? styles.inputCompact : null,
+            iconLeft ? styles.inputWithLeading : null,
+            (iconRight || secureTextEntry || unit) ? styles.inputWithTrailing : null,
             inputStyle,
           ]}
           placeholderTextColor={Colors.textMuted}
-          selectionColor={Colors.action}
-          cursorColor={Colors.action}
+          selectionColor={Colors.info}
+          cursorColor={Colors.info}
           onFocus={(event) => {
             setIsFocused(true);
             props.onFocus?.(event);
@@ -86,18 +134,24 @@ export default function Input({
           editable={!disabled}
           secureTextEntry={isSecure}
           accessibilityLabel={props.accessibilityLabel ?? label}
-          maxFontSizeMultiplier={1.35}
+          maxFontSizeMultiplier={1.3}
         />
 
-        {unit ? <Text style={[styles.unit, { color: Colors.textMuted }]}>{unit}</Text> : null}
+        {unit ? (
+          <Text style={styles.unit} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+            {unit}
+          </Text>
+        ) : null}
 
         {secureTextEntry ? (
           <Pressable
-            onPress={() => setIsSecure((value) => !value)}
+            onPress={() => setIsSecure((previous) => !previous)}
             style={styles.iconRight}
             accessibilityRole="button"
             accessibilityLabel={secureToggleAccessibilityLabel}
-            accessibilityHint={isSecure ? 'Muestra la contraseña escrita.' : 'Oculta la contraseña escrita.'}
+            accessibilityHint={
+              isSecure ? 'Muestra la contraseña escrita.' : 'Oculta la contraseña escrita.'
+            }
           >
             <MaterialIcons
               name={isSecure ? 'visibility' : 'visibility-off'}
@@ -120,71 +174,100 @@ export default function Input({
         ) : null}
       </View>
 
-      {error ? <Text style={[styles.error, { color: Colors.error }]}>{error}</Text> : null}
-      {hint && !error ? <Text style={[styles.hint, { color: Colors.textMuted }]}>{hint}</Text> : null}
+      {error ? (
+        <Animated.Text
+          entering={FadeIn.duration(180)}
+          style={styles.error}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+        >
+          {error}
+        </Animated.Text>
+      ) : hint ? (
+        <Text style={styles.hint} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+          {hint}
+        </Text>
+      ) : currentValue ? (
+        <View style={styles.helperSpacer} />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: Spacing[3],
+    gap: Spacing[1.5],
   },
   label: {
-    fontFamily: FontFamily.semibold,
+    color: Colors.textSecondary,
+    fontFamily: FontFamily.medium,
     fontSize: FontSize.xs,
-    marginBottom: Spacing[1.5],
-    letterSpacing: 0.4,
+    lineHeight: 18,
+    letterSpacing: 0.2,
   },
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: 52,
     borderRadius: Radius.md,
     borderWidth: 1,
-    minHeight: 56,
-    paddingHorizontal: Spacing[5],
+    paddingHorizontal: Spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  containerCompact: {
+    minHeight: 44,
+    paddingHorizontal: Spacing[3],
   },
   input: {
     flex: 1,
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.lg,
-    height: '100%',
+    minHeight: 50,
+    color: Colors.textPrimary,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.md,
+    paddingVertical: 0,
   },
-  inputWithIconLeft: {
-    marginLeft: Spacing[2],
-  },
-  inputWithUnit: {
-    marginRight: Spacing[2],
-  },
-  iconLeft: {
-    marginRight: 0,
-  },
-  iconRight: {
-    marginLeft: Spacing[2],
-  },
-  unit: {
-    fontFamily: FontFamily.medium,
+  inputCompact: {
+    minHeight: 42,
     fontSize: FontSize.sm,
   },
-  secureToggle: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
+  inputWithLeading: {
+    marginLeft: Spacing[2],
+  },
+  inputWithTrailing: {
+    marginRight: Spacing[1],
+  },
+  iconLeft: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconRight: {
+    minWidth: 32,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: Spacing[1],
+  },
+  unit: {
     color: Colors.textMuted,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.sm,
+    marginLeft: Spacing[1],
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.55,
   },
   error: {
+    color: Colors.error,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    marginTop: Spacing[1],
-    marginLeft: Spacing[1],
+    lineHeight: 18,
   },
   hint: {
+    color: Colors.textMuted,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
-    marginTop: Spacing[1],
-    marginLeft: Spacing[1],
+    lineHeight: 18,
+  },
+  helperSpacer: {
+    minHeight: 18,
   },
 });
-

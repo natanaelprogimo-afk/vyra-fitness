@@ -76,7 +76,7 @@ function ScoreRing({ score, color }: { score: number; color: string }) {
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={Colors.bgElevated}
+          stroke={Colors.elevated}
           strokeWidth={stroke}
           fill="none"
         />
@@ -223,13 +223,13 @@ const styles = StyleSheet.create({
     width: 124,
     height: 124,
     borderRadius: 62,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     alignSelf: 'center',
   },
   loadingText: {
     height: 16,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     marginHorizontal: Spacing[8],
   },
   ringWrapper: {
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
   breakdownTrack: {
     flex: 1,
     height: 6,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.full,
     overflow: 'hidden',
   },

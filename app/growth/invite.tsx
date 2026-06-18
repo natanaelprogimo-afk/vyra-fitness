@@ -1,1 +1,1 @@
-export { default } from '../profile/referral';
+export { default } from '../referral';

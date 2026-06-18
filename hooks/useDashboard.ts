@@ -87,7 +87,7 @@ export function useDashboard() {
     },
     enabled: !!userId,
     staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: weekScores } = useQuery({

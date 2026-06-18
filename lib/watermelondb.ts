@@ -1,9 +1,11 @@
 // ============================================================
-// VYRA FITNESS - WatermelonDB placeholder
-// La capa offline fue retirada temporalmente.
+// VYRA FITNESS - WatermelonDB DEPRECATED
+// WatermelonDB was removed in favor of AsyncStorage + SyncQueue
+// See: OFFLINE_STRATEGY.md for current offline-first approach
 // ============================================================
 
-import { database, adapter } from '@/database/watermelon';
+// @deprecated Use AsyncStorage + SyncQueue instead
+const DEPRECATED_DATABASE = null;
 
 export const REQUIRED_OFFLINE_TABLES = [] as const;
 
@@ -21,6 +23,4 @@ export const schema = {
   tables: [],
 } as const;
 
-export { database, adapter };
-
-export default database;
+export default DEPRECATED_DATABASE;

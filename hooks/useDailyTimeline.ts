@@ -1,13 +1,11 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Q } from '@nozbe/watermelondb';
 import type { WorkoutHistory } from '@/lib/workout-types';
 import { mergeWorkoutSessionsForTimeline } from '@/lib/workout-local-data';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useWorkoutStore } from '@/stores/workoutStore';
-import { database } from '@/database';
 import { todayISO } from '@/utils/dates';
 
 export type TimelineType =
@@ -28,61 +26,11 @@ export interface TimelineEntry {
   timestamp: string;
 }
 
-interface LocalWaterRow {
-  id: string;
-  server_id?: string | null;
-  deleted?: boolean;
-  logged_at?: number | null;
-  amount_ml?: number | null;
-  drink_type?: string | null;
-}
-
-interface LocalMealRow {
-  id: string;
-  server_id?: string | null;
-  deleted?: boolean;
-  logged_at?: number | null;
-  meal_type?: string | null;
-  food_name?: string | null;
-  calories?: number | null;
-}
-
-interface LocalWorkoutRow {
-  id: string;
-  server_id?: string | null;
-  started_at?: number | null;
-  name?: string | null;
-  total_sets?: number | null;
-}
-
-interface LocalSleepRow {
-  id: string;
-  server_id?: string | null;
-  end_time?: number | null;
-  duration_min?: number | null;
-}
-
-interface LocalFastingRow {
-  id: string;
-  server_id?: string | null;
-  start_time?: number | null;
-  end_time?: number | null;
-  protocol?: string | null;
-}
-
-interface LocalWeightRow {
-  id: string;
-  server_id?: string | null;
-  logged_at?: number | null;
-  weight_kg?: number | null;
-}
-
-interface LocalMentalRow {
-  id: string;
-  server_id?: string | null;
-  check_date?: string | null;
-  mood?: number | null;
-}
+// DEPRECATED: These interfaces were used for WatermelonDB offline queries
+// Now using online-only timeline until SyncQueue is implemented
+// interface LocalMealRow { ... }
+// interface LocalWorkoutRow { ... }
+// ... etc
 
 function toDayRange(date = new Date()) {
   const day = date.toISOString().split('T')[0] ?? todayISO();
@@ -155,158 +103,9 @@ export function useDailyTimeline() {
     queryFn: async () => {
       if (!userId) return [];
       const buildLocalTimeline = async () => {
-        const { day } = toDayRange();
-        const startMs = new Date(`${day}T00:00:00`).getTime();
-        const endMs = new Date(`${day}T23:59:59`).getTime();
-
-        const [
-          waterRows,
-          mealRows,
-          workoutRows,
-          sleepRows,
-          fastingRows,
-          weightRows,
-          mentalRows,
-        ] = await Promise.all([
-          database.get('water_logs').query(Q.where('user_id', userId)).fetch<LocalWaterRow>(),
-          database.get('meals').query(Q.where('user_id', userId)).fetch<LocalMealRow>(),
-          database.get('workout_sessions').query(Q.where('user_id', userId)).fetch<LocalWorkoutRow>(),
-          database.get('sleep_logs').query(Q.where('user_id', userId)).fetch<LocalSleepRow>(),
-          database.get('fasting_sessions').query(Q.where('user_id', userId)).fetch<LocalFastingRow>(),
-          database.get('weight_logs').query(Q.where('user_id', userId)).fetch<LocalWeightRow>(),
-          database.get('mental_checkins').query(Q.where('user_id', userId)).fetch<LocalMentalRow>(),
-        ]);
-
-        const entries: TimelineEntry[] = [];
-        const localWaterRows = (waterRows ?? []) as LocalWaterRow[];
-        const localMealRows = (mealRows ?? []) as LocalMealRow[];
-        const localWorkoutRows = (workoutRows ?? []) as LocalWorkoutRow[];
-        const localSleepRows = (sleepRows ?? []) as LocalSleepRow[];
-        const localFastingRows = (fastingRows ?? []) as LocalFastingRow[];
-        const localWeightRows = (weightRows ?? []) as LocalWeightRow[];
-        const localMentalRows = (mentalRows ?? []) as LocalMentalRow[];
-
-        localWaterRows
-          .filter((row) => {
-            if (row.deleted) return false;
-            const ts = Number(row.logged_at ?? 0);
-            return ts >= startMs && ts <= endMs;
-          })
-          .forEach((log) => {
-            entries.push({
-              id: `water-${log.server_id ?? log.id}`,
-              type: 'water',
-              title: `${resolveDrinkLabel(log.drink_type)} ${log.amount_ml} ml`,
-              detail: log.drink_type !== 'water' ? 'Bebida registrada' : null,
-              timestamp: new Date(Number(log.logged_at ?? startMs)).toISOString(),
-            });
-          });
-
-        localMealRows
-          .filter((row) => {
-            if (row.deleted) return false;
-            const ts = Number(row.logged_at ?? 0);
-            return ts >= startMs && ts <= endMs;
-          })
-          .forEach((meal) => {
-            entries.push({
-              id: `meal-${meal.server_id ?? meal.id}`,
-              type: 'meal',
-              title: meal.food_name ?? 'Comida',
-              detail: `${resolveMealLabel(meal.meal_type)} · ${Math.round(Number(meal.calories ?? 0))} kcal`,
-              timestamp: new Date(Number(meal.logged_at ?? startMs)).toISOString(),
-            });
-          });
-
-        buildLocalWorkoutEntries(
-          day,
-          workoutHistory,
-          localWorkoutRows
-            .filter((row) => {
-              const ts = Number(row.started_at ?? 0);
-              return ts >= startMs && ts <= endMs;
-            })
-            .map((session) => ({
-              id: String(session.server_id ?? session.id),
-              name: session.name ?? 'Entreno',
-              started_at: new Date(Number(session.started_at ?? startMs)).toISOString(),
-              total_sets: Number(session.total_sets ?? 0),
-            })),
-        ).forEach((entry) => {
-          entries.push(entry);
-        });
-
-        localSleepRows
-          .filter((row) => {
-            const ts = Number(row.end_time ?? 0);
-            return ts >= startMs && ts <= endMs;
-          })
-          .forEach((log) => {
-            const hours = Number(log.duration_min ?? 0) / 60;
-            entries.push({
-              id: `sleep-${log.server_id ?? log.id}`,
-              type: 'sleep',
-              title: 'Sueño registrado',
-              detail: hours > 0 ? `${hours.toFixed(1)}h` : null,
-              timestamp: new Date(Number(log.end_time ?? startMs)).toISOString(),
-            });
-          });
-
-        localFastingRows
-          .filter((row) => Number(row.start_time ?? 0) >= startMs && Number(row.start_time ?? 0) <= endMs)
-          .forEach((log) => {
-            entries.push({
-              id: `fasting-start-${log.server_id ?? log.id}`,
-              type: 'fasting_start',
-              title: 'Ayuno iniciado',
-              detail: log.protocol ?? null,
-              timestamp: new Date(Number(log.start_time ?? startMs)).toISOString(),
-            });
-          });
-
-        localFastingRows
-          .filter((row) => Number(row.end_time ?? 0) >= startMs && Number(row.end_time ?? 0) <= endMs)
-          .forEach((log) => {
-            if (!log.end_time) return;
-            entries.push({
-              id: `fasting-end-${log.server_id ?? log.id}`,
-              type: 'fasting_end',
-              title: 'Ayuno cerrado',
-              detail: log.protocol ?? null,
-              timestamp: new Date(Number(log.end_time ?? startMs)).toISOString(),
-            });
-          });
-
-        localWeightRows
-          .filter((row) => {
-            const ts = Number(row.logged_at ?? 0);
-            return ts >= startMs && ts <= endMs;
-          })
-          .forEach((log) => {
-            entries.push({
-              id: `weight-${log.server_id ?? log.id}`,
-              type: 'weight',
-              title: `Peso ${Number(log.weight_kg ?? 0).toFixed(1)} kg`,
-              detail: null,
-              timestamp: new Date(Number(log.logged_at ?? startMs)).toISOString(),
-            });
-          });
-
-        const mental = localMentalRows.find((row) => row.check_date === day);
-        if (mental?.id) {
-          const mentalTime = new Date(`${day}T12:00:00`).toISOString();
-          entries.push({
-            id: `mental-${mental.server_id ?? mental.id}`,
-            type: 'mental',
-            title: 'Check-in mental',
-            detail: `Mood ${mental.mood ?? 0}/5`,
-            timestamp: mentalTime,
-          });
-        }
-
-        return entries.sort(
-          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
+        // DEPRECATED: WatermelonDB removed, offline timeline disabled
+        // Use SyncQueue for offline-first in future
+        return [];
       };
 
       if (!isOnline) {

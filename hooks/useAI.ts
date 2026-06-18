@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { ComponentMessages } from '@/constants/strings';
 import type { UserProfile } from '@/types/user';
 
 export interface UseAIOptions {
@@ -23,7 +24,7 @@ interface ContextChatResponse {
   error?: string;
 }
 
-const DAILY_CONTEXT_LIMIT = 5;
+const DAILY_CONTEXT_LIMIT = 2;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
@@ -42,7 +43,8 @@ export function buildSystemPrompt(profile: UserProfile | null | undefined) {
     `Meta de agua: ${waterGoal}ml`,
     `Meta de pasos: ${stepGoal}`,
     `Meta de sueño: ${sleepGoal}h`,
-    'Responder en español, de forma breve, práctica y segura.',
+    ComponentMessages.systemPrompt,
+    'Politica IA: responde en maximo 2 frases, con una accion concreta y sin motivacion generica. Si faltan datos, dilo y pide el registro minimo.',
   ].join('\n');
 }
 
@@ -53,7 +55,7 @@ export const useAI = (options?: UseAIOptions) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [dailyMessagesLeft, setDailyMessagesLeft] = useState<number>(5);
+  const [dailyMessagesLeft, setDailyMessagesLeft] = useState<number>(DAILY_CONTEXT_LIMIT);
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
@@ -92,7 +94,7 @@ export const useAI = (options?: UseAIOptions) => {
 
   const sendMessage = useCallback(async (message: string) => {
     if (!session?.access_token) {
-      const authError = new Error('No hay sesión activa.');
+      const authError = new Error(ComponentMessages.invalidSession);
       setError(authError);
       throw authError;
     }
@@ -102,7 +104,7 @@ export const useAI = (options?: UseAIOptions) => {
 
     try {
       if (dailyMessagesLeft <= 0) {
-        const limitError = new Error('Limite diario alcanzado');
+        const limitError = new Error(ComponentMessages.dailyLimitReached);
         setError(limitError);
         throw limitError;
       }
@@ -134,7 +136,7 @@ export const useAI = (options?: UseAIOptions) => {
         throw new Error(payload.error ?? `Vyra AI responded with ${response.status}`);
       }
 
-      const reply = payload.reply ?? 'Mi cerebro IA está tomando un descanso.';
+      const reply = payload.reply ?? ComponentMessages.aiBrainResting;
 
       setMessages((prev) => [
         ...prev,

@@ -47,7 +47,7 @@ type BridgeStage =
   | 'error';
 
 const QA_BRIDGE_ENABLED =
-  __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_QA_SESSION_BRIDGE === 'true';
 const QA_SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const QA_SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -78,9 +78,9 @@ function normalizeBridgeDestination(route: string | null): string | null {
     '/progress': Routes.progress.index,
     '/coach': Routes.tabs.home,
     '/nutrition': Routes.nutrition.index,
-    '/referral': Routes.profile.referral,
+    '/referral': Routes.auth.register,
     '/workout': Routes.workout.index,
-    '/growth/invite': Routes.profile.referral,
+    '/growth/invite': Routes.auth.register,
   };
 
   return aliasMap[normalized] ?? normalized;

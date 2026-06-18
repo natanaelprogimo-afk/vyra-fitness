@@ -5,24 +5,41 @@
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
-import { supabase } from '@/lib/supabase';
+import { getPersistedSupabaseSessionSnapshot, supabase } from '@/lib/supabase';
 import type {
   FastingSession,
   StartFastPayload,
   StartFastOptions,
+  CompleteFastOptions,
+  AdjustActiveFastPayload,
   FastingSessionStatus,
   FiveTwoWeekSummary,
+  LogPastFastPayload,
 } from '@/lib/fasting-types';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { trackLogCreated } from '@/lib/analytics';
+import {
+  cancelNotifsByType,
+  scheduleFastingAlmostCompleteNotif,
+  scheduleFastingCompleteNotif,
+  scheduleFastingPhaseNotif,
+} from '@/lib/notifications';
 import { todayISO } from '@/utils/dates';
 import { decryptSensitiveText } from '@/lib/sensitive-crypto';
 import { resolveFemalePhaseFromRecord } from '@/lib/female-phase';
-import { loadFastingSettings, type FastingSettings } from '@/lib/fasting-settings';
+import {
+  loadFastingSettings,
+  loadMutedFastingSessionId,
+  parseTimeInput,
+  saveMutedFastingSessionId,
+  type FastingSettings,
+} from '@/lib/fasting-settings';
+import { FastingLabels } from '@/constants/strings';
 
 // ─── Fases metabólicas del ayuno ─────────────────────────
 export interface FastingPhase {
@@ -34,27 +51,42 @@ export interface FastingPhase {
   color:       string;
 }
 
-export const FASTING_PHASES: FastingPhase[] = [
-  { id: 'fed',       hours: 0,   emoji: '🍽️', label: 'Post-comida',        description: 'Digiriendo. Insulina elevada.',                     color: '#FF6B6B' },
-  { id: 'fasting',   hours: 4,   emoji: '⏳', label: 'Ayuno activo',        description: 'Glucógeno empezando a consumirse.',                 color: '#FFB347' },
-  { id: 'ketosis',   hours: 12,  emoji: '🔥', label: 'Cetosis inicial',      description: 'El cuerpo empieza a quemar grasa.',                 color: '#FFD700' },
-  { id: 'autophagy', hours: 16,  emoji: '♻️', label: 'Autofagia',           description: 'Reciclaje celular activo. Beneficios máximos.',      color: '#7BC67E' },
-  { id: 'deep',      hours: 18,  emoji: '🧬', label: 'Ayuno profundo',      description: 'HGH aumentando. Regeneración celular intensa.',      color: '#4FC3F7' },
-  { id: 'extended',  hours: 24,  emoji: '⚡', label: 'Ayuno extendido',     description: 'Modo de supervivencia. Supervivencia celular máxima.',color: '#CE93D8' },
-];
+// Dynamic fasting phases using i18n labels
+function getFastingPhases(): FastingPhase[] {
+  return [
+    { id: 'fed',       hours: 0,   emoji: '🍽️', label: FastingLabels.fedPhase,        description: FastingLabels.fedPhaseDesc,                     color: '#FF6B6B' },
+    { id: 'fasting',   hours: 4,   emoji: '⏳', label: FastingLabels.activePhase,        description: FastingLabels.activePhaseDesc,                 color: '#FFB347' },
+    { id: 'ketosis',   hours: 12,  emoji: '🔥', label: FastingLabels.ketosisPhase,      description: FastingLabels.ketosisPhaseDesc,                 color: '#FFD700' },
+    { id: 'autophagy', hours: 16,  emoji: '♻️', label: FastingLabels.autophagy,           description: FastingLabels.autophagyDesc,      color: '#7BC67E' },
+    { id: 'deep',      hours: 18,  emoji: '🧬', label: FastingLabels.deepFast,      description: FastingLabels.deepFastDesc,      color: '#4FC3F7' },
+    { id: 'extended',  hours: 24,  emoji: '⚡', label: FastingLabels.extendedFast,     description: FastingLabels.extendedFastDesc,color: '#CE93D8' },
+  ];
+}
+
+export const FASTING_PHASES: FastingPhase[] = getFastingPhases();
+
+function getPhaseForHours(hours: number): FastingPhase {
+  for (let index = FASTING_PHASES.length - 1; index >= 0; index -= 1) {
+    const phase = FASTING_PHASES[index];
+    if (hours >= phase.hours) {
+      return phase;
+    }
+  }
+  return FASTING_PHASES[0];
+}
 
 export const PROTOCOLS: Record<string, { label: string; targetHours: number; windowHours: number; description: string }> = {
-  '12:12': { label: '12:12', targetHours: 12, windowHours: 12, description: 'Entrada suave para días de baja recuperación' },
-  '14:10': { label: '14:10', targetHours: 14, windowHours: 10, description: 'Paso intermedio para sostener adherencia' },
-  '16:8':  { label: '16:8',  targetHours: 16, windowHours: 8,  description: '16h ayuno, 8h para comer — el más popular' },
-  '18:6':  { label: '18:6',  targetHours: 18, windowHours: 6,  description: '18h ayuno, 6h ventana' },
-  '20:4':  { label: '20:4',  targetHours: 20, windowHours: 4,  description: 'Warrior Diet' },
-  '23:1':  { label: '23:1',  targetHours: 23, windowHours: 1,  description: 'OMAD — una comida al día' },
+  '12:12': { label: '12:12', targetHours: 12, windowHours: 12, description: FastingLabels.protocol12_12Desc },
+  '14:10': { label: '14:10', targetHours: 14, windowHours: 10, description: FastingLabels.protocol14_10Desc },
+  '16:8':  { label: '16:8',  targetHours: 16, windowHours: 8,  description: FastingLabels.protocol16_8Desc },
+  '18:6':  { label: '18:6',  targetHours: 18, windowHours: 6,  description: FastingLabels.protocol18_6Desc },
+  '20:4':  { label: '20:4',  targetHours: 20, windowHours: 4,  description: FastingLabels.protocol20_4Desc },
+  '23:1':  { label: '23:1',  targetHours: 23, windowHours: 1,  description: FastingLabels.protocol23_1Desc },
   // Support alternative keys used in the UI (OMAD, 24h, 5:2)
-  OMAD:    { label: 'OMAD',   targetHours: 23, windowHours: 1,  description: 'Una comida al día (OMAD)' },
-  '24h':   { label: '24h',    targetHours: 24, windowHours: 0,  description: 'Ayuno completo de 24 horas.' },
-  '5:2':   { label: '5:2',    targetHours: 24, windowHours: 0,  description: 'Día de restricción (5:2 protocol)' },
-  'custom':{ label: 'Custom', targetHours: 16, windowHours: 8,  description: 'Personalizado' },
+  OMAD:    { label: 'OMAD',   targetHours: 23, windowHours: 1,  description: FastingLabels.protocolOMADDesc },
+  '24h':   { label: '24h',    targetHours: 24, windowHours: 0,  description: FastingLabels.protocol24hDesc },
+  '5:2':   { label: '5:2',    targetHours: 24, windowHours: 0,  description: FastingLabels.protocol5_2Desc },
+  'custom':{ label: 'Custom', targetHours: 16, windowHours: 8,  description: FastingLabels.protocolCustomDesc },
 };
 
 export const FASTING_TIMER_TASK = 'FASTING_TIMER_TASK';
@@ -109,6 +141,8 @@ interface FastingHistoryRow {
 // the new `FastingSession` types from `lib/fasting-types` instead.
 
 const FASTING_REQUEST_TIMEOUT_MS = 8000;
+const FIVE_TWO_BACKGROUND_ATTEMPT_KEY = 'vyra_fasting_five_two_bg_attempt_v1';
+const FIVE_TWO_AUTO_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 const PHASE_TO_DB_PHASE: Record<string, string> = {
   fed: 'digestion',
@@ -132,6 +166,13 @@ function addDays(day: string, amount: number): string {
 function average(values: number[]): number | null {
   if (!values.length) return null;
   return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100;
+}
+
+function toLocalDayKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
@@ -279,6 +320,183 @@ function protocolTargetHours(protocol: string): number {
   return PROTOCOLS[protocol]?.targetHours ?? 16;
 }
 
+function resolveFiveTwoScheduledStart(settings: Pick<FastingSettings, 'fiveTwoAutoStart' | 'fiveTwoDays' | 'fiveTwoStartTime'>, now = new Date()) {
+  if (!settings.fiveTwoAutoStart) return null;
+  if (!Array.isArray(settings.fiveTwoDays) || settings.fiveTwoDays.length === 0) return null;
+  if (!settings.fiveTwoDays.includes(now.getDay())) return null;
+  const parsedTime = parseTimeInput(settings.fiveTwoStartTime ?? '');
+  if (!parsedTime) return null;
+
+  const scheduled = new Date(now);
+  scheduled.setHours(parsedTime.hour, parsedTime.minute, 0, 0);
+
+  return {
+    scheduled,
+    scheduledDay: toLocalDayKey(scheduled),
+  };
+}
+
+async function ensureBackgroundSupabaseSession() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session?.user?.id) return session;
+
+  const snapshot = await getPersistedSupabaseSessionSnapshot();
+  if (!snapshot?.access_token || !snapshot.refresh_token) return null;
+
+  const { data, error } = await supabase.auth.setSession({
+    access_token: snapshot.access_token,
+    refresh_token: snapshot.refresh_token,
+  });
+
+  if (error) {
+    console.debug?.('[useFasting] background setSession failed', error);
+    return snapshot;
+  }
+
+  return data.session ?? snapshot;
+}
+
+async function markFiveTwoAttempt(dayKey: string) {
+  try {
+    await AsyncStorage.setItem(FIVE_TWO_BACKGROUND_ATTEMPT_KEY, dayKey);
+  } catch (error) {
+    console.debug?.('[useFasting] markFiveTwoAttempt failed', error);
+  }
+}
+
+async function hasFiveTwoAttempted(dayKey: string) {
+  try {
+    const stored = await AsyncStorage.getItem(FIVE_TWO_BACKGROUND_ATTEMPT_KEY);
+    return stored === dayKey;
+  } catch (error) {
+    console.debug?.('[useFasting] hasFiveTwoAttempted failed', error);
+    return false;
+  }
+}
+
+async function startScheduledFiveTwoFastInBackground() {
+  const settings = await loadFastingSettings();
+  const schedule = resolveFiveTwoScheduledStart(settings);
+  if (!schedule) {
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  }
+
+  const diffMs = Date.now() - schedule.scheduled.getTime();
+  if (diffMs < 0 || diffMs > FIVE_TWO_AUTO_WINDOW_MS) {
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  }
+
+  if (await hasFiveTwoAttempted(schedule.scheduledDay)) {
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  }
+
+  const session = await ensureBackgroundSupabaseSession();
+  const userId = session?.user?.id ?? '';
+  if (!userId) {
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  }
+
+  const targetDuration = protocolTargetHours('5:2') * 3600;
+  const { data: existingRows, error: existingError } = await supabase
+    .from('fasting_sessions')
+    .select('id, protocol, status, start_time, target_duration, scheduled_date')
+    .eq('user_id', userId)
+    .in('status', ['active', 'planned'])
+    .order('start_time', { ascending: false })
+    .limit(8);
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  const existingSessions = (existingRows ?? []) as FastingSession[];
+  const hasScheduledToday = existingSessions.some((item) => {
+    const itemDay =
+      item.scheduled_date ??
+      (item.start_time ? toLocalDayKey(new Date(item.start_time)) : null);
+    return item.protocol === '5:2' && itemDay === schedule.scheduledDay;
+  });
+
+  if (hasScheduledToday || wouldOverlap(existingSessions, schedule.scheduled, targetDuration)) {
+    await markFiveTwoAttempt(schedule.scheduledDay);
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  }
+
+  const nowIso = new Date().toISOString();
+  const insert = await supabase
+    .from('fasting_sessions')
+    .insert({
+      user_id: userId,
+      protocol: '5:2',
+      protocol_type: 'weekly',
+      start_time: schedule.scheduled.toISOString(),
+      target_duration: targetDuration,
+      status: 'active',
+      scheduled_date: schedule.scheduledDay,
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+    .select()
+    .single();
+
+  if (insert.error) {
+    throw insert.error;
+  }
+
+  await markFiveTwoAttempt(schedule.scheduledDay);
+  await syncActiveFastNotifications(insert.data as FastingSession, settings, false);
+  return BackgroundFetch.BackgroundFetchResult.NewData;
+}
+
+async function syncActiveFastNotifications(
+  session: FastingSession | null,
+  settings: FastingSettings | null,
+  mutedForSession: boolean,
+): Promise<void> {
+  await Promise.all([
+    cancelNotifsByType('fasting_phase'),
+    cancelNotifsByType('fasting_complete'),
+    cancelNotifsByType('fasting_complete_soon'),
+  ]);
+
+  if (!session || session.status !== 'active' || !session.start_time) return;
+  if (mutedForSession) return;
+
+  const startDate = new Date(session.start_time);
+  if (Number.isNaN(startDate.getTime())) return;
+
+  const settingsSnapshot = settings ?? await loadFastingSettings();
+  const nowMs = Date.now();
+  const elapsedHours = (nowMs - startDate.getTime()) / (1000 * 60 * 60);
+  const targetHours = protocolTargetHours(session.protocol ?? '16:8');
+  if (settingsSnapshot.notifyPhase) {
+    const upcomingPhases = FASTING_PHASES.filter(
+      (phase) => phase.id !== 'fed' && phase.hours > elapsedHours && phase.hours <= targetHours,
+    );
+
+    await Promise.all(
+      upcomingPhases.map((phase) =>
+        scheduleFastingPhaseNotif(
+          phase.label,
+          new Date(startDate.getTime() + phase.hours * 60 * 60 * 1000),
+        ),
+      ),
+    );
+  }
+
+  const completeAt = new Date(startDate.getTime() + targetHours * 60 * 60 * 1000);
+  if (settingsSnapshot.notifyComplete && completeAt.getTime() > nowMs) {
+    const almostCompleteAt = new Date(completeAt.getTime() - 2 * 60 * 60 * 1000);
+    if (almostCompleteAt.getTime() > nowMs) {
+      await scheduleFastingAlmostCompleteNotif(almostCompleteAt);
+    }
+    await scheduleFastingCompleteNotif(completeAt);
+  }
+}
+
 function computeProtocolSuggestion(
   history: Array<{ protocol?: string | null; completed?: boolean; abandoned?: boolean; total_hours?: number | null }>,
   currentProtocol: string,
@@ -304,7 +522,7 @@ function computeProtocolSuggestion(
   if ((cyclePhase === 'luteal' || cyclePhase === 'menstrual') && currentTarget > 16) {
     return {
       suggestedProtocol: '16:8',
-      reason: 'En esta fase suele aumentar hambre y fatiga. Te conviene un protocolo más corto esta semana.',
+      reason: FastingLabels.hungryPhaseWarning,
       confidence: 'high',
     };
   }
@@ -319,21 +537,21 @@ function computeProtocolSuggestion(
     if (currentProtocol === '20:4') {
       return {
         suggestedProtocol: '18:6',
-        reason: 'Se repiten abandonos cerca del final. Bajemos una etapa para consolidar adherencia.',
+        reason: FastingLabels.consistencyTip,
         confidence: 'high',
       };
     }
     if (currentProtocol === '18:6') {
       return {
         suggestedProtocol: '16:8',
-        reason: 'Tu patron sugiere que una ventana un poco más flexible puede mejorar continuidad semanal.',
+        reason: FastingLabels.consistencyTip,
         confidence: 'high',
       };
     }
     if (currentProtocol === '16:8') {
       return {
         suggestedProtocol: '14:10',
-        reason: 'Estás quedándote corto de forma repetida. Un protocolo intermedio puede consolidar el hábito.',
+        reason: FastingLabels.progressTip,
         confidence: 'high',
       };
     }
@@ -346,7 +564,7 @@ function computeProtocolSuggestion(
     if (avgHours !== null && avgHours >= 16.5) {
       return {
         suggestedProtocol: '18:6',
-        reason: 'Completaste varios 16:8 con margen. Ya estás listo para progresar a 18:6.',
+        reason: FastingLabels.readyProgress,
         confidence: 'medium',
       };
     }
@@ -362,8 +580,9 @@ function computeProtocolSuggestion(
 if (!TaskManager.isTaskDefined(FASTING_TIMER_TASK)) {
   TaskManager.defineTask(FASTING_TIMER_TASK, async () => {
     try {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
-    } catch {
+      return await startScheduledFiveTwoFastInBackground();
+    } catch (error) {
+      console.debug?.('[useFasting] background 5:2 task failed', error);
       return BackgroundFetch.BackgroundFetchResult.Failed;
     }
   });
@@ -389,6 +608,7 @@ export function useFasting() {
 
   // Fasting settings (local): used to support 5:2 scheduled auto-start
   const [fastingSettings, setFastingSettings] = useState<FastingSettings | null>(null);
+  const [mutedSessionId, setMutedSessionId] = useState<string | null>(null);
   const lastFiveTwoAutoRef = useRef<string | null>(null); // YYYY-MM-DD when we last attempted auto-start
 
   useEffect(() => {
@@ -405,6 +625,19 @@ export function useFasting() {
       console.debug?.('[useFasting] loadFastingSettings failed', e);
       if (!mounted) return;
       setFastingSettings(null);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadMutedFastingSessionId().then((sessionId) => {
+      if (!mounted) return;
+      setMutedSessionId(sessionId);
+    }).catch((e) => {
+      console.debug?.('[useFasting] loadMutedFastingSessionId failed', e);
+      if (!mounted) return;
+      setMutedSessionId(null);
     });
     return () => { mounted = false; };
   }, []);
@@ -494,6 +727,20 @@ export function useFasting() {
 
   const protocol = activeFast?.protocol ?? profile?.fasting_protocol ?? '16:8';
   const targetHours = PROTOCOLS[protocol]?.targetHours ?? 16;
+  const activeFastNotificationsMuted = Boolean(activeFast?.id && mutedSessionId === activeFast.id);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!activeFast?.id && mutedSessionId) {
+      setMutedSessionId(null);
+      void saveMutedFastingSessionId(null);
+      return;
+    }
+    if (activeFast?.id && mutedSessionId && mutedSessionId !== activeFast.id) {
+      setMutedSessionId(null);
+      void saveMutedFastingSessionId(null);
+    }
+  }, [activeFast?.id, isLoading, mutedSessionId]);
 
   // Debug: ayuda a verificar en runtime qué protocolo y objetivo de horas se está usando.
   // El log es intencionalmente ligero y puede eliminarse tras la verificación en el emulador.
@@ -509,6 +756,23 @@ export function useFasting() {
       console.debug?.('[useFasting] debug log failed');
     }
   }, [protocol, targetHours, activeFast?.protocol, profile?.fasting_protocol]);
+
+  useEffect(() => {
+    void syncActiveFastNotifications(
+      activeFast ?? null,
+      fastingSettings,
+      activeFastNotificationsMuted,
+    ).catch((error) => {
+      console.debug?.('[useFasting] syncActiveFastNotifications failed', error);
+    });
+  }, [
+    activeFast?.id,
+    activeFast?.protocol,
+    activeFast?.start_time,
+    activeFast?.status,
+    activeFastNotificationsMuted,
+    fastingSettings,
+  ]);
 
   // ─── Calcular elapsed al montar ──────────────────────────
   useEffect(() => {
@@ -562,7 +826,7 @@ export function useFasting() {
 
     if (!preAutophagyNotifiedRef.current && hours >= 15.25 && hours < 16) {
       preAutophagyNotifiedRef.current = true;
-      showToast('Faltan 45 min para autofagia. Ya llegaste hasta aca, aguanta un poco más.', 'info');
+      showToast(FastingLabels.autophagyCountdown, 'info');
     }
   };
 
@@ -678,6 +942,16 @@ export function useFasting() {
         console.debug?.('[useFasting] startFast:onSuccess logging failed', e);
       }
       const protoLabel = vars?.protocol ?? 'ayuno';
+      const targetHours = protocolTargetHours(vars?.protocol ?? '16:8');
+      
+      // WARNING for extended fasts >24h
+      if (targetHours > 24) {
+        showToast(
+          '⚠️ Ayuno prolongado: Recomendamos supervisión médica para fasts >24h',
+          'warning',
+        );
+      }
+      
       queryClient.setQueryData(['fasting_active', userId], row);
       queryClient.invalidateQueries({ queryKey: ['fasting_active'] });
       queryClient.invalidateQueries({ queryKey: ['today_summary'] });
@@ -710,7 +984,11 @@ export function useFasting() {
   };
 
   // ─── Completar ayuno ─────────────────────────────────────
-  const { mutate: completeFast, isPending: isCompleting } = useMutation({
+  const {
+    mutate: completeFastMutate,
+    mutateAsync: completeFastMutateAsync,
+    isPending: isCompleting,
+  } = useMutation<void, Error, void>({
     mutationFn: async () => {
       if (!activeFast?.id || !userId) throw new Error('No active fast');
       const actualDuration = Math.floor(elapsedSeconds);
@@ -745,8 +1023,21 @@ export function useFasting() {
     onError: (error) => showToast(normalizeFastingError(error, 'No se pudo completar el ayuno.'), 'error'),
   });
 
+  const completeFast = (opts?: CompleteFastOptions) => {
+    completeFastMutate(undefined, {
+      onSuccess: () => opts?.onSuccess?.(),
+      onError: (error) => opts?.onError?.(error),
+    });
+  };
+
+  const completeFastAsync = () => completeFastMutateAsync();
+
   // ─── Abandonar ayuno ─────────────────────────────────────
-  const { mutate: abandonFastMutate } = useMutation<void, Error, string | undefined>({
+  const {
+    mutate: abandonFastMutate,
+    mutateAsync: abandonFastMutateAsync,
+    isPending: isAbandoning,
+  } = useMutation<void, Error, string | undefined>({
     mutationFn: async (reason?: string) => {
       if (!activeFast?.id) throw new Error('No active fast');
       const normalizedReason = reason?.trim() || null;
@@ -764,14 +1055,19 @@ export function useFasting() {
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.setQueryData(['fasting_active', userId], null);
       queryClient.invalidateQueries({ queryKey: ['fasting_active'] });
-      showToast('Ayuno cancelado. ¡El próximo va mejor!', 'info');
+      showToast(FastingLabels.fastingCancelled, 'info');
     },
   });
 
   // Wrapper so callers can invoke without arguments (`abandonFast()`) or with a reason string.
   const abandonFast = (reason?: string) => {
     return abandonFastMutate(reason as string | undefined);
+  };
+
+  const abandonFastAsync = (reason?: string) => {
+    return abandonFastMutateAsync(reason as string | undefined);
   };
 
   // ─── Eliminar ayuno ─────────────────────────────────────
@@ -814,43 +1110,218 @@ export function useFasting() {
 
   const deleteFast = (id: string) => deleteFastMutate(id);
 
+  const {
+    mutate: adjustActiveFastStartTimeMutate,
+    mutateAsync: adjustActiveFastStartTimeMutateAsync,
+    isPending: isAdjustingStartTime,
+  } = useMutation<void, Error, AdjustActiveFastPayload>({
+    mutationFn: async ({ startTime }) => {
+      if (!activeFast?.id) throw new Error('No active fast');
+
+      const nextStart = startTime instanceof Date ? startTime : new Date(startTime);
+      if (Number.isNaN(nextStart.getTime())) {
+        throw new Error('invalid_start_time');
+      }
+
+      if (nextStart.getTime() >= Date.now()) {
+        throw new Error('start_time_in_future');
+      }
+
+      const { error } = await supabase
+        .from('fasting_sessions')
+        .update({
+          start_time: nextStart.toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', activeFast.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['fasting_active'] });
+      queryClient.invalidateQueries({ queryKey: ['fasting_history'] });
+      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      showToast('Hora de inicio actualizada.', 'success');
+    },
+    onError: (error) => {
+      if (error.message === 'invalid_start_time') {
+        showToast('No pudimos interpretar la nueva hora de inicio.', 'warning');
+        return;
+      }
+      if (error.message === 'start_time_in_future') {
+        showToast('La hora de inicio debe quedar en el pasado.', 'warning');
+        return;
+      }
+      showToast(normalizeFastingError(error, 'No se pudo ajustar la hora de inicio.'), 'error');
+    },
+  });
+
+  const adjustActiveFastStartTime = (payload: AdjustActiveFastPayload, opts?: StartFastOptions) => {
+    adjustActiveFastStartTimeMutate(payload, {
+      onSuccess: () => opts?.onSuccess?.(),
+      onError: (error) => opts?.onError?.(error),
+    });
+  };
+
+  const adjustActiveFastStartTimeAsync = (payload: AdjustActiveFastPayload) => {
+    return adjustActiveFastStartTimeMutateAsync(payload);
+  };
+
+  const {
+    mutate: saveActiveFastNoteMutate,
+    isPending: isSavingActiveFastNote,
+  } = useMutation<void, Error, string>({
+    mutationFn: async (note) => {
+      if (!activeFast?.id) throw new Error('No active fast');
+
+      const normalizedNote = note.trim();
+      const { error } = await supabase
+        .from('fasting_sessions')
+        .update({
+          notes: normalizedNote || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', activeFast.id);
+
+      if (error) throw error;
+    },
+    onSuccess: (_, note) => {
+      const normalizedNote = note.trim();
+      queryClient.setQueryData(['fasting_active', userId], (previous: FastingSession | null | undefined) => (
+        previous
+          ? {
+              ...previous,
+              notes: normalizedNote || null,
+              updated_at: new Date().toISOString(),
+            }
+          : previous
+      ));
+      queryClient.invalidateQueries({ queryKey: ['fasting_history'] });
+      showToast('Nota del ayuno guardada.', 'success');
+    },
+    onError: (error) => {
+      showToast(normalizeFastingError(error, 'No se pudo guardar la nota del ayuno.'), 'error');
+    },
+  });
+
+  const saveActiveFastNote = (note: string, opts?: StartFastOptions) => {
+    saveActiveFastNoteMutate(note, {
+      onSuccess: () => opts?.onSuccess?.(),
+      onError: (error) => opts?.onError?.(error),
+    });
+  };
+
+  const setActiveFastNotificationsMuted = async (muted: boolean): Promise<boolean> => {
+    if (!activeFast?.id) return false;
+    const nextId = muted ? activeFast.id : null;
+    await saveMutedFastingSessionId(nextId);
+    setMutedSessionId(nextId);
+    showToast(
+      muted
+        ? 'Silenciamos los avisos de este ayuno. Puedes volver a activarlos cuando quieras.'
+        : 'Volvimos a activar los avisos de este ayuno.',
+      'info',
+    );
+    return true;
+  };
+
+  const { mutate: logPastFastMutate, isPending: isLoggingPastFast } = useMutation<
+    FastingSession,
+    Error,
+    LogPastFastPayload
+  >({
+    mutationFn: async ({ protocol: proto, startTime, endTime }) => {
+      if (!userId) throw new Error('no_user');
+
+      const startDate = startTime instanceof Date ? startTime : new Date(startTime);
+      const endDate = endTime instanceof Date ? endTime : new Date(endTime);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        throw new Error('invalid_dates');
+      }
+
+      const actualDuration = Math.floor((endDate.getTime() - startDate.getTime()) / 1000);
+      if (actualDuration < 15 * 60) {
+        throw new Error('duration_too_short');
+      }
+
+      const protocolType: 'daily' | 'weekly' = proto === '5:2' ? 'weekly' : 'daily';
+      const targetDuration = protocolTargetHours(proto) * 3600;
+      const maxPhase = getPhaseForHours(actualDuration / 3600);
+
+      const { data, error } = await supabase
+        .from('fasting_sessions')
+        .insert({
+          user_id: userId,
+          protocol: proto,
+          protocol_type: protocolType,
+          start_time: startDate.toISOString(),
+          end_time: endDate.toISOString(),
+          target_duration: targetDuration,
+          actual_duration: actualDuration,
+          status: 'completed',
+          scheduled_date: protocolType === 'weekly' ? startDate.toISOString().split('T')[0] : null,
+          max_phase_reached: resolveStoredPhase(maxPhase.id),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as FastingSession;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['fasting_history'] });
+      queryClient.invalidateQueries({ queryKey: ['today_summary'] });
+      queryClient.invalidateQueries({ queryKey: ['daily_score'] });
+      showToast('Ayuno pasado registrado.', 'success');
+      if (isOnline) void supabase.rpc('calculate_daily_score', { p_user_id: userId });
+    },
+    onError: (error) => {
+      if (error.message === 'duration_too_short') {
+        showToast('Ese ayuno es demasiado corto para guardarlo. Probá con al menos 15 minutos.', 'warning');
+        return;
+      }
+      if (error.message === 'invalid_dates') {
+        showToast('No pudimos interpretar bien la fecha u hora de ese ayuno.', 'warning');
+        return;
+      }
+      showToast(normalizeFastingError(error, 'No se pudo registrar el ayuno pasado.'), 'error');
+    },
+  });
+
+  const logPastFast = (payload: LogPastFastPayload, opts?: StartFastOptions) => {
+    logPastFastMutate(payload, {
+      onSuccess: () => opts?.onSuccess?.(),
+      onError: (error) => opts?.onError?.(error),
+    });
+  };
+
   // Auto-start 5:2 logic: when enabled, check once a minute while app is active
   useEffect(() => {
     if (!fastingSettings || !fastingSettings.fiveTwoAutoStart) return undefined;
     if (!Array.isArray(fastingSettings.fiveTwoDays) || fastingSettings.fiveTwoDays.length === 0) return undefined;
+    if (activeFast?.id) return undefined;
 
     let mounted = true;
     const checkAndMaybeStart = () => {
       try {
         if (!mounted) return;
-        const now = new Date();
-        const today = now.getDay(); // 0=Sun..6=Sat
-        if (!fastingSettings.fiveTwoDays.includes(today)) return;
+        const schedule = resolveFiveTwoScheduledStart(fastingSettings);
+        if (!schedule) return;
 
-        const startTime = fastingSettings.fiveTwoStartTime;
-        if (!startTime) return;
-        const parts = startTime.split(':');
-        if (parts.length !== 2) return;
-        const hour = Number(parts[0]);
-        const minute = Number(parts[1]);
-        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
-
-        const scheduled = new Date(now);
-        scheduled.setHours(hour, minute, 0, 0);
-
-        const scheduledDay = scheduled.toISOString().split('T')[0];
+        const { scheduled, scheduledDay } = schedule;
         if (lastFiveTwoAutoRef.current === scheduledDay) return; // already attempted today
 
-        // Allow a small window: start if now >= scheduled and within 30 minutes after
-        const diffMs = now.getTime() - scheduled.getTime();
-          if (diffMs >= 0 && diffMs <= 30 * 60 * 1000) {
+        const diffMs = Date.now() - scheduled.getTime();
+        if (diffMs >= 0 && diffMs <= FIVE_TWO_AUTO_WINDOW_MS) {
           // Attempt to auto-start
           lastFiveTwoAutoRef.current = scheduledDay;
           showToast('Iniciando ayuno 5:2 programado...', 'info');
           try {
             startFast({ protocol: '5:2', startTime: scheduled.toISOString() } as StartFastPayload, {
               onSuccess: () => {
-                showToast('Ayuno 5:2 iniciado según tu horario.', 'success');
+                showToast(FastingLabels.fast52Started, 'success');
               },
               onError: (err) => {
                 console.debug?.('[useFasting] 5:2 auto-start error', err?.message ?? err);
@@ -871,7 +1342,7 @@ export function useFasting() {
     checkAndMaybeStart();
     const id = setInterval(checkAndMaybeStart, 60 * 1000);
     return () => { mounted = false; clearInterval(id); };
-  }, [fastingSettings, startFast, showToast]);
+  }, [activeFast?.id, fastingSettings, startFast, showToast]);
 
   // ─── Historial ────────────────────────────────────────────
   const { data: history = [] } = useQuery({
@@ -999,7 +1470,7 @@ export function useFasting() {
       return {
         suggestedProtocol: '16:8',
         confidence: 'medium',
-        message: 'En esta fase vale más sostener un protocolo estable que perseguir horas extra. 16:8 es una buena base hoy.',
+        message: FastingLabels.stayConsistent,
       };
     }
 
@@ -1014,18 +1485,18 @@ export function useFasting() {
     return {
       suggestedProtocol: protocol,
       confidence: 'low',
-      message: 'Mantené el protocolo actual hoy. Enfócate en consistencia y ruptura de ayuno inteligente.',
+      message: FastingLabels.focusConsistency,
     };
   })();
   const cycleAwareNotice =
     femaleCyclePhase === 'menstrual'
-      ? 'Fase menstrual: usa 12:12 o 14:10 si el cuerpo pide bajar carga. Recuperación primero.'
+      ? FastingLabels.menstrualGuidance
       : femaleCyclePhase === 'luteal'
-        ? 'Fase lutea: suele funcionar mejor 14:10 o 16:8 con una ruptura de ayuno más simple.'
+        ? FastingLabels.lutealGuidance
         : femaleCyclePhase === 'follicular'
           ? 'Fase folicular: buena ventana para sostener 16:8 o progresar a 18:6 si dormiste bien.'
       : femaleCyclePhase === 'ovulation'
-        ? 'Fase ovulatoria: suele haber buena tolerancia a protocolos estándar si dormis bien.'
+        ? FastingLabels.ovulatoryGuidance
         : null;
 
   // Fetch planned 5:2 for today
@@ -1111,6 +1582,9 @@ export function useFasting() {
     isLoading,
     isStarting,
     isCompleting,
+    isAbandoning,
+    isLoggingPastFast,
+    isAdjustingStartTime,
     history,
     completedFasts: completedFasts.length,
     avgHours,
@@ -1122,18 +1596,29 @@ export function useFasting() {
     refuelPlan: null,
     dailyAdaptiveSuggestion,
     cycleAwareNotice,
+    activeFastNotificationsMuted,
+    activeFastNote: activeFast?.notes ?? null,
+    saveActiveFastNote,
+    isSavingActiveFastNote,
+    setActiveFastNotificationsMuted,
     getCurrentPhase: () => currentPhase,
     endFast: () => completeFast(),
     getHistory: () => history,
     startFast,
     completeFast,
+    completeFastAsync,
+    logPastFast,
     abandonFast,
+    abandonFastAsync,
+    adjustActiveFastStartTime,
+    adjustActiveFastStartTimeAsync,
     deleteFast,
     isDeleting,
     refetch,
     plannedToday,
     isFiveTwoDay,
     fiveTwoWeekSummary,
+    fiveTwoStartTime: fastingSettings?.fiveTwoStartTime ?? null,
   };
 }
 

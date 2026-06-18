@@ -40,20 +40,18 @@ const MODULE_TITLES: Record<ModuleId, string> = {
 
 const CANONICAL_ROUTE_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
   '/': { screenKey: 'home_tab', title: 'Inicio', surface: 'tabs', tabKey: 'home' },
-  '/explore': { screenKey: 'explore_tab', title: 'Explorar', surface: 'tabs', tabKey: 'explore' },
+  '/explore': { screenKey: 'explore_tab', title: 'Plan', surface: 'tabs', tabKey: 'explore' },
   '/progress': { screenKey: 'progress_tab', title: 'Progreso', surface: 'tabs', tabKey: 'progress' },
   '/profile/sheet': { screenKey: 'profile_sheet', title: 'Perfil', surface: 'profile', tabKey: 'profile' },
   '/profile/claim-account': { screenKey: 'profile_claim_account', title: 'Guardar cuenta', surface: 'profile' },
-  '/profile/referral': { screenKey: 'profile_referral', title: 'Invitar', surface: 'profile' },
+  '/profile/referral': { screenKey: 'profile_referral', title: 'Acceso heredado', surface: 'special' },
   '/welcome': { screenKey: 'auth_welcome', title: 'Bienvenida', surface: 'auth' },
   '/login': { screenKey: 'auth_login', title: 'Login', surface: 'auth' },
   '/register': { screenKey: 'auth_register', title: 'Registro', surface: 'auth' },
   '/forgot-password': { screenKey: 'auth_forgot_password', title: 'Recuperar acceso', surface: 'auth' },
   '/reset-password': { screenKey: 'auth_reset_password', title: 'Nueva clave', surface: 'auth' },
   '/readiness': { screenKey: 'readiness_today', title: 'VYRA Balance de hoy', surface: 'special' },
-  '/referral': { screenKey: 'referral_public', title: 'Invitación', surface: 'special' },
-  '/premium/paywall': { screenKey: 'premium_paywall', title: 'Todo incluido', surface: 'premium' },
-  '/premium/manage': { screenKey: 'premium_manage', title: 'Acceso incluido', surface: 'premium' },
+  '/referral': { screenKey: 'referral_public', title: 'Registro', surface: 'auth' },
   '/modules/progress/history': { screenKey: 'progress_history', title: 'Progreso - Historial', surface: 'module' },
   '/modules/progress/insights': { screenKey: 'progress_insights', title: 'Progreso - Insights', surface: 'module' },
   '/modules/sleep/history': {
@@ -90,34 +88,9 @@ const CANONICAL_ROUTE_META: Record<string, Omit<RouteMeta, 'pathname'>> = {
     title: 'Apariencia y unidades',
     surface: 'settings',
   },
-  '/settings/widgets': {
-    screenKey: 'settings_widgets',
-    title: 'Widgets de inicio',
-    surface: 'settings',
-  },
-  '/settings/system-health': {
-    screenKey: 'settings_system_health',
-    title: 'Centro del sistema',
-    surface: 'settings',
-  },
-  '/internal/ui-gallery': {
-    screenKey: 'internal_ui_gallery',
-    title: 'Galeria UI',
-    surface: 'special',
-  },
-  '/internal/ads-lab': {
-    screenKey: 'internal_ads_lab',
-    title: 'Laboratorio de anuncios',
-    surface: 'special',
-  },
   '/settings/notifications-settings': {
     screenKey: 'settings_notifications_settings',
     title: 'Notificaciones - Ajustes',
-    surface: 'settings',
-  },
-  '/settings/notifications-history': {
-    screenKey: 'settings_notifications_history',
-    title: 'Historial de notificaciones',
     surface: 'settings',
   },
 };

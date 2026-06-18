@@ -39,7 +39,7 @@ export default function MetabolicTimeline({ elapsedHours, targetHours }: { elaps
               key={zone.id}
               style={[
                 styles.marker,
-                { left: `${pct}%`, backgroundColor: passed ? ZONE_COLORS[zone.id] : Colors.bgElevated }
+                { left: `${pct}%`, backgroundColor: passed ? ZONE_COLORS[zone.id] : Colors.elevated }
               ]}
             />
           );
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   container: { width: '100%', paddingBottom: Spacing[3] },
   track: {
     height: 6,
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.elevated,
     borderRadius: Radius.full,
     position: 'relative',
     marginBottom: Spacing[2],

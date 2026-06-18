@@ -175,7 +175,7 @@ function SliderRow({
               void triggerSelectionHaptic();
               onChange(dot);
             }}
-            style={[styles.dot, { backgroundColor: dot <= value ? color : Colors.bgElevated }]}
+            style={[styles.dot, { backgroundColor: dot <= value ? color : Colors.elevated }]}
             accessibilityRole="button"
             accessibilityState={{ selected: dot === value }}
             accessibilityLabel={`${label}: ${dot} de 10`}
