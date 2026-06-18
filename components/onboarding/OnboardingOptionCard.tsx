@@ -255,19 +255,23 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semibold,
     fontSize: FontSize.base,
     color: Colors.textPrimary,
+    textAlign: 'center',
   },
   labelSelected: {
     fontFamily: FontFamily.bold,
     color: Colors.textPrimary,
+    textAlign: 'center',
   },
   subtitle: {
     fontFamily: FontFamily.regular,
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
+    textAlign: 'center',
   },
   subtitleSelected: {
     color: Colors.textPrimary,
     fontFamily: FontFamily.medium,
+    textAlign: 'center',
   },
   subtitleExpanded: {
     fontSize: FontSize.sm,
