@@ -32,6 +32,7 @@ export const Routes = {
       expressGender: '/(auth)/onboarding/express-gender',
       expressWeight: '/(auth)/onboarding/express-weight',
       expressReady: '/(auth)/onboarding/express-ready',
+      expressName: '/(auth)/onboarding/express-name',
       base: '/(auth)/onboarding/setup-transition',
       finish: '/(auth)/onboarding/step-ready',
     },

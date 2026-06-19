@@ -45,11 +45,11 @@ export default function ExpressReadyScreen() {
 
     setIsLoading(true);
     try {
-      // Mark onboarding as complete
-      await saveOnboardingProgress(Routes.tabs.home, draft);
-      router.replace(Routes.tabs.home as never);
+      // Navigate to express-name to collect user's name
+      await saveOnboardingProgress(Routes.auth.onboarding.expressName, draft);
+      router.push(Routes.auth.onboarding.expressName as never);
     } catch (err) {
-      console.error('Failed to complete onboarding:', err);
+      console.error('Failed to navigate to express-name:', err);
       setIsLoading(false);
     }
   };
@@ -89,7 +89,7 @@ export default function ExpressReadyScreen() {
             haptic="medium"
             loading={isLoading}
           >
-            Listo, ¡vamos!
+            Siguiente
           </Button>
         </View>
       }
