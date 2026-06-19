@@ -29,6 +29,7 @@ export const Routes = {
       female: '/(auth)/onboarding/step-female',
       ready: '/(auth)/onboarding/step-ready',
       expressGoal: '/(auth)/onboarding/express-goal',
+      expressGender: '/(auth)/onboarding/express-gender',
       expressWeight: '/(auth)/onboarding/express-weight',
       expressReady: '/(auth)/onboarding/express-ready',
       base: '/(auth)/onboarding/setup-transition',

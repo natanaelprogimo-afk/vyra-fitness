@@ -28,6 +28,13 @@ export default function ExpressWeightScreen() {
       const progress = await loadOnboardingProgress();
       if (!active) return;
 
+      // ARREGLO: Validar que vienen del express-gender
+      if (!progress.data?.gender) {
+        console.warn('[Express Weight] Gender not set, redirecting to express-gender');
+        router.replace(Routes.auth.onboarding.expressGender as never);
+        return;
+      }
+
       setDraft(progress.data ?? null);
       setAge(
         typeof progress.data?.age === 'number' && progress.data.age >= 13

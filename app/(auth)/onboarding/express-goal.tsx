@@ -88,16 +88,8 @@ export default function ExpressGoalScreen() {
     if (!option) return;
 
     const equipment = EQUIPMENT_BY_GOAL[goalDetail] || 'gym_full';
-    
-    // Get gender from draft, or use 'male' as default (never 'female' which was incorrect assumption)
-    // TODO: Ideally express flow should ask for gender in a quick step
-    const userGender: 'male' | 'female' = (draft?.gender === 'female') ? 'female' : 'male';
-    
-    if (!draft?.gender) {
-      console.warn('[Express Goal] Gender not set - defaulting to male for calculations');
-    }
-    
-    const suggestedModules = buildSuggestedActiveModules(goalDetail, userGender, false);
+
+    const suggestedModules = buildSuggestedActiveModules(goalDetail, 'male', false);
 
     // ARREGLO: Agregar validación de acceso
     if (!draft) {
@@ -105,7 +97,7 @@ export default function ExpressGoalScreen() {
       return;
     }
 
-    await saveOnboardingProgress(Routes.auth.onboarding.expressWeight, {
+    await saveOnboardingProgress(Routes.auth.onboarding.expressGender, {
       ...(draft ?? {}),
       goal: option.profileGoal,
       goal_detail: goalDetail,
@@ -113,17 +105,15 @@ export default function ExpressGoalScreen() {
       weight_current_kg: 70,
       height_cm: 170,
       age: 25,
-      gender: userGender,
+      // Don't set gender here - let express-gender ask for it
       // Don't override female_health_enabled - let step-female handle it
-      // This was causing female users to lose their health tracking preference in express flow
-      // female_health_enabled: false, // REMOVED - Let normal flow set this
       equipment,
       active_modules: suggestedModules,
       nutrition_pattern: 'sin_restricciones',
-      fasting_protocol: '16:8', // ARREGLO: 'no_fasting' no es opción válida
+      fasting_protocol: '16:8',
     });
 
-    router.push(Routes.auth.onboarding.expressWeight as never);
+    router.push(Routes.auth.onboarding.expressGender as never);
   };
 
   const displayedOptions = GOAL_OPTIONS.slice(0, 6);
