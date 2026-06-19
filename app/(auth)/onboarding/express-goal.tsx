@@ -99,6 +99,12 @@ export default function ExpressGoalScreen() {
     
     const suggestedModules = buildSuggestedActiveModules(goalDetail, userGender, false);
 
+    // ARREGLO: Agregar validación de acceso
+    if (!draft) {
+      console.error('[Express Goal] Draft not initialized');
+      return;
+    }
+
     await saveOnboardingProgress(Routes.auth.onboarding.expressWeight, {
       ...(draft ?? {}),
       goal: option.profileGoal,
@@ -114,7 +120,7 @@ export default function ExpressGoalScreen() {
       equipment,
       active_modules: suggestedModules,
       nutrition_pattern: 'sin_restricciones',
-      fasting_protocol: 'no_fasting',
+      fasting_protocol: '16:8', // ARREGLO: 'no_fasting' no es opción válida
     });
 
     router.push(Routes.auth.onboarding.expressWeight as never);

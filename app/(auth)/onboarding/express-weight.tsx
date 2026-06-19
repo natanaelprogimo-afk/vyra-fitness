@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
+import OnboardingWheelPicker from '@/components/onboarding/OnboardingWheelPicker';
 import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
@@ -17,7 +18,8 @@ export default function ExpressWeightScreen() {
   const [age, setAge] = useState(25);
   const [heightCm, setHeightCm] = useState(170);
   const [weightKg, setWeightKg] = useState(70);
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -50,21 +52,27 @@ export default function ExpressWeightScreen() {
   }, []);
 
   const handleContinue = async () => {
-    await saveOnboardingProgress(Routes.auth.onboarding.expressReady, {
-      ...(draft ?? {}),
-      age,
-      height_cm: heightCm,
-      weight_start_kg: weightKg,
-      weight_current_kg: weightKg,
-    });
+    if (isProcessing) return;
 
-    router.push(Routes.auth.onboarding.expressReady as never);
-  };
+    setIsProcessing(true);
+    setSaveError(null);
 
-  const displayWeight = weightUnit === 'lbs' ? Math.round(weightKg * 2.20462) : weightKg;
+    try {
+      await saveOnboardingProgress(Routes.auth.onboarding.expressReady, {
+        ...(draft ?? {}),
+        age,
+        height_cm: heightCm,
+        weight_start_kg: weightKg,
+        weight_current_kg: weightKg,
+      });
 
-  const toggleWeightUnit = () => {
-    setWeightUnit(weightUnit === 'kg' ? 'lbs' : 'kg');
+      router.push(Routes.auth.onboarding.expressReady as never);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+      console.error('[Express Weight] Failed to continue:', err);
+      setSaveError('No pudimos guardar tus datos. Verifica tu conexión e intenta de nuevo.');
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -76,47 +84,53 @@ export default function ExpressWeightScreen() {
       scrollable
       contentStyle={styles.content}
       footer={
-        <Button onPress={handleContinue} fullWidth size="md" haptic="medium">
-          Siguiente
-        </Button>
+        <View>
+          {saveError && (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorIcon}>⚠️</Text>
+              <Text style={styles.errorText}>{saveError}</Text>
+            </View>
+          )}
+          <Button
+            onPress={handleContinue}
+            fullWidth
+            size="md"
+            haptic="medium"
+            loading={isProcessing}
+            disabled={isProcessing}
+          >
+            Siguiente
+          </Button>
+        </View>
       }
     >
       <View style={styles.steppersContainer}>
-        <NumberStepper 
-          label="Edad" 
-          value={age} 
+        <Text style={styles.label}>Edad</Text>
+        <OnboardingWheelPicker
+          value={age}
+          values={Array.from({ length: 108 }, (_, i) => i + 13)}
           unit="años"
-          min={13}
-          max={120}
           onChange={setAge}
+          a11yLabel="Age picker"
         />
-        <NumberStepper 
-          label="Altura" 
-          value={heightCm} 
+
+        <Text style={styles.label}>Altura</Text>
+        <OnboardingWheelPicker
+          value={heightCm}
+          values={Array.from({ length: 131 }, (_, i) => i + 120)}
           unit="cm"
-          min={120}
-          max={250}
           onChange={setHeightCm}
+          a11yLabel="Height picker"
         />
-        <View style={styles.weightStepperWrapper}>
-          <NumberStepper 
-            label="Peso actual" 
-            value={displayWeight} 
-            unit={weightUnit === 'kg' ? 'kg' : 'lbs'}
-            min={weightUnit === 'kg' ? 35 : 77}
-            max={weightUnit === 'kg' ? 260 : 573}
-            onChange={(newVal) => {
-              if (weightUnit === 'kg') {
-                setWeightKg(newVal);
-              } else {
-                setWeightKg(Math.round(newVal / 2.20462));
-              }
-            }}
-          />
-          <Pressable style={styles.unitToggle} onPress={toggleWeightUnit} hitSlop={8}>
-            <Text style={styles.unitToggleText}>{weightUnit === 'kg' ? 'kg' : 'lbs'}</Text>
-          </Pressable>
-        </View>
+
+        <Text style={styles.label}>Peso</Text>
+        <OnboardingWheelPicker
+          value={weightKg}
+          values={Array.from({ length: 216 }, (_, i) => i + 35)}
+          unit="kg"
+          onChange={setWeightKg}
+          a11yLabel="Weight picker"
+        />
       </View>
 
       <Text style={styles.trustNote}>
@@ -135,28 +149,12 @@ const styles = StyleSheet.create({
   steppersContainer: {
     gap: Spacing[2],
   },
-  weightStepperWrapper: {
-    flexDirection: 'row',
-    gap: Spacing[1.5],
-    alignItems: 'flex-start',
-  },
-  unitToggle: {
-    minWidth: 52,
-    minHeight: 32,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.action, 0.24),
-    backgroundColor: withOpacity(Colors.action, 0.08),
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing[3],
-  },
-  unitToggleText: {
+  label: {
     fontFamily: FontFamily.semibold,
     fontSize: 11,
-    color: Colors.action,
+    color: Colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   trustNote: {
     fontFamily: FontFamily.regular,
@@ -165,103 +163,26 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
-  stepperCard: {
-    minHeight: 92,
-    borderRadius: Radius['2xl'],
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.white, 0.08),
-    backgroundColor: withOpacity(Colors.surface2, 0.92),
-    padding: Spacing[3],
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing[3],
+    gap: Spacing[2],
+    backgroundColor: withOpacity(Colors.error, 0.1),
+    borderLeftColor: Colors.error,
+    borderLeftWidth: 4,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.sm,
+    marginBottom: Spacing[2],
   },
-  stepperCopy: {
+  errorIcon: {
+    fontSize: 18,
+  },
+  errorText: {
     flex: 1,
-    gap: 4,
-  },
-  stepperLabel: {
-    fontFamily: FontFamily.semibold,
+    fontFamily: FontFamily.regular,
     fontSize: 12,
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  stepperValue: {
-    fontFamily: FontFamily.display,
-    fontSize: 28,
-    lineHeight: 32,
-    color: Colors.textPrimary,
-    letterSpacing: -0.7,
-  },
-  stepperActions: {
-    flexDirection: 'row',
-    gap: Spacing[1.5],
-  },
-  stepperButton: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.secondary, 0.12),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.secondary, 0.22),
-  },
-  stepperButtonText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 24,
-    lineHeight: 28,
-    color: Colors.textPrimary,
+    lineHeight: 18,
+    color: Colors.error,
   },
 });
-
-function NumberStepper({
-  label,
-  value,
-  unit,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  unit: string;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-}) {
-  const changeBy = (delta: number) => {
-    onChange(Math.max(min, Math.min(max, value + delta)));
-  };
-
-  return (
-    <View style={styles.stepperCard}>
-      <View style={styles.stepperCopy}>
-        <Text style={styles.stepperLabel}>{label}</Text>
-        <Text style={styles.stepperValue}>
-          {value} {unit}
-        </Text>
-      </View>
-      <View style={styles.stepperActions}>
-        <Pressable
-          onPress={() => changeBy(-1)}
-          style={styles.stepperButton}
-          accessibilityRole="button"
-          accessibilityLabel={`Bajar ${label}`}
-        >
-          <Text style={styles.stepperButtonText}>-</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => changeBy(1)}
-          style={styles.stepperButton}
-          accessibilityRole="button"
-          accessibilityLabel={`Subir ${label}`}
-        >
-          <Text style={styles.stepperButtonText}>+</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
