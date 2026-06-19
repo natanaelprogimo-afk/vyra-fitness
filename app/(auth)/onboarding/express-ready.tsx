@@ -7,7 +7,7 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { GENDER_OPTIONS } from '@/lib/onboarding-profile';
-import { GOAL_OPTIONS, EQUIPMENT_OPTIONS, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
+import { GOAL_OPTIONS, EQUIPMENT_OPTIONS } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -25,10 +25,10 @@ export default function ExpressReadyScreen() {
       const progress = await loadOnboardingProgress();
       if (!active) return;
 
-      // ARREGLO: Validar que el onboarding express está completo
-      const nextRoute = getFirstIncompleteOnboardingRoute(progress.data ?? null);
-      if (nextRoute !== Routes.auth.onboarding.expressReady) {
-        router.replace(nextRoute as never);
+      // ARREGLO: Validar que hay draft con datos básicos del express flow
+      if (!progress.data?.gender || !progress.data?.goal) {
+        console.warn('[Express Ready] Missing gender or goal, redirecting');
+        router.replace(Routes.auth.onboarding.expressGoal as never);
         return;
       }
 
