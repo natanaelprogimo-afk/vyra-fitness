@@ -85,7 +85,7 @@ export default function ExpressWeightScreen() {
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.expressWeight}
-      eyebrow="Exprés • Paso 2 de 3"
+      eyebrow="Exprés • Paso 3 de 5"
       title="Tu base física"
       subtitle="Necesitamos estos datos para personalizar tu experiencia."
       scrollable

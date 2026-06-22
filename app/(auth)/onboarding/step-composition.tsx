@@ -12,7 +12,7 @@ import {
   normalizeOnboardingGender,
   type OnboardingGender,
 } from '@/lib/onboarding-profile';
-import { getAccessibleOnboardingRoute } from '@/lib/onboarding-v2';
+import { getAccessibleOnboardingRoute, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -73,13 +73,18 @@ export default function StepCompositionScreen() {
     setSaveError(null);
 
     try {
-      await saveOnboardingProgress(Routes.auth.onboarding.equipment, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        body_fat_current_pct: bodyFatValue,
+      });
+
+      await saveOnboardingProgress(nextRoute, {
         ...(draft ?? {}),
         body_fat_current_pct: bodyFatValue,
       });
 
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.equipment as never);
+      router.push(nextRoute as never);
     } catch (err) {
       console.error('[Step Composition] Failed to continue:', err);
       setSaveError('No pudimos guardar tu selección. Verifica tu conexión e intenta de nuevo.');

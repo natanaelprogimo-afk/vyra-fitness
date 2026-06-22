@@ -75,7 +75,7 @@ export default function ExpressReadyScreen() {
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.expressReady}
-      eyebrow="Exprés • Paso 3 de 3"
+      eyebrow="Exprés • Paso 4 de 5"
       title="¡Casi listo!"
       subtitle="Aquí está tu perfil configurado"
       scrollable

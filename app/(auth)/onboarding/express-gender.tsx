@@ -70,7 +70,7 @@ export default function ExpressGenderScreen() {
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.expressGender}
-      eyebrow="Exprés • Paso 1b de 3"
+      eyebrow="Exprés • Paso 2 de 5"
       title="Tu sexo biológico"
       subtitle="Esto nos ayuda a personalizar tu experiencia."
       scrollable

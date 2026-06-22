@@ -121,7 +121,7 @@ export default function ExpressGoalScreen() {
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.expressGoal}
-      eyebrow="Exprés • Paso 1 de 3"
+      eyebrow="Exprés • Paso 1 de 5"
       title="¿Qué querés conseguir primero?"
       subtitle="Selecciona tu objetivo principal."
       scrollable

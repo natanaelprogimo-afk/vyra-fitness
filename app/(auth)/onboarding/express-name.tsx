@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
+
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -82,7 +82,7 @@ export default function ExpressNameScreen() {
   return (
     <OnboardingShell
       pathname={Routes.auth.onboarding.expressName}
-      eyebrow="Exprés • Paso 4 de 4"
+      eyebrow="Exprés • Paso 5 de 5"
       title="¿Cómo te llamas?"
       subtitle="Personalizaremos tu experiencia con tu nombre."
       scrollable

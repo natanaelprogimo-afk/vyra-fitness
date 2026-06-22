@@ -60,14 +60,19 @@ export default function StepHeightScreen() {
     setSaveError(null);
 
     try {
-      await saveOnboardingProgress(Routes.auth.onboarding.weight, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        height_cm: heightCm,
+      });
+
+      await saveOnboardingProgress(nextRoute, {
         ...(draft ?? {}),
         height_cm: heightCm,
       });
 
       // Success: navigate
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.weight as never);
+      router.push(nextRoute as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Step Height] Failed to continue:', err);
