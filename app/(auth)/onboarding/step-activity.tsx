@@ -9,7 +9,7 @@ import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
-import { ACTIVITY_OPTIONS, getAccessibleOnboardingRoute } from '@/lib/onboarding-v2';
+import { ACTIVITY_OPTIONS, getAccessibleOnboardingRoute, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -120,13 +120,19 @@ export default function StepActivityScreen() {
     setSaveError(null);
 
     try {
-      await saveOnboardingProgress(Routes.auth.onboarding.modules, {
+      await saveOnboardingProgress(getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        activity_level: activityLevel,
+      }), {
         ...(draft ?? {}),
         activity_level: activityLevel,
       });
 
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.modules as never);
+      router.push(getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        activity_level: activityLevel,
+      }) as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Step Activity] Failed to continue:', err);

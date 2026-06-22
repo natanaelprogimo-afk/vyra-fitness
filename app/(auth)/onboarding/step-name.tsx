@@ -10,7 +10,7 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { sanitizeName } from '@/lib/onboarding-profile';
-import { getAccessibleOnboardingRoute } from '@/lib/onboarding-v2';
+import { getAccessibleOnboardingRoute, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import { isGuestAuthUser, MANAGED_GUEST_NAME, normalizeManagedGuestName } from '@/lib/guest-auth';
 import {
   loadOnboardingProgress,
@@ -72,14 +72,19 @@ export default function StepNameScreen() {
 
     try {
       const trimmedName = name.trim();
-      await saveOnboardingProgress(Routes.auth.onboarding.goal, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        name: trimmedName,
+        context_display_name: trimmedName,
+      });
+      await saveOnboardingProgress(nextRoute, {
         ...(draft ?? {}),
         name: trimmedName,
         context_display_name: trimmedName,
       });
 
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.goal as never);
+      router.push(nextRoute as never);
     } catch (err) {
       console.error('[Step Name] Failed to continue:', err);
       setSaveError('No pudimos guardar tu nombre. Verifica tu conexión e intenta de nuevo.');

@@ -12,6 +12,7 @@ import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import {
   GOAL_OPTIONS,
   getAccessibleOnboardingRoute,
+  getFirstIncompleteOnboardingRoute,
   getGoalOption,
   type OnboardingGoalDetailId,
 } from '@/lib/onboarding-v2';
@@ -100,7 +101,11 @@ export default function StepGoalScreen() {
         return;
       }
 
-      await saveOnboardingProgress(Routes.auth.onboarding.age, {
+      await saveOnboardingProgress(getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        goal: option.profileGoal,
+        goal_detail: goalDetail,
+      }), {
         ...(draft ?? {}),
         goal: option.profileGoal,
         goal_detail: goalDetail,
@@ -108,7 +113,11 @@ export default function StepGoalScreen() {
 
       // Success: navigate
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.age as never);
+      router.push(getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        goal: option.profileGoal,
+        goal_detail: goalDetail,
+      }) as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Step Goal] Failed to continue:', errorMessage);

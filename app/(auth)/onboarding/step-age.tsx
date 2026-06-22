@@ -8,7 +8,7 @@ import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, Radius, Spacing } from '@/constants/theme';
 import { GENDER_OPTIONS, normalizeOnboardingGender } from '@/lib/onboarding-profile';
-import { getAccessibleOnboardingRoute } from '@/lib/onboarding-v2';
+import { getAccessibleOnboardingRoute, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import type { OnboardingBinaryGender } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
@@ -136,7 +136,13 @@ export default function StepAgeScreen() {
     try {
       // Note: height_cm and weight are collected in dedicated step-height.tsx and step-weight.tsx
       // Don't collect them here to avoid duplication
-      await saveOnboardingProgress(Routes.auth.onboarding.height, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        gender,
+        age,
+        female_health_enabled: gender === 'female' ? femaleHealthEnabled ?? false : false,
+      });
+      await saveOnboardingProgress(nextRoute, {
         ...(draft ?? {}),
         gender,
         age,
@@ -145,7 +151,7 @@ export default function StepAgeScreen() {
 
       // Success: navigate
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.height as never);
+      router.push(nextRoute as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Step Age] Failed to continue:', err);
