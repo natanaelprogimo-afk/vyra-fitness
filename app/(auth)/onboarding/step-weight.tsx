@@ -7,7 +7,7 @@ import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, Radius, Spacing } from '@/constants/theme';
-import { getAccessibleOnboardingRoute } from '@/lib/onboarding-v2';
+import { getAccessibleOnboardingRoute, getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -60,14 +60,19 @@ export default function StepWeightScreen() {
     setSaveError(null);
 
     try {
-      await saveOnboardingProgress(Routes.auth.onboarding.activity, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
+        ...(draft ?? {}),
+        weight_start_kg: weightKg,
+      });
+
+      await saveOnboardingProgress(nextRoute, {
         ...(draft ?? {}),
         weight_start_kg: weightKg,
       });
 
       // Success: navigate
       processingRef.current = false;
-      router.push(Routes.auth.onboarding.activity as never);
+      router.push(nextRoute as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Step Weight] Failed to continue:', err);
