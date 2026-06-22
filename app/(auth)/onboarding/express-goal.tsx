@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
@@ -46,7 +46,9 @@ const EQUIPMENT_BY_GOAL: Record<string, 'gym_full' | 'home_basic' | 'gym_and_hom
 export default function ExpressGoalScreen() {
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
   const [goalDetail, setGoalDetail] = useState<OnboardingGoalDetailId | null>(null);
-  const fadeAnim = new Animated.Value(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const fadeAnim = useMemo(() => new Animated.Value(0), []);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -82,7 +84,10 @@ export default function ExpressGoalScreen() {
   }, [goalDetail, fadeAnim]);
 
   const handleContinue = async () => {
-    if (!goalDetail) return;
+    if (!goalDetail || processingRef.current) return;
+
+    processingRef.current = true;
+    setIsProcessing(true);
 
     const option = getGoalOption(goalDetail);
     if (!option) return;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
 import Button from '@/components/ui/Button';
@@ -62,8 +62,9 @@ export default function ExpressReadyScreen() {
         title="Cargando..."
         subtitle="Por favor espera"
         scrollable
+        contentStyle={styles.loadingContainer}
       >
-        <View />
+        <ActivityIndicator size="large" color={Colors.action} />
       </OnboardingShell>
     );
   }
@@ -158,6 +159,11 @@ export default function ExpressReadyScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 200,
+  },
   content: {
     gap: Spacing[2.5],
     paddingTop: 0,

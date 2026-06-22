@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button';
 import { Colors, withOpacity } from '@/constants/colors';
 import { Routes } from '@/constants/routes';
 import { FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { getFirstIncompleteOnboardingRoute } from '@/lib/onboarding-v2';
 import {
   loadOnboardingProgress,
   saveOnboardingProgress,
@@ -65,7 +66,7 @@ export default function ExpressWeightScreen() {
     setSaveError(null);
 
     try {
-      await saveOnboardingProgress(Routes.auth.onboarding.expressReady, {
+      const nextRoute = getFirstIncompleteOnboardingRoute({
         ...(draft ?? {}),
         age,
         height_cm: heightCm,
@@ -73,7 +74,15 @@ export default function ExpressWeightScreen() {
         weight_current_kg: weightKg,
       });
 
-      router.push(Routes.auth.onboarding.expressReady as never);
+      await saveOnboardingProgress(nextRoute, {
+        ...(draft ?? {}),
+        age,
+        height_cm: heightCm,
+        weight_start_kg: weightKg,
+        weight_current_kg: weightKg,
+      });
+
+      router.push(nextRoute as never);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error('[Express Weight] Failed to continue:', err);

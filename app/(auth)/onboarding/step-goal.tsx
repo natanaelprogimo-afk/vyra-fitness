@@ -1,5 +1,5 @@
 // REDESIGNED: 2026-06-11 - improved UX with reduced cognitive load and dynamic feedback
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
@@ -40,7 +40,7 @@ export default function StepGoalScreen() {
   const [helperVisible, setHelperVisible] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const fadeAnim = new Animated.Value(0);
+  const fadeAnim = useMemo(() => new Animated.Value(0), []);
   const processingRef = useRef(false);
 
   useEffect(() => {

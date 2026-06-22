@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
@@ -20,6 +20,7 @@ export default function ExpressGenderScreen() {
   const [gender, setGender] = useState<OnboardingBinaryGender | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     let active = true;

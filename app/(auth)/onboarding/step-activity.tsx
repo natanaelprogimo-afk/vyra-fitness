@@ -1,5 +1,5 @@
 // REDESIGNED: 2026-06-11 - activity level with icons and TDEE preview
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import OnboardingShell from '@/components/onboarding/OnboardingShell';
@@ -58,7 +58,7 @@ export default function StepActivityScreen() {
   const [estimatedTDEE, setEstimatedTDEE] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const fadeAnim = new Animated.Value(0);
+  const fadeAnim = useMemo(() => new Animated.Value(0), []);
   const processingRef = useRef(false);
 
   useEffect(() => {
