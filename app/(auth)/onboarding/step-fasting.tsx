@@ -194,12 +194,6 @@ const styles = StyleSheet.create({
   radioActive: {
     borderColor: Colors.fasting,
   },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.fasting,
-  },
   noteBox: {
     gap: 4,
     borderRadius: Radius.xl,

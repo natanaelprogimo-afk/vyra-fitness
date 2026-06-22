@@ -217,7 +217,11 @@ export default function StepReadyScreen() {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const heroOpacity = useSharedValue(0);
   const heroScale = useSharedValue(0.9);
-  const itemsOpacity = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
+  const itemsOpacity: ReturnType<typeof useSharedValue<number>>[] = [
+    useSharedValue(0),
+    useSharedValue(0),
+    useSharedValue(0),
+  ];
 
   useEffect(() => {
     let active = true;

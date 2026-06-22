@@ -207,9 +207,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing[2],
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
   },
   metricItem: {
     flex: 1,
+    minWidth: 80,
     gap: Spacing[0.5],
   },
   metricLabel: {
